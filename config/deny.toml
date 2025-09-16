@@ -1,0 +1,59 @@
+# See https://embarkstudios.github.io/cargo-deny/ for documentation
+
+[licenses]
+# Allow the following licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unlicense",
+    "Zlib",
+    "0BSD",
+    "CC0-1.0",
+    "CC-BY-4.0",
+    "MPL-2.0",
+    "GPL-3.0",
+]
+# Default to denying all other licenses
+default = "deny"
+# Allow unknown licenses (for crates that don't specify a license)
+unknown = "deny"
+
+# Override specific crates' licenses if needed
+[[licenses.allow-ids]]
+name = "some-crate"
+allow = ["MIT"]
+
+[bans]
+# Allow only one version of each crate
+multiple-versions = "deny"
+wildcards = "deny"
+
+# Skip certain crates from duplicate detection
+skip = ["winapi"]
+
+[sources]
+# Only allow crates from crates.io
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[advisories]
+# Check for security vulnerabilities
+vulnerability = "deny"
+unmaintained = "warn"
+notice = "warn"
+
+# Ignore specific advisories
+ignore = [
+    # Example: { id = "RUSTSEC-2020-0001" }, 
+]
+
+[advisories.db-path] = "~/.cargo/advisory-db"
+[advisories.db-urls] = ["https://github.com/RustSec/advisory-db"]
+
+[metadata]
+# Additional metadata
+maintainers = ["your-team@example.com"]
+changelog = "CHANGELOG.md"

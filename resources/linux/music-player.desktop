@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=${APP_NAME}
+Comment=Play and organize your music collection
+Exec=${BIN_NAME} %U
+Icon=${BIN_NAME}
+Terminal=false
+Categories=Audio;Music;Player;AudioVideo;
+StartupWMClass=music-player
+MimeType=audio/mp3;audio/mpeg;audio/mpeg3;audio/x-mpeg-3;audio/ogg;audio/x-wav;audio/flac;audio/x-flac;audio/x-vorbis+ogg;application/ogg;
+Version=${VERSION}
+Keywords=Music;Player;Audio;MP3;FLAC;Ogg;Playback;
+StartupNotify=true

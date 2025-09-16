@@ -1,0 +1,16 @@
+[toolchain]
+channel = "1.75.0"
+components = [ "rustfmt", "clippy", "rust-src", "rust-analyzer" ]
+targets = [ "wasm32-unknown-unknown" ]
+
+[build]
+# Enable incremental compilation for faster builds
+incremental = true
+
+# Set the default target
+# target = "x86_64-unknown-linux-gnu"  # Adjust based on your primary development platform
+
+[install]
+# Customize cargo install behavior
+# profile = "default"
+# root = "/path/to/install/directory"

@@ -1,0 +1,34 @@
+# Basic Formatting
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Max"
+
+# Imports
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+reorder_imports = true
+
+# Control flow
+control_brace_style = "AlwaysSameLine"
+remove_nested_parens = true
+
+# Functions
+fn_args_layout = "Compressed"
+fn_params_layout = "Compressed"
+
+# Match
+match_arm_leading_pipes = "Never"
+
+# Comments
+wrap_comments = true
+normalize_comments = true
+normalize_doc_attributes = true
+
+# Chains
+chain_width = 100
+
+# Error if formatting cannot be done
+error_on_unformatted = true

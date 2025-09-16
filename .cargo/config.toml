@@ -1,0 +1,21 @@
+[build]
+# Use the standard library's source code for better error messages
+rustflags = ["--cfg", "tokio_unstable"]
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))']
+rustflags = ["-C", "target-cpu=native"]
+
+[target.'cfg(windows)']
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[unstable]
+# Enable the new feature resolver
+features = ["named-profiles"]
+
+# Configure cargo clippy
+[alias]
+clippy = "clippy --all-targets --all-features -- -D warnings -A clippy::too-many-arguments"
+
+[term]
+# Use color output
+color = 'always'

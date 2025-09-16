@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop">
+  <id>${APP_ID}.desktop</id>
+  <metadata_license>GPL-3.0</metadata_license>
+  <project_license>GPL-3.0</project_license>
+  <name>${APP_NAME}</name>
+  <summary>${SUMMARY}</summary>
+  <description>
+    <p>${APP_NAME} is a modern music player with a clean and intuitive interface.</p>
+    <p>Features:</p>
+    <ul>
+      <li>Play multiple audio formats (MP3, FLAC, OGG, WAV, etc.)</li>
+      <li>Create and manage playlists</li>
+      <li>Browse your music library</li>
+      <li>Customizable interface</li>
+    </ul>
+  </description>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://example.com/screenshots/music-player-1.png</image>
+      <caption>Main Window</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://example.com/music-player</url>
+  <url type="bugtracker">https://github.com/username/music-player/issues</url>
+  <url type="help">https://example.com/music-player/help</url>
+  <update_contact>support@example.com</update_contact>
+  <releases>
+    <release version="${VERSION}" date="2025-06-07">
+      <description>
+        <p>Initial release of ${APP_NAME}</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1">
+    <content_attribute id="violence-cartoon">none</content_attribute>
+    <content_attribute id="violence-fantasy">none</content_attribute>
+    <content_attribute id="violence-realistic">none</content_attribute>
+    <content_attribute id="violence-bloodshed">none</content_attribute>
+    <content_attribute id="violence-sexual">none</content_attribute>
+    <content_attribute id="drugs-alcohol">none</content_attribute>
+    <content_attribute id="drugs-narcotics">none</content_attribute>
+    <content_attribute id="drugs-tobacco">none</content_attribute>
+    <content_attribute id="sex-nudity">none</content_attribute>
+    <content_attribute id="sex-themes">none</content_attribute>
+    <content_attribute id="language-profanity">none</content_attribute>
+    <content_attribute id="language-humor">none</content_attribute>
+    <content_attribute id="language-discrimination">none</content_attribute>
+    <content_attribute id="money-advertising">none</content_attribute>
+    <content_attribute id="money-gambling">none</content_attribute>
+    <content_attribute id="money-purchasing">none</content_attribute>
+    <content_attribute id="social-chat">none</content_attribute>
+    <content_attribute id="social-info">none</content_attribute>
+    <content_attribute id="social-audio">none</content_attribute>
+    <content_attribute id="social-location">none</content_attribute>
+    <content_attribute id="social-contacts">none</content_attribute>
+  </content_rating>
+</component>

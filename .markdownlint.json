@@ -1,0 +1,21 @@
+{
+  "default": true,
+  "MD013": {
+    "line_length": 120,
+    "tables": false,
+    "code_blocks": false,
+    "headers": false
+  },
+  "MD024": {
+    "siblings_only": true,
+    "allow_different_nesting": true
+  },
+  "MD033": {
+    "allowed_elements": ["details", "summary", "kbd", "sup", "sub"]
+  },
+  "MD034": {
+    "allow_raw_html": true
+  },
+  "MD041": false,
+  "MD045": false
+}

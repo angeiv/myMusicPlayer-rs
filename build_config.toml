@@ -1,0 +1,57 @@
+# Build configuration for Music Player
+
+[build]
+# Enable/disable features
+mp3 = true
+flac = true
+alac = true
+aac = true
+opus = true
+vorbis = true
+
+# Platform-specific settings
+[target.x86_64-pc-windows-msvc]
+# Windows-specific build settings
+features = ["mp3", "flac", "alac", "aac", "opus", "vorbis"]
+
+[target.x86_64-apple-darwin]
+# macOS-specific build settings
+features = ["mp3", "flac", "alac", "aac", "opus", "vorbis"]
+
+[target.x86_64-unknown-linux-gnu]
+# Linux-specific build settings
+features = ["mp3", "flac", "alac", "aac", "opus", "vorbis"]
+
+# Build optimization
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+# Development profile
+[profile.dev]
+opt-level = 0
+debug = true
+
+# Test profile
+[profile.test]
+opt-level = 1
+debug = true
+
+# Dependencies versions
+[dependencies]
+# Core dependencies
+rodio = { version = "0.17", features = ["flac", "mp3", "wav"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+
+# Platform-specific dependencies
+[target.'cfg(windows)'.dependencies]
+winrt = { version = "0.8", features = ["Windows_Media_Control"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-audio = "0.10"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = { version = "0.9", features = ["nonblock"] }

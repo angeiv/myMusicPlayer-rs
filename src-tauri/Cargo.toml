@@ -1,0 +1,64 @@
+[package]
+name = "music-player-rs"
+version = "0.1.0"
+description = "A cross-platform music player built with Tauri"
+authors = ["Xing Zhang <angeiv.zhang@gmail.com>"]
+license = "GPL-3.0"
+repository = "https://github.com/angeiv/myMusicPlayer-rs"
+edition = "2024"
+rust-version = "1.87"
+
+[lib]
+name = "music_player_rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "music-player-rs"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = ["config-toml"] }
+
+[dependencies]
+# Tauri
+tauri = { version = "2.0.0", features = [
+    "tray-icon",
+    "wry",
+], default-features = false }
+
+# Tauri Plugins
+tauri-plugin-log = { version = "2.0.0" }
+tauri-plugin-shell = { version = "2.0.0" }
+tauri-plugin-dialog = { version = "2.0.0" }
+tauri-plugin-fs = { version = "2.0.0" }
+tauri-plugin-http = { version = "2.0.0" }
+tauri-plugin-notification = { version = "2.0.0" }
+
+# Core dependencies
+anyhow = "1.0"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+symphonia = { version = "0.5", features = ["mp3", "isomp4", "aac"] }
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
+thiserror = "2.0"
+env_logger = "0.11"
+dirs = "6.0"
+parking_lot = "0.12"
+rodio = "0.20"
+crossbeam-channel = "0.5"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.17.0", features = ["v4", "serde"] }
+lofty = "0.22.4"
+walkdir = "2.5.0"
+rayon = "1.10.0"
+rustfft = "6.0"
+realfft = "3.0"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3.20.0"

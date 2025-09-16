@@ -1,0 +1,38 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+    -   id: check-added-large-files
+    -   id: check-merge-conflict
+    -   id: check-toml
+    -   id: check-yaml
+    -   id: end-of-file-fixer
+    -   id: mixed-line-ending
+        args: [--fix=lf]
+    -   id: trailing-whitespace
+
+-   repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+    -   id: fmt
+    -   id: clippy
+        args: [--all-targets, --all-features, -- -D warnings]
+    -   id: check-rs
+
+-   repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+    -   id: black
+        name: black
+        description: "Black: The uncompromising Python code formatter"
+        entry: black
+        language: system
+        types: [python]
+
+-   repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.34.0
+    hooks:
+    -   id: markdownlint
+        args: [--fix, --config=.markdownlint.json]

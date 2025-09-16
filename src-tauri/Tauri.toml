@@ -1,0 +1,27 @@
+identifier = "com.musicplayer.app"
+
+[plugins]
+notification = {}
+window = { all = true }
+
+[build]
+# The directory containing the built frontend files
+frontendDist = "../dist"
+
+[app]
+# Window configuration
+windows = [
+  { label = "main", title = "Music Player", width = 1200, height = 800, minWidth = 800, minHeight = 600, resizable = true, center = true }
+]
+
+[bundle]
+# Path to your application icons (relative to the tauri directory)
+icon = ["icons/32x32.png", "icons/128x128.png"]
+# The targets to build for
+targets = ["app", "msi", "dmg", "appimage"]
+# The application category (macOS only)
+category = "public.app-category.music"
+# Short description of your application
+shortDescription = "A modern music player"
+# Long description of your application
+longDescription = "A cross-platform music player built with Tauri and Rust"
