@@ -1,12 +1,12 @@
 //! Real audio player implementation using Rodio
+#![allow(dead_code)]
 
-use std::sync::{Arc, Mutex};
-use std::path::Path;
-use std::fs::File;
-use std::io::BufReader;
-use rodio::{Decoder, OutputStream, Sink};
+use super::decoder::decode_audio;
+use crate::models::{playback_state::PlaybackState, track::Track};
 use log::info;
-use crate::models::{track::Track, playback_state::PlaybackState};
+use rodio::{OutputStream, Sink};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub enum PlayMode {
@@ -30,7 +30,7 @@ impl RealAudioPlayer {
     pub fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let (_stream, stream_handle) = OutputStream::try_default()?;
         let sink = Sink::try_new(&stream_handle)?;
-        
+
         Ok(RealAudioPlayer {
             _stream,
             sink: Arc::new(Mutex::new(sink)),
@@ -43,29 +43,26 @@ impl RealAudioPlayer {
     /// Play a track
     pub fn play_track(&self, track: &Track) -> Result<(), String> {
         info!("Attempting to play track: {}", track.title);
-        
+
         // Try to open and decode the audio file
-        let file = File::open(&track.path)
-            .map_err(|e| format!("Failed to open file: {}", e))?;
-        
-        let source = Decoder::new(BufReader::new(file))
-            .map_err(|e| format!("Failed to decode audio: {}", e))?;
-        
+        let decoded =
+            decode_audio(&track.path).map_err(|err| format!("Failed to decode audio: {}", err))?;
+
         // Stop current playback and start new track
         {
             let sink = self.sink.lock().unwrap();
             sink.stop();
-            sink.append(source);
+            sink.append(decoded.buffer);
             sink.play();
-            
+
             // Apply current volume
             let volume = *self.volume.lock().unwrap();
             sink.set_volume(volume);
         }
-        
+
         // Update current track
         *self.current_track.lock().unwrap() = Some(track.clone());
-        
+
         info!("Successfully started playing: {}", track.title);
         Ok(())
     }
@@ -73,11 +70,12 @@ impl RealAudioPlayer {
     /// Play a file by path
     pub fn play_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         let path_buf = path.as_ref().to_path_buf();
-        
+
         // Create a temporary track for file playback
         let track = Track {
             id: uuid::Uuid::new_v4(),
-            title: path_buf.file_stem()
+            title: path_buf
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("Unknown")
                 .to_string(),
@@ -90,9 +88,12 @@ impl RealAudioPlayer {
             bitrate: 0,
             sample_rate: 44100,
             channels: 2,
-            artist: Some("Unknown Artist".to_string()),
-            album_artist: None,
-            album: Some("Unknown Album".to_string()),
+            artist_id: None,
+            artist_name: Some("Unknown Artist".to_string()),
+            album_artist_id: None,
+            album_artist_name: None,
+            album_id: None,
+            album_title: Some("Unknown Album".to_string()),
             year: None,
             genre: None,
             artwork: None,
@@ -101,7 +102,7 @@ impl RealAudioPlayer {
             last_played: None,
             date_added: chrono::Utc::now(),
         };
-        
+
         self.play_track(&track)
     }
 
@@ -130,12 +131,12 @@ impl RealAudioPlayer {
     /// Set volume (0.0 to 1.0)
     pub fn set_volume(&self, volume: f32) {
         let clamped_volume = volume.clamp(0.0, 1.0);
-        
+
         {
             let sink = self.sink.lock().unwrap();
             sink.set_volume(clamped_volume);
         }
-        
+
         *self.volume.lock().unwrap() = clamped_volume;
         info!("Volume set to {:.0}%", clamped_volume * 100.0);
     }
@@ -182,13 +183,19 @@ impl RealAudioPlayer {
     /// Get current playback state
     pub fn get_playback_state(&self) -> PlaybackState {
         let sink = self.sink.lock().unwrap();
-        
+
         if sink.empty() {
             PlaybackState::Stopped
         } else if sink.is_paused() {
-            PlaybackState::Paused { position: 0, duration: 0 } // TODO: Track actual position
+            PlaybackState::Paused {
+                position: 0,
+                duration: 0,
+            } // TODO: Track actual position
         } else {
-            PlaybackState::Playing { position: 0, duration: 0 } // TODO: Track actual position
+            PlaybackState::Playing {
+                position: 0,
+                duration: 0,
+            } // TODO: Track actual position
         }
     }
 }

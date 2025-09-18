@@ -1,6 +1,5 @@
 //! Playlist model
 
-use super::Track;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -14,8 +13,8 @@ pub struct Playlist {
     pub name: String,
     /// Playlist description
     pub description: Option<String>,
-    /// Tracks in the playlist
-    pub tracks: Vec<Track>,
+    /// Ordered list of track identifiers included in the playlist
+    pub track_ids: Vec<Uuid>,
     /// Playlist artwork (path or binary data)
     pub artwork: Option<Vec<u8>>,
     /// Creation timestamp
@@ -31,7 +30,7 @@ impl Default for Playlist {
             id: Uuid::new_v4(),
             name: "New Playlist".to_string(),
             description: None,
-            tracks: Vec::new(),
+            track_ids: Vec::new(),
             artwork: None,
             created_at: now,
             updated_at: now,
@@ -47,7 +46,7 @@ impl Playlist {
             id: Uuid::new_v4(),
             name: name.to_string(),
             description: None,
-            tracks: Vec::new(),
+            track_ids: Vec::new(),
             artwork: None,
             created_at: now,
             updated_at: now,
@@ -55,16 +54,16 @@ impl Playlist {
     }
 
     /// Add a track to the playlist
-    pub fn add_track(&mut self, track: Track) {
-        self.tracks.push(track);
+    pub fn add_track(&mut self, track_id: Uuid) {
+        self.track_ids.push(track_id);
         self.updated_at = Utc::now();
     }
 
     /// Remove a track from the playlist by index
-    pub fn remove_track(&mut self, index: usize) -> Option<Track> {
-        if index < self.tracks.len() {
+    pub fn remove_track(&mut self, index: usize) -> Option<Uuid> {
+        if index < self.track_ids.len() {
             self.updated_at = Utc::now();
-            Some(self.tracks.remove(index))
+            Some(self.track_ids.remove(index))
         } else {
             None
         }
@@ -72,11 +71,13 @@ impl Playlist {
 
     /// Get the number of tracks in the playlist
     pub fn track_count(&self) -> usize {
-        self.tracks.len()
+        self.track_ids.len()
     }
 
     /// Get the total duration of all tracks in the playlist (in seconds)
     pub fn total_duration(&self) -> u64 {
-        self.tracks.iter().map(|t| t.duration as u64).sum()
+        // Without access to full track metadata we cannot compute accurately.
+        // This placeholder keeps API compatibility until duration aggregation is provided.
+        0
     }
 }

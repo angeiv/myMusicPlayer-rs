@@ -1,13 +1,16 @@
 //! Audio service for handling audio playback
 
-pub mod player;
 pub mod analyzer;
+mod decoder;
+pub mod player;
 
+use decoder::decode_audio;
+
+use crate::models::{playback_state::PlaybackState, track::Track};
+pub use analyzer::{VisualizationData, VisualizationStats};
+use anyhow::anyhow;
+use log::{error, info};
 use std::time::Duration;
-use log::{info, error};
-use crate::models::{track::Track, playback_state::PlaybackState};
-pub use player::{RealAudioPlayer, PlayMode};
-pub use analyzer::{AudioAnalyzer, VisualizationData, VisualizationStats};
 
 /// Audio service for handling audio playback
 /// Note: This is a simplified implementation that doesn't maintain the OutputStream
@@ -76,19 +79,18 @@ impl AudioService {
 
     /// Internal method to play a file using Rodio
     fn play_file_internal(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-        use std::fs::File;
-        use std::io::BufReader;
-        use rodio::{Decoder, OutputStream, Sink};
+        use rodio::{OutputStream, Sink};
 
         // This is a simplified implementation that creates a new stream each time
         // In a production app, you'd want to maintain the stream and sink
         let (_stream, stream_handle) = OutputStream::try_default()?;
         let sink = Sink::try_new(&stream_handle)?;
 
-        let file = File::open(path)?;
-        let source = Decoder::new(BufReader::new(file))?;
+        let decoded = decode_audio(path)
+            .map_err(|err| anyhow!("Failed to decode {}: {}", path.display(), err))
+            .map_err(|err| -> Box<dyn std::error::Error> { err.into() })?;
 
-        sink.append(source);
+        sink.append(decoded.buffer);
         sink.play();
 
         // Note: In this simplified version, the audio will stop when this function returns
@@ -97,7 +99,7 @@ impl AudioService {
 
         Ok(())
     }
-    
+
     /// Pause playback
     pub fn pause(&mut self) -> Result<(), String> {
         if let PlaybackState::Playing { position, duration } = self.state {
@@ -127,7 +129,7 @@ impl AudioService {
         info!("Playback stopped");
         Ok(())
     }
-    
+
     /// Seek to a specific position in the current track
     pub fn seek(&mut self, position: Duration) -> Result<(), String> {
         // TODO: Implement seeking
@@ -138,7 +140,7 @@ impl AudioService {
         info!("Seeked to {:?}", position);
         Ok(())
     }
-    
+
     /// Set the volume (0.0 to 1.0)
     pub fn set_volume(&mut self, volume: f32) -> Result<(), String> {
         let volume = volume.max(0.0).min(1.0);
@@ -174,22 +176,22 @@ impl AudioService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_audio_service() {
         // This is a simple test that just verifies the service can be created
         let mut service = AudioService::default();
         assert!(!service.is_playing());
         assert_eq!(service.volume(), 1.0);
-        
+
         // Test volume control
         service.set_volume(0.5).unwrap();
         assert_eq!(service.volume(), 0.5);
-        
+
         // Test volume clamping
         service.set_volume(1.5).unwrap();
         assert_eq!(service.volume(), 1.0);
-        
+
         service.set_volume(-0.5).unwrap();
         assert_eq!(service.volume(), 0.0);
     }

@@ -1,7 +1,7 @@
 //! Main entry point for the Tauri application
 
+use anyhow::Context;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
 use tauri_plugin_log::Target;
 
 // Import our modules
@@ -16,22 +16,35 @@ mod utils;
 
 // Re-exports
 pub use models::*;
-pub use services::*;
 
 // Re-export for the prelude
 pub use tauri::Builder;
 
 /// Application state shared across all commands
-#[derive(Default)]
 pub struct AppState {
     pub audio: Arc<Mutex<services::audio::AudioService>>,
     pub library: Arc<Mutex<services::library::LibraryService>>,
     pub playlists: Arc<Mutex<services::playlist::PlaylistService>>,
 }
 
+impl AppState {
+    fn initialize() -> anyhow::Result<Self> {
+        Ok(Self {
+            audio: Arc::new(Mutex::new(services::audio::AudioService::new())),
+            library: Arc::new(Mutex::new(
+                services::library::LibraryService::new()
+                    .context("Failed to initialize library service")?,
+            )),
+            playlists: Arc::new(Mutex::new(services::playlist::PlaylistService::new())),
+        })
+    }
+}
+
 /// Initialize the Tauri application
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let app_state = AppState::initialize().expect("Failed to initialize application state");
+
     tauri::Builder::default()
         // Setup logging
         .plugin(
@@ -56,13 +69,9 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         // Initialize application state
-        .manage(AppState {
-            audio: Arc::new(Mutex::new(services::audio::AudioService::new())),
-            library: Arc::new(Mutex::new(services::library::LibraryService::new())),
-            playlists: Arc::new(Mutex::new(services::playlist::PlaylistService::new())),
-        })
+        .manage(app_state)
         // Setup
-        .setup(|app| {
+        .setup(|_app| {
             // Initialize application directories
             if let Err(e) = utils::init_app_dirs() {
                 log::error!("Failed to initialize application directories: {}", e);
@@ -75,6 +84,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Config commands
             crate::api::config::get_config,
+            crate::api::config::get_library_paths,
             crate::api::config::save_config,
             crate::api::config::add_library_path,
             crate::api::config::remove_library_path,
@@ -133,11 +143,7 @@ mod tests {
     fn test_app_initialization() {
         // This is a simple test to verify the app can be created
         let app = tauri::Builder::default()
-            .manage(AppState {
-                audio: Arc::new(Mutex::new(services::audio::AudioService::new())),
-                library: Arc::new(Mutex::new(services::library::LibraryService::new())),
-                playlists: Arc::new(Mutex::new(services::playlist::PlaylistService::new())),
-            })
+            .manage(AppState::initialize().unwrap())
             .build(mock_context!())
             .unwrap();
 

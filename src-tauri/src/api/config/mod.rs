@@ -1,5 +1,4 @@
 use crate::models::Config;
-use tauri::State;
 
 #[tauri::command]
 pub async fn get_config() -> Result<Config, String> {
@@ -8,7 +7,7 @@ pub async fn get_config() -> Result<Config, String> {
 }
 
 #[tauri::command]
-pub async fn save_config(config: Config) -> Result<(), String> {
+pub async fn save_config(_config: Config) -> Result<(), String> {
     // TODO: Implement config saving
     Ok(())
 }
@@ -20,13 +19,13 @@ pub async fn get_library_paths() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub async fn add_library_path(path: String) -> Result<(), String> {
+pub async fn add_library_path(_path: String) -> Result<(), String> {
     // TODO: Implement adding library path
     Ok(())
 }
 
 #[tauri::command]
-pub async fn remove_library_path(path: String) -> Result<(), String> {
+pub async fn remove_library_path(_path: String) -> Result<(), String> {
     // TODO: Implement removing library path
     Ok(())
 }

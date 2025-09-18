@@ -1,10 +1,15 @@
 # Rust跨平台桌面音乐播放器详细设计方案
 
-**作者：** Manus AI  
-**日期：** 2025年6月8日  
-**版本：** 2.0
+**作者：** Manus AI
+**日期：** 2025年9月17日
+**版本：** 2.1
 
 ## 版本更新记录
+
+### v2.1 (2025-09-17)
+- 与概要设计方案合并，统一技术选型和数据库设计。
+- 补充了高层架构图和核心模块的Rust代码实现示例。
+- 明确了纯Rust的技术路线，移除了对外部库的依赖说明。
 
 ### v2.0 (2025-06-08)
 - 升级到 Tauri 2.0 稳定版
@@ -19,8 +24,10 @@
 
 1. [系统架构设计](#1-系统架构设计)
    1. [架构概述](#11-架构概述)
-   2. [模块划分](#12-模块划分)
-   3. [数据流](#13-数据流)
+   2. [架构图](#12-架构图)
+   3. [技术栈](#13-技术栈)
+   4. [模块划分](#14-模块划分)
+   5. [数据流](#15-数据流)
 2. [核心模块设计](#2-核心模块设计)
    1. [GUI模块](#21-gui模块)
    2. [音频处理模块](#22-音频处理模块)
@@ -31,8 +38,8 @@
    1. [核心数据结构](#31-核心数据结构)
    2. [数据库设计](#32-数据库设计)
 4. [接口设计](#4-接口设计)
-   1. [内部接口](#41-内部接口)
-   2. [外部接口](#42-外部接口)
+   1. [内部接口(Traits)](#41-内部接口traits)
+   2. [外部接口(Tauri Commands)](#42-外部接口tauri-commands)
 5. [线程模型](#5-线程模型)
 6. [错误处理](#6-错误处理)
 7. [性能优化](#7-性能优化)
@@ -44,194 +51,358 @@
 
 ### 1.1 架构概述
 
-本系统采用事件驱动、多线程架构，基于 Tauri 2.0 构建，主要包含以下层次：
+本系统采用事件驱动、多线程架构，基于 Tauri 构建，主要包含以下层次：
 
-1. **表示层**：基于 Tauri 2.0 + Svelte 的 Web 界面
-2. **业务逻辑层**：使用 Rust 实现核心业务逻辑
-3. **服务层**：通过 Tauri 插件系统提供系统服务
-4. **数据访问层**：使用 SQLite 进行数据持久化
-5. **系统交互层**：通过 Tauri 的 API 与操作系统交互
+1. **表示层**：基于 Tauri + Svelte 的 Web 界面，负责UI渲染和用户交互。
+2. **业务逻辑层**：使用 Rust 实现核心业务逻辑，通过Tauri命令与前端交互。
+3. **数据访问层**：使用 `rusqlite` 库进行 SQLite 数据持久化，使用 `serde` 处理配置文件。
+4. **系统交互层**：通过 Tauri 的 API 与操作系统交互，实现原生功能。
 
-### 1.2 技术栈
+### 1.2 架构图
+
+```
++----------------------------------+
+|             表示层               |
+|  +----------------------------+  |
+|  |         GUI模块 (Svelte)    |  |
+|  +----------------------------+  |
++----------------------------------+
+                 | (Tauri API)
+                 v
++----------------------------------+
+|        业务逻辑层 (Rust)         |
+|  +------------+  +------------+  |
+|  | 播放控制模块|  |音乐库管理模块|  |
+|  +------------+  +------------+  |
+|  +------------+  +------------+  |
+|  |音频处理模块 |  |配置管理模块 |  |
+|  +------------+  +------------+  |
++----------------------------------+
+                 |
+                 v
++----------------------------------+
+|           数据层 (Rust)          |
+|  +------------+  +------------+  |
+|  |  音频文件  |  |  配置文件  |  |
+|  +------------+  +------------+  |
+|  +----------------------------+  |
+|  |      音乐库数据 (SQLite)     |  |
+|  +----------------------------+  |
++----------------------------------+
+```
+
+### 1.3 技术栈
 
 #### 前端技术
-- **框架**：Tauri 2.0.0
-- **UI 框架**：Svelte 4.0.0+
-- **语言**：TypeScript 5.0.0+
-- **构建工具**：Vite 4.0.0+
+- **框架**: Tauri 2.0+
+- **UI 框架**: Svelte 4.0+
+- **语言**: TypeScript 5.0+
+- **构建工具**: Vite 4.0+
 
 #### 后端技术
-- **语言**：Rust 1.70.0+
-- **异步运行时**：Tokio 1.0.0+
-- **音频处理**：Symphonia 0.5.0
-- **数据库**：SQLite 3.0.0+
-- **序列化**：Serde 1.0.0+
+- **语言**: Rust 1.70+
+- **异步运行时**: Tokio 1.0+
+- **音频解码**: Symphonia 0.5+
+- **音频播放**: Rodio 0.17+
+- **数据库**: `rusqlite` (SQLite)
+- **序列化**: `serde` (with `toml`)
 
 #### 开发工具
-- **包管理**：Cargo 2.0.0+
-- **构建工具**：Tauri CLI 2.0.0+
-- **代码格式化**：rustfmt, prettier
-- **Linting**：clippy, eslint
+- **包管理**: Cargo
+- **代码格式化**: rustfmt, prettier
+- **Linting**: clippy, eslint
 
-### 1.3 模块划分
+### 1.4 模块划分
 
 ```
 music-player-rs/
 ├── src-tauri/               # Tauri 后端代码
 │   ├── src/
-│   │   ├── lib.rs          # 程序主入口
-│   │   ├── api/            # Tauri 命令处理器
-│   │   │   ├── audio.rs     # 音频相关命令
-│   │   │   ├── config.rs    # 配置相关命令
-│   │   │   ├── library.rs   # 音乐库相关命令
-│   │   │   └── playlist.rs  # 播放列表命令
-│   │   ├── models/         # 数据模型
-│   │   ├── services/       # 业务逻辑服务
+│   │   ├── main.rs         # 程序主入口与Tauri命令
+│   │   ├── api/            # API模块声明
+│   │   ├── models/         # 数据模型 (Track, Album, Artist等)
+│   │   ├── services/       # 业务逻辑服务 (Player, Library, Config等)
 │   │   └── utils/          # 工具函数
 │   ├── Cargo.toml          # Rust 依赖配置
-│   └── Tauri.toml          # Tauri 应用配置
-├── src/                   # 前端代码
+│   └── tauri.conf.json     # Tauri 应用配置
+├── src/                     # 前端代码
 │   ├── src/
-│   │   ├── App.svelte     # 主组件
+│   │   ├── App.svelte      # 主组件
 │   │   ├── main.ts         # 入口文件
-│   │   └── lib/            # 前端库代码
+│   │   └── lib/            # Svelte组件和库代码
 │   └── package.json        # 前端依赖配置
-├── .gitignore             # Git 忽略配置
-└── README.md              # 项目说明文档
+├── .gitignore               # Git 忽略配置
+└── README.md                # 项目说明文档
 ```
 
-### 1.3 数据流
+### 1.5 数据流
 
 1. **启动流程**：
-   - 加载配置文件
-   - 初始化数据库
-   - 启动GUI界面
-   - 加载音乐库
+   - Rust后端启动，加载配置文件。
+   - 初始化数据库连接。
+   - 启动Tauri主窗口，加载Svelte前端。
+   - 前端请求，或后端根据配置自动开始扫描音乐库。
 
 2. **播放流程**：
-   - 用户选择歌曲
-   - 播放控制模块请求音频数据
-   - 音频处理模块解码音频
-   - 音频数据发送到音频输出设备
+   - 用户在Svelte界面点击播放一首歌曲。
+   - 前端通过`invoke`调用Rust后端的`play_track`命令。
+   - `Player`服务接收到请求，从音乐库服务获取歌曲路径。
+   - 音频处理模块使用Symphonia解码音频文件。
+   - 解码后的音频样本流式传输给Rodio进行播放。
+   - `Player`服务通过Tauri事件向前端发送播放进度和状态更新。
 
 ## 2. 核心模块设计
 
 ### 2.1 GUI模块
 
 #### 2.1.1 技术实现
-- 使用 Tauri 2.0 + Svelte 4 + TypeScript 5
-- 响应式 UI 设计，支持移动端和桌面端
-- 内置深色/浅色主题切换
-- 使用 Vite 4 进行构建和热更新
-- 支持 PWA 特性，可安装为桌面应用
+- 使用 Tauri + Svelte + TypeScript。
+- 响应式 UI 设计，适配不同窗口尺寸。
+- 内置深色/浅色/系统主题切换功能。
+- 使用 Vite 进行构建和热更新。
 
 #### 2.1.2 主要组件
-- 主窗口
-- 播放控制条
-- 播放列表
-- 音乐库浏览器
-- 设置面板
+- **主窗口**: 包含导航、内容区和播放控制条的整体布局。
+- **播放控制条**: 显示当前歌曲信息、封面、播放/暂停/切歌按钮、进度条、音量控制。
+- **播放列表**: 显示当前播放队列，支持拖拽排序。
+- **音乐库浏览器**: 按歌曲、艺术家、专辑等维度浏览所有音乐。
+- **设置面板**: 提供音乐库目录、界面主题等配置项。
 
 ### 2.2 音频处理模块
 
 #### 2.2.1 解码器
-- 使用 Symphonia 0.5 进行音频解码，支持以下格式：
-  - 有损压缩：MP3, AAC, OGG Vorbis
-  - 无损压缩：FLAC, ALAC, WavPack
-  - 未压缩：WAV, AIFF
-  - 其他：MP4, M4A, M4B
-- 音频重采样和格式转换
-- 支持元数据读取和写入
-- 注意：当前版本不支持 APE (Monkey's Audio) 格式
+- **唯一选择**: 使用 **Symphonia** 0.5+ 进行音频解码，以保证纯Rust构建。
+- **支持格式**: MP3, AAC, OGG Vorbis, FLAC, ALAC, WavPack, WAV, AIFF 等。
+- **不支持格式**: 为保持构建简单性，明确**不支持**需要外部依赖的格式，如 APE。
+- **功能**: 音频重采样、格式转换、元数据读取。
+
+#### 概念性实现：解码器工厂
+
+```rust
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::probe::Hint;
+
+// 这是一个简化的概念，实际实现会更复杂
+pub struct DecoderFactory;
+
+impl DecoderFactory {
+    pub fn create_decoder(mss: MediaSourceStream, hint: Option<Hint>) -> Result<Box<dyn Decoder>, Error> {
+        let hint = hint.unwrap_or_default();
+        let format_opts = Default::default();
+        let metadata_opts = Default::default();
+
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &format_opts, &metadata_opts)?;
+
+        let track = probed.format.tracks().iter().find(|t| t.codec_params.codec.is_audio()).unwrap();
+        let decoder = symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
+        Ok(decoder)
+    }
+}
+```
 
 #### 2.2.2 音频输出
-- 使用Rodio进行音频播放
-- 支持音量控制
-- 音频可视化
+- **选择**: 使用 **Rodio** 进行音频播放。
+- **功能**: 管理音频输出设备、音量控制、播放/暂停/停止。
+
+#### 概念性实现：音频输出
+
+```rust
+use rodio::{OutputStream, Sink, Source};
+use std::io;
+
+pub struct AudioOutput {
+    _stream: OutputStream,
+    sink: Sink,
+}
+
+impl AudioOutput {
+    pub fn new() -> Result<Self, io::Error> {
+        let (_stream, stream_handle) = OutputStream::try_default()?;
+        let sink = Sink::try_new(&stream_handle).unwrap();
+        Ok(Self { _stream, sink })
+    }
+
+    pub fn play<S>(&self, source: S)
+    where
+        S: Source<Item = f32> + Send + 'static,
+    {
+        self.sink.append(source);
+        self.sink.play();
+    }
+
+    pub fn pause(&self) {
+        self.sink.pause();
+    }
+
+    pub fn resume(&self) {
+        self.sink.play();
+    }
+
+    pub fn stop(&self) {
+        self.sink.stop();
+    }
+
+    pub fn set_volume(&self, volume: f32) {
+        self.sink.set_volume(volume);
+    }
+}
+```
 
 ### 2.3 播放控制模块
 
 #### 2.3.1 播放队列
-- 播放列表管理
-- 播放模式（顺序/随机/单曲循环）
-- 播放历史记录
+- 管理待播歌曲列表。
+- 实现播放模式逻辑（顺序/随机/单曲循环）。
+- 维护播放历史记录，用于“上一首”功能。
+
+#### 概念性实现：播放队列
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayMode {
+    Order,
+    Random,
+    Repeat,
+}
+
+pub struct PlayQueue<T> {
+    tracks: Vec<T>,
+    current_index: Option<usize>,
+    history: Vec<usize>,
+}
+
+impl<T> PlayQueue<T> {
+    pub fn new() -> Self {
+        Self { tracks: Vec::new(), current_index: None, history: Vec::new() }
+    }
+
+    pub fn set_tracks(&mut self, tracks: Vec<T>) {
+        self.tracks = tracks;
+        self.current_index = if self.tracks.is_empty() { None } else { Some(0) };
+        self.history.clear();
+    }
+
+    pub fn current_track(&self) -> Option<&T> {
+        self.current_index.and_then(|index| self.tracks.get(index))
+    }
+
+    pub fn next(&mut self, mode: PlayMode) -> Option<&T> {
+        // ... 实现不同模式下的下一首逻辑
+        self.current_track()
+    }
+
+    // ... 其他方法
+}
+```
 
 #### 2.3.2 播放状态机
+
 ```rust
 enum PlayerState {
     Stopped,
     Playing,
     Paused,
-    Buffering,
-    Error(PlayerError),
+    Error(String),
 }
 ```
 
 ### 2.4 音乐库管理模块
 
 #### 2.4.1 音乐扫描器
-- 文件系统监听
-- 元数据提取
-- 增量更新
+- 使用 `walkdir` crate 遍历用户指定的音乐目录。
+- 根据文件扩展名过滤支持的音频文件。
+- 以异步方式执行，避免阻塞UI线程。
 
 #### 2.4.2 元数据管理
-- ID3标签解析
-- 专辑封面提取
-- 歌词管理
+- 使用 Symphonia 在扫描时提取ID3等标签信息（艺术家、专辑、标题、时长等）。
+- 提取专辑封面图片。
+- 将解析出的元数据存入SQLite数据库。
+
+#### 概念性实现：音乐库存储
+
+```rust
+use rusqlite::{Connection, Result};
+use std::path::Path;
+
+// Track, Album, Artist 等为自定义的数据模型
+pub struct MusicLibrary {
+    conn: Connection,
+}
+
+impl MusicLibrary {
+    pub fn new(db_path: &Path) -> Result<Self> {
+        let conn = Connection::open(db_path)?;
+        // ... 初始化数据库表 ...
+        Ok(Self { conn })
+    }
+
+    pub fn add_track(&self, track: &Track) -> Result<usize> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO tracks (id, title, artist_id, album_id, ...) VALUES (?1, ?2, ...)",
+            // ... params ...
+        )
+    }
+
+    pub fn get_all_tracks(&self) -> Result<Vec<Track>> {
+        // ... 查询逻辑 ...
+        Ok(Vec::new())
+    }
+
+    // ... 其他增删改查方法
+}
+```
 
 ### 2.5 配置管理模块
 
 #### 2.5.1 配置存储
-- 使用 TOML 格式存储配置
-- 支持多环境配置（开发/测试/生产）
-- 配置验证和迁移
-- 自动备份和恢复
-- 支持从环境变量覆盖配置
+- 使用 TOML 格式存储配置，因为它具有良好的可读性。
+- 在应用启动时加载配置，在关闭或修改时保存。
+- 提供默认配置，在配置文件不存在时自动创建。
 
 #### 2.5.2 主要配置项
+
 ```toml
-[build]
-devUrl = "http://localhost:1420"
-frontendDist = "../src/dist"
+[ui]
+theme = "System" # "Light", "Dark", or "System"
 
-[bundle]
-identifier = "com.musicplayer.app"
-category = "public.app-category.music"
-shortDescription = "A modern music player"
-longDescription = "A cross-platform music player built with Tauri and Rust"
-
-[tauri]
-  [tauri.window]
-  title = "Music Player"
-  width = 1200
-  height = 800
-  resizable = true
-  fullscreen = false
-  
-  [tauri.security]
-  csp = "default-src 'self'; img-src 'self' https: data:; media-src 'self' https:;"
+[library]
+music_directories = ["/home/user/Music"]
+scan_on_startup = true
 ```
 
 ## 3. 数据结构设计
 
 ### 3.1 核心数据结构
 
-#### 3.1.1 音乐轨道
 ```rust
+use serde::{Serialize, Deserialize};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
-    pub id: String,
+    pub id: String, // UUID
     pub title: String,
-    pub artist: String,
-    pub album: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
     pub duration: u32, // 秒
     pub file_path: PathBuf,
     pub track_number: Option<u32>,
-    pub disc_number: Option<u32>,
-    pub year: Option<i32>,
-    pub genre: Option<String>,
-    pub album_art: Option<Vec<u8>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    // ...
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Artist {
+    pub id: String, // UUID
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Album {
+    pub id: String, // UUID
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub cover_art: Option<PathBuf>,
 }
 ```
 
@@ -242,56 +413,43 @@ pub struct Track {
 ```sql
 -- 艺术家表
 CREATE TABLE artists (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL
+    id TEXT PRIMARY KEY NOT NULL, -- UUID
+    name TEXT NOT NULL UNIQUE
 );
 
 -- 专辑表
 CREATE TABLE albums (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL, -- UUID
     title TEXT NOT NULL,
-    artist_id TEXT,
-    year INTEGER,
-    cover_art BLOB,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
+    artist_id TEXT, -- 外键
+    cover_art_path TEXT,
     FOREIGN KEY (artist_id) REFERENCES artists(id)
 );
 
 -- 曲目表
 CREATE TABLE tracks (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL, -- UUID
     title TEXT NOT NULL,
-    artist_id TEXT,
-    album_id TEXT,
+    artist_id TEXT, -- 外键
+    album_id TEXT,  -- 外键
     track_number INTEGER,
-    disc_number INTEGER,
-    duration INTEGER NOT NULL,
+    duration INTEGER NOT NULL, -- 秒
     file_path TEXT NOT NULL UNIQUE,
-    file_size INTEGER NOT NULL,
-    file_modified INTEGER NOT NULL,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
     FOREIGN KEY (artist_id) REFERENCES artists(id),
     FOREIGN KEY (album_id) REFERENCES albums(id)
 );
 
 -- 播放列表
 CREATE TABLE playlists (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL
+    id TEXT PRIMARY KEY NOT NULL, -- UUID
+    name TEXT NOT NULL UNIQUE
 );
 
 -- 播放列表曲目关联
 CREATE TABLE playlist_tracks (
-    playlist_id TEXT,
-    track_id TEXT,
+    playlist_id TEXT NOT NULL,
+    track_id TEXT NOT NULL,
     position INTEGER NOT NULL,
-    created_at TIMESTAMP NOT NULL,
     PRIMARY KEY (playlist_id, track_id),
     FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
     FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
@@ -300,25 +458,38 @@ CREATE TABLE playlist_tracks (
 
 ## 4. 接口设计
 
-### 4.1 内部接口
+### 4.1 内部接口(Traits)
 
-#### 4.1.1 播放控制接口
+使用 `trait` 定义服务接口，以实现依赖注入和模块解耦。
+
 ```rust
+use async_trait::async_trait;
+
 #[async_trait]
 pub trait PlayerControl: Send + Sync {
-    async fn play(&self, track_id: &str) -> Result<(), PlayerError>;
-    async fn pause(&self) -> Result<(), PlayerError>;
-    async fn stop(&self) -> Result<(), PlayerError>;
-    async fn seek(&self, position: Duration) -> Result<(), PlayerError>;
-    async fn set_volume(&self, volume: f32) -> Result<(), PlayerError>;
-    async fn get_current_playback(&self) -> Option<PlaybackState>;
+    async fn play(&self, track_id: &str) -> Result<(), AppError>;
+    async fn pause(&self) -> Result<(), AppError>;
+    async fn stop(&self) -> Result<(), AppError>;
+    async fn seek(&self, position_ms: u32) -> Result<(), AppError>;
+    // ...
+}
+
+#[async_trait]
+pub trait MusicLibrary: Send + Sync {
+    async fn scan_directories(&self) -> Result<(), AppError>;
+    async fn get_track_by_id(&self, id: &str) -> Result<Track, AppError>;
+    // ...
 }
 ```
 
-### 4.2 外部接口
+### 4.2 外部接口(Tauri Commands)
 
-#### 4.2.1 Tauri命令
+将需要暴露给前端的功能封装为Tauri命令。
+
 ```rust
+use tauri::State;
+use std::sync::Arc;
+
 #[tauri::command]
 async fn play_track(
     track_id: String,
@@ -326,102 +497,79 @@ async fn play_track(
 ) -> Result<(), String> {
     player.play(&track_id).await.map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+async fn get_all_albums(
+    library: State<'_, Arc<dyn MusicLibrary>>,
+) -> Result<Vec<Album>, String> {
+    library.get_all_albums().await.map_err(|e| e.to_string())
+}
 ```
 
 ## 5. 线程模型
 
-### 5.1 主线程
-- 处理UI事件
-- 更新UI状态
-
-### 5.2 音频线程
-- 音频解码
-- 音频播放
-
-### 5.3 工作线程
-- 音乐库扫描
-- 元数据处理
-- 网络请求
+- **主线程 (Tauri)**: 负责处理UI事件、窗口管理和与操作系统的交互。
+- **异步运行时 (Tokio)**: 绝大多数Rust后端逻辑（Tauri命令、服务）都在Tokio的线程池中异步执行。
+- **音频线程 (Rodio/cpal)**: Rodio/cpal 会在后台创建自己的线程来处理与音频硬件的实时数据交换，与主线程和Tokio运行时解耦。
+- **工作线程**: 对于CPU密集型或长时间阻塞的任务（如大规模音乐库首次扫描），可以考虑使用 `tokio::spawn_blocking` 将其移出主异步线程池，防止阻塞其他异步任务。
 
 ## 6. 错误处理
 
-### 6.1 错误类型
+定义一个统一的 `AppError` 枚举，并使用 `thiserror` crate 来简化错误类型的实现。
+
 ```rust
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("Database error: {0}")]
     Database(#[from] rusqlite::Error),
-    
-    #[error("Audio error: {0}")]
-    Audio(String),
-    
-    #[error("Invalid configuration: {0}")]
-    Config(String),
-    
+
+    #[error("Audio decoding error: {0}")]
+    Symphonia(#[from] symphonia::core::errors::Error),
+
+    #[error("Configuration error: {0}")]
+    Config(#[from] toml::de::Error),
+
     #[error("Not found: {0}")]
     NotFound(String),
-    
+
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
+}
+
+// Tauri命令的返回类型需要可序列化
+impl serde::Serialize for AppError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 ```
 
 ## 7. 性能优化
 
-### 7.1 音频处理
-- 使用零拷贝技术
-- 音频数据流式处理
-- 预加载下一首歌曲
-
-### 7.2 数据库优化
-- 批量插入
-- 索引优化
-- 查询优化
+- **音频处理**: 使用零拷贝技术处理音频数据流，避免不必要的内存复制。预加载下一首歌曲以实现无缝播放。
+- **数据库优化**: 对数据库查询使用索引，特别是在 `tracks` 和 `albums` 表上。对于大量数据插入（如首次扫描），使用事务批量处理。
+- **前端渲染**: 在Svelte中使用 `{#key}` 块和虚拟列表（`svelte-virtual-list`）来高效渲染长列表（如音乐库）。
 
 ## 8. 安全设计
 
-### 8.1 输入验证
-- 所有用户输入验证
-- 路径规范化
-- SQL注入防护
-
-### 8.2 文件系统访问
-- 沙箱限制
-- 权限控制
-- 路径遍历防护
+- **输入验证**: 所有来自前端的输入（特别是文件路径）都必须在Rust后端进行严格验证和清理。
+- **文件系统访问**: 使用Tauri的 `scope` 功能限制文件系统的访问范围，仅允许应用读写用户指定的音乐目录和自身的配置/数据库文件。
+- **CSP**: 在 `tauri.conf.json` 中配置严格的内容安全策略（CSP），防止跨站脚本攻击。
 
 ## 9. 测试策略
 
-### 9.1 单元测试
-- 核心算法测试
-- 数据结构测试
-
-### 9.2 集成测试
-- 模块间交互测试
-- 端到端测试
-
-### 9.3 性能测试
-- 启动时间
-- 内存占用
-- 音频延迟
+- **单元测试**: 对各个模块的核心算法（如播放队列逻辑）、数据结构和工具函数编写单元测试。
+- **集成测试**: 对服务层进行集成测试，验证模块间的交互是否正确，例如测试播放器服务能否正确调用音频处理和音乐库服务。
+- **端到端测试**: 使用 Tauri 的 WebDriver 实现（如 `tauri-driver`）来模拟用户操作，进行端到端测试。
 
 ## 10. 部署方案
 
-### 10.1 打包
-
-## 11. 许可证
-
-本项目采用 GNU GENERAL PUBLIC LICENSE Version 3 - 详情请参阅 [LICENSE](LICENSE) 文件。
-- 使用Tauri打包工具
-- 生成各平台安装包
-
-### 10.2 更新机制
-- 自动更新检查
-- 增量更新支持
-
-### 10.3 发布渠道
-- 官方网站
-- 包管理器（Homebrew, Chocolatey, AUR等）
+- **打包**: 使用 `tauri build` 命令为 Windows (`.msi`), macOS (`.app`, `.dmg`), 和 Linux (`.deb`, `.AppImage`) 生成原生安装包。
+- **更新机制**: 配置Tauri的内置更新器，应用可以自动检查GitHub Releases或自定义服务器上的新版本，并提示用户进行更新。
+- **发布渠道**: 通过GitHub Releases发布各平台的安装包。可以编写脚本自动上传到包管理器（如Homebrew Cask, Scoop, AUR）。

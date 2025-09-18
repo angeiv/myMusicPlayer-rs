@@ -1,7 +1,6 @@
 identifier = "com.musicplayer.app"
 
 [plugins]
-notification = {}
 window = { all = true }
 
 [build]

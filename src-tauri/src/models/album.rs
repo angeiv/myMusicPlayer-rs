@@ -11,8 +11,10 @@ pub struct Album {
     pub id: Uuid,
     /// Album title
     pub title: String,
-    /// Album artist
-    pub artist: String,
+    /// Album artist identifier
+    pub artist_id: Option<Uuid>,
+    /// Album artist display name
+    pub artist_name: Option<String>,
     /// Release year
     pub year: Option<i32>,
     /// Genre
@@ -32,7 +34,8 @@ impl Default for Album {
         Self {
             id: Uuid::new_v4(),
             title: "Unknown Album".to_string(),
-            artist: "Unknown Artist".to_string(),
+            artist_id: None,
+            artist_name: Some("Unknown Artist".to_string()),
             year: None,
             genre: None,
             artwork: None,
@@ -45,11 +48,12 @@ impl Default for Album {
 
 impl Album {
     /// Create a new album with the given title and artist
-    pub fn new(title: &str, artist: &str) -> Self {
+    pub fn new(title: &str, artist_id: Option<Uuid>, artist_name: Option<&str>) -> Self {
         Self {
             id: Uuid::new_v4(),
             title: title.to_string(),
-            artist: artist.to_string(),
+            artist_id,
+            artist_name: artist_name.map(|name| name.to_string()),
             year: None,
             genre: None,
             artwork: None,

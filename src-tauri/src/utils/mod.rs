@@ -1,8 +1,10 @@
+#![allow(dead_code)]
+
 //! Utility functions for the Tauri backend
 
+use log::warn;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use log::warn;
 
 /// Get the file name without extension from a path
 pub fn file_stem(path: &Path) -> Option<String> {
@@ -69,7 +71,7 @@ pub fn format_duration(seconds: u64) -> String {
     let hours = seconds / 3600;
     let minutes = (seconds % 3600) / 60;
     let seconds = seconds % 60;
-    
+
     if hours > 0 {
         format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
     } else {
@@ -87,14 +89,14 @@ pub fn parse_duration(duration: &str) -> Option<u64> {
             let minutes: u64 = parts[0].parse().ok()?;
             let seconds: u64 = parts[1].parse().ok()?;
             Some(minutes * 60 + seconds)
-        },
+        }
         // HH:MM:SS
         3 => {
             let hours: u64 = parts[0].parse().ok()?;
             let minutes: u64 = parts[1].parse().ok()?;
             let seconds: u64 = parts[2].parse().ok()?;
             Some(hours * 3600 + minutes * 60 + seconds)
-        },
+        }
         _ => None,
     }
 }
@@ -116,7 +118,7 @@ pub fn init_app_dirs() -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use std::path::Path;
-    
+
     #[test]
     fn test_format_duration() {
         assert_eq!(format_duration(0), "00:00");
@@ -125,7 +127,7 @@ mod tests {
         assert_eq!(format_duration(3600), "01:00:00");
         assert_eq!(format_duration(3665), "01:01:05");
     }
-    
+
     #[test]
     fn test_parse_duration() {
         assert_eq!(parse_duration("00:00"), Some(0));

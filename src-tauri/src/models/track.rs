@@ -30,12 +30,18 @@ pub struct Track {
     pub sample_rate: u32,
     /// Number of channels
     pub channels: u16,
-    /// Track artist
-    pub artist: Option<String>,
-    /// Album artist
-    pub album_artist: Option<String>,
+    /// Track artist identifier (foreign key to artists table)
+    pub artist_id: Option<Uuid>,
+    /// Track artist display name
+    pub artist_name: Option<String>,
+    /// Album artist identifier if differs from track artist
+    pub album_artist_id: Option<Uuid>,
+    /// Album artist display name
+    pub album_artist_name: Option<String>,
+    /// Album identifier (foreign key to albums table)
+    pub album_id: Option<Uuid>,
     /// Album title
-    pub album: Option<String>,
+    pub album_title: Option<String>,
     /// Release year
     pub year: Option<i32>,
     /// Genre
@@ -66,9 +72,12 @@ impl Default for Track {
             bitrate: 0,
             sample_rate: 44100,
             channels: 2,
-            artist: None,
-            album_artist: None,
-            album: None,
+            artist_id: None,
+            artist_name: None,
+            album_artist_id: None,
+            album_artist_name: None,
+            album_id: None,
+            album_title: None,
             year: None,
             genre: None,
             artwork: None,

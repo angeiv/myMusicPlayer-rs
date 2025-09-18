@@ -12,9 +12,16 @@
 
 # Frontend build outputs
 /dist/
-/src/dist/
-/src/.svelte-kit/
-/src/.vite/
+
+# Tool caches and build info
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+.turbo/
+.vercel/
+
+# Local coverage artifacts
+/coverage/
 
 # Logs and temporary files
 npm-debug.log*

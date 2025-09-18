@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output and caches
+dist/
+.vite/
+.vite-inspect/
+.svelte-kit/
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# Environment overrides
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Editor / OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
