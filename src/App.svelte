@@ -1,318 +1,270 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { invoke } from '@tauri-apps/api/core';
+  import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
 
-  import TopBar from './lib/layout/TopBar.svelte';
-  import Sidebar from './lib/layout/Sidebar.svelte';
-  import BottomPlayerBar from './lib/player/BottomPlayerBar.svelte';
+  import Sidebar from "./lib/layout/Sidebar.svelte";
+  import TopBar from "./lib/layout/TopBar.svelte";
+  import BottomPlayerBar from "./lib/player/BottomPlayerBar.svelte";
+  import HomeView from "./lib/views/HomeView.svelte";
+  import SongsView from "./lib/views/SongsView.svelte";
+  import AlbumsView from "./lib/views/AlbumsView.svelte";
+  import AlbumDetailView from "./lib/views/AlbumDetailView.svelte";
+  import ArtistsView from "./lib/views/ArtistsView.svelte";
+  import ArtistDetailView from "./lib/views/ArtistDetailView.svelte";
+  import SearchResultsView from "./lib/views/SearchResultsView.svelte";
+  import SettingsView from "./lib/views/SettingsView.svelte";
+  import PlaylistDetailView from "./lib/views/PlaylistDetailView.svelte";
+  import { hashPath, navigate, normalizeHashPath } from "./lib/stores/router";
+  import type { AppSection, LibraryView } from "./lib/types";
 
-  import HomeView from './lib/views/HomeView.svelte';
-  import SongsView from './lib/views/SongsView.svelte';
-  import AlbumsView from './lib/views/AlbumsView.svelte';
-  import ArtistsView from './lib/views/ArtistsView.svelte';
-  import AlbumDetailView from './lib/views/AlbumDetailView.svelte';
-  import ArtistDetailView from './lib/views/ArtistDetailView.svelte';
-  import PlaylistDetailView from './lib/views/PlaylistDetailView.svelte';
-  import SettingsView from './lib/views/SettingsView.svelte';
-  import SearchResultsView from './lib/views/SearchResultsView.svelte';
+  type RouteMatch =
+    | { name: "home" }
+    | { name: "songs" }
+    | { name: "albums" }
+    | { name: "albumDetail"; id: string }
+    | { name: "artists" }
+    | { name: "artistDetail"; id: string }
+    | { name: "search"; query: string }
+    | { name: "settings" }
+    | { name: "playlistDetail"; id: string };
 
-  import type {
-    Album,
-    AppSection,
-    Artist,
-    LibraryView,
-    Playlist,
-    SearchResults,
-    Track,
-  } from './lib/types';
-
-  let section: AppSection = 'library';
-  let libraryView: LibraryView = 'songs';
-  let searchTerm = '';
-  let searchResults: SearchResults | null = null;
-  let isSearching = false;
-  let searchTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  let tracks: Track[] = [];
-  let albums: Album[] = [];
-  let artists: Artist[] = [];
-  let playlists: Playlist[] = [];
-
-  let isLibraryLoading = true;
-
-  let activeAlbumId: string | null = null;
-  let activeArtistId: string | null = null;
+  let route: RouteMatch = { name: "home" };
+  let activeSection: AppSection = "home";
+  let activeLibraryView: LibraryView = "songs";
   let activePlaylistId: string | null = null;
+  let searchInput = "";
+  let currentPath = "/";
 
-  onMount(async () => {
-    await getCurrentWindow().setTitle('myMusicPlayer-rs');
-    await Promise.all([loadLibrary(), loadPlaylists()]);
-  });
-
-  async function loadLibrary() {
-    isLibraryLoading = true;
-    try {
-      const [loadedTracks, loadedAlbums, loadedArtists] = await Promise.all([
-        invoke<Track[]>('get_tracks'),
-        invoke<Album[]>('get_albums'),
-        invoke<Artist[]>('get_artists'),
-      ]);
-
-      tracks = loadedTracks;
-      albums = loadedAlbums;
-      artists = loadedArtists;
-    } catch (error) {
-      console.error('Failed to load library data:', error);
-    } finally {
-      isLibraryLoading = false;
+  $: currentPath = normalizeHashPath($hashPath);
+  $: route = matchRoute(currentPath);
+  $:
+    activeSection =
+      route.name === "home"
+        ? "home"
+        : route.name === "settings"
+        ? "settings"
+        : "library";
+  $:
+    activeLibraryView =
+      route.name === "songs"
+        ? "songs"
+        : route.name === "albums"
+        ? "albums"
+        : route.name === "artists"
+        ? "artists"
+        : route.name === "albumDetail"
+        ? "albumDetail"
+        : route.name === "artistDetail"
+        ? "artistDetail"
+        : route.name === "playlistDetail"
+        ? "playlistDetail"
+        : "songs";
+  $: activePlaylistId = route.name === "playlistDetail" ? route.id : null;
+  $: {
+    if (route.name === "search") {
+      if (searchInput !== route.query) {
+        searchInput = route.query;
+      }
+    } else if (searchInput !== "") {
+      searchInput = "";
     }
   }
 
-  async function loadPlaylists() {
-    try {
-      const loadedPlaylists = await invoke<Playlist[]>('get_playlists');
-      playlists = loadedPlaylists;
-    } catch (error) {
-      console.error('Failed to load playlists:', error);
+  function matchRoute(path: string): RouteMatch {
+    if (path === "/" || path === "") {
+      return { name: "home" };
     }
+
+    if (path === "/songs") {
+      return { name: "songs" };
+    }
+
+    if (path === "/albums") {
+      return { name: "albums" };
+    }
+
+    if (path === "/artists") {
+      return { name: "artists" };
+    }
+
+    if (path === "/settings") {
+      return { name: "settings" };
+    }
+
+    const albumMatch = path.match(/^\/albums\/([^/]+)$/);
+    if (albumMatch && albumMatch[1]) {
+      return { name: "albumDetail", id: decodeURIComponent(albumMatch[1]) };
+    }
+
+    const artistMatch = path.match(/^\/artists\/([^/]+)$/);
+    if (artistMatch && artistMatch[1]) {
+      return { name: "artistDetail", id: decodeURIComponent(artistMatch[1]) };
+    }
+
+    const playlistMatch = path.match(/^\/playlists\/([^/]+)$/);
+    if (playlistMatch && playlistMatch[1]) {
+      return { name: "playlistDetail", id: decodeURIComponent(playlistMatch[1]) };
+    }
+
+    const searchMatch = path.match(/^\/search(?:\/(.*))?$/);
+    if (searchMatch) {
+      return {
+        name: "search",
+        query: searchMatch[1] ? decodeURIComponent(searchMatch[1]) : "",
+      };
+    }
+
+    return { name: "home" };
   }
 
-  function handleNavigation(event: CustomEvent<{ section: AppSection; libraryView?: LibraryView }>) {
-    const detail = event.detail;
+  function syncSearchToRoute(term: string) {
+    const trimmed = term.trim();
+    const targetPath = trimmed ? `/search/${encodeURIComponent(trimmed)}` : "/";
 
-    section = detail.section;
-
-    if (detail.libraryView) {
-      libraryView = detail.libraryView;
-    }
-
-    if (detail.section !== 'library') {
-      libraryView = 'songs';
-      activeAlbumId = null;
-      activeArtistId = null;
-      activePlaylistId = null;
-    }
-
-    if (detail.libraryView && detail.libraryView !== 'playlistDetail') {
-      activePlaylistId = null;
-    }
-
-    if (detail.libraryView && detail.libraryView !== 'albumDetail') {
-      activeAlbumId = null;
-    }
-
-    if (detail.libraryView && detail.libraryView !== 'artistDetail') {
-      activeArtistId = null;
-    }
-  }
-
-  function handlePlaylistSelect(event: CustomEvent<{ id: string }>) {
-    section = 'library';
-    libraryView = 'playlistDetail';
-    activePlaylistId = event.detail.id;
-    activeAlbumId = null;
-    activeArtistId = null;
-    clearSearch();
-  }
-
-  async function handleCreatePlaylist() {
-    const name = window.prompt('Playlist name');
-    if (!name) return;
-
-    try {
-      await invoke<string>('create_playlist', { name });
-      await loadPlaylists();
-    } catch (error) {
-      console.error('Failed to create playlist:', error);
-      window.alert('Unable to create playlist. Please try again.');
-    }
-  }
-
-  function handleSearch(event: CustomEvent<string>) {
-    const term = event.detail;
-    searchTerm = term;
-
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
-
-    if (!term.trim()) {
-      searchResults = null;
-      isSearching = false;
+    if (normalizeHashPath(targetPath) === currentPath) {
       return;
     }
 
-    isSearching = true;
-    searchTimeout = setTimeout(() => performSearch(term), 250);
+    navigate(targetPath, { replace: true });
   }
 
-  async function performSearch(query: string) {
-    try {
-      const [trackResults, albumResults, artistResults] = await invoke<[
-        Track[],
-        Album[],
-        Artist[]
-      ]>('search', { query });
-      searchResults = {
-        tracks: trackResults,
-        albums: albumResults,
-        artists: artistResults,
-      };
-    } catch (error) {
-      console.error('Search failed:', error);
-    } finally {
-      isSearching = false;
+  function handleSearchTermChange() {
+    syncSearchToRoute(searchInput);
+  }
+
+  function handleSidebarNavigate(event: CustomEvent<{ section: AppSection; libraryView?: LibraryView }>) {
+    const { section, libraryView } = event.detail;
+
+    if (section === "home") {
+      navigate("/");
+      return;
+    }
+
+    if (section === "settings") {
+      navigate("/settings");
+      return;
+    }
+
+    const view = libraryView ?? "songs";
+    switch (view) {
+      case "albums":
+        navigate("/albums");
+        break;
+      case "artists":
+        navigate("/artists");
+        break;
+      case "playlistDetail":
+        if (activePlaylistId) {
+          navigate(`/playlists/${encodeURIComponent(activePlaylistId)}`);
+        } else {
+          navigate("/songs");
+        }
+        break;
+      case "albumDetail":
+      case "artistDetail":
+        navigate("/songs");
+        break;
+      default:
+        navigate("/songs");
     }
   }
 
-  function clearSearch() {
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-      searchTimeout = null;
+  function handleSelectPlaylist(event: CustomEvent<{ id: string }>) {
+    const id = event.detail.id;
+    if (!id) {
+      return;
     }
-    searchTerm = '';
-    searchResults = null;
-    isSearching = false;
+    navigate(`/playlists/${encodeURIComponent(id)}`);
   }
 
-  function openAlbum(event: CustomEvent<{ id: string }>) {
-    if (!event.detail.id) return;
-    activeAlbumId = event.detail.id;
-    activeArtistId = null;
-    activePlaylistId = null;
-    section = 'library';
-    libraryView = 'albumDetail';
-    clearSearch();
+  function handleOpenAlbum(event: CustomEvent<{ id: string }>) {
+    const id = event.detail.id;
+    if (!id) {
+      return;
+    }
+    navigate(`/albums/${encodeURIComponent(id)}`);
   }
 
-  function openArtist(event: CustomEvent<{ id: string }>) {
-    if (!event.detail.id) return;
-    activeArtistId = event.detail.id;
-    activeAlbumId = null;
-    activePlaylistId = null;
-    section = 'library';
-    libraryView = 'artistDetail';
-    clearSearch();
+  function handleOpenArtist(event: CustomEvent<{ id: string }>) {
+    const id = event.detail.id;
+    if (!id) {
+      return;
+    }
+    navigate(`/artists/${encodeURIComponent(id)}`);
   }
+
+  onMount(async () => {
+    await invoke("greet", { name: "from svelte" });
+    await getCurrentWindow().show();
+  });
 </script>
 
-<div class="app-shell">
-  <TopBar {searchTerm} on:search={handleSearch} />
+<div class="app-container">
+  <TopBar bind:searchTerm={searchInput} on:searchTermChange={handleSearchTermChange} />
 
-  <div class="content">
-    <Sidebar
-      activeSection={section}
-      activeLibraryView={libraryView}
-      playlists={playlists}
-      activePlaylistId={activePlaylistId}
-      counts={{
-        songs: tracks.length,
-        albums: albums.length,
-        artists: artists.length,
-      }}
-      on:navigate={handleNavigation}
-      on:selectPlaylist={handlePlaylistSelect}
-      on:createPlaylist={handleCreatePlaylist}
-    />
+  <Sidebar
+    {activeSection}
+    {activeLibraryView}
+    {activePlaylistId}
+    on:navigate={handleSidebarNavigate}
+    on:selectPlaylist={handleSelectPlaylist}
+  />
 
-    <main class="main" data-searching={isSearching}>
-      {#if searchTerm.trim().length > 0}
-        <SearchResultsView
-          {searchTerm}
-          {searchResults}
-          {isSearching}
-          on:openAlbum={openAlbum}
-          on:openArtist={openArtist}
-        />
-      {:else if section === 'home'}
-        <HomeView {tracks} {albums} {artists} {playlists} />
-      {:else if section === 'settings'}
-        <SettingsView on:refreshLibrary={loadLibrary} on:refreshPlaylists={loadPlaylists} />
-      {:else}
-        {#if libraryView === 'songs'}
-          <SongsView {tracks} {isLibraryLoading} {searchTerm} />
-        {:else if libraryView === 'albums'}
-          <AlbumsView
-            {albums}
-            {isLibraryLoading}
-            on:openAlbum={openAlbum}
-          />
-        {:else if libraryView === 'artists'}
-          <ArtistsView
-            {artists}
-            {isLibraryLoading}
-            on:openArtist={openArtist}
-          />
-        {:else if libraryView === 'albumDetail'}
-          <AlbumDetailView albumId={activeAlbumId} />
-        {:else if libraryView === 'artistDetail'}
-          <ArtistDetailView artistId={activeArtistId} on:openAlbum={openAlbum} />
-        {:else if libraryView === 'playlistDetail'}
-          <PlaylistDetailView playlistId={activePlaylistId} />
-        {/if}
-      {/if}
-    </main>
-  </div>
+  <main class="main-content">
+    {#if route.name === "home"}
+      <HomeView />
+    {:else if route.name === "songs"}
+      <SongsView searchTerm={searchInput} />
+    {:else if route.name === "albums"}
+      <AlbumsView on:openAlbum={handleOpenAlbum} />
+    {:else if route.name === "albumDetail"}
+      <AlbumDetailView albumId={route.id} />
+    {:else if route.name === "artists"}
+      <ArtistsView on:openArtist={handleOpenArtist} />
+    {:else if route.name === "artistDetail"}
+      <ArtistDetailView artistId={route.id} on:openAlbum={handleOpenAlbum} />
+    {:else if route.name === "search"}
+      <SearchResultsView searchTerm={searchInput} on:openAlbum={handleOpenAlbum} on:openArtist={handleOpenArtist} />
+    {:else if route.name === "settings"}
+      <SettingsView />
+    {:else if route.name === "playlistDetail"}
+      <PlaylistDetailView playlistId={route.id} />
+    {/if}
+  </main>
 
   <BottomPlayerBar />
 </div>
 
 <style>
-  :global(body) {
-    margin: 0;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #0b1120;
-    color: #e2e8f0;
-    overflow: hidden;
-  }
-
-  :global([data-theme='light'] body) {
-    background: #f1f5f9;
-    color: #0f172a;
-  }
-
-  :global([data-theme='light'] .main) {
-    background: linear-gradient(180deg, rgba(148, 163, 184, 0.12), rgba(226, 232, 240, 0.45));
-  }
-
-  .app-shell {
+  .app-container {
+    display: grid;
+    grid-template-columns: 250px 1fr;
+    grid-template-rows: 60px 1fr auto;
+    grid-template-areas:
+      "sidebar topbar"
+      "sidebar main"
+      "player player";
     height: 100vh;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
-    background: #0b1120;
+    background-color: #000;
+    color: #fff;
   }
 
-  .content {
-    display: grid;
-    grid-template-columns: 260px 1fr;
-    overflow: hidden;
+  :global(header.top-bar) {
+    grid-area: topbar;
   }
 
-  .main {
-    background: radial-gradient(circle at top, rgba(30, 64, 175, 0.25), transparent 45%),
-      #0f172a;
-    overflow: hidden auto;
-    position: relative;
+  :global(nav.sidebar) {
+    grid-area: sidebar;
   }
 
-  .main[data-searching='true'] {
-    opacity: 0.7;
+  .main-content {
+    grid-area: main;
+    overflow-y: auto;
+    padding: 20px;
   }
 
-  @media (max-width: 960px) {
-    .content {
-      grid-template-columns: 220px 1fr;
-    }
-  }
-
-  @media (max-width: 820px) {
-    .content {
-      grid-template-columns: 1fr;
-    }
-
-    .main {
-      min-height: 0;
-    }
+  :global(.player-bar) {
+    grid-area: player;
   }
 </style>

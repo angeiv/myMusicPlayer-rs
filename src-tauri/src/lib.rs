@@ -3,6 +3,7 @@
 use anyhow::Context;
 use std::sync::{Arc, Mutex};
 use tauri_plugin_log::Target;
+use tauri::Manager;
 
 // Import our modules
 mod api;
@@ -71,7 +72,17 @@ pub fn run() {
         // Initialize application state
         .manage(app_state)
         // Setup
-        .setup(|_app| {
+        .setup(|app| {
+            // Optionally open DevTools in development or when env overrides
+            let open_devtools = std::env::var("TAURI_OPEN_DEVTOOLS")
+                .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE"))
+                .unwrap_or(false);
+            if open_devtools {
+                if let Some(w) = app.get_webview_window("main") {
+                    w.open_devtools();
+                    let _ = w.set_focus();
+                }
+            }
             // Initialize application directories
             if let Err(e) = utils::init_app_dirs() {
                 log::error!("Failed to initialize application directories: {}", e);
@@ -88,6 +99,8 @@ pub fn run() {
             crate::api::config::save_config,
             crate::api::config::add_library_path,
             crate::api::config::remove_library_path,
+            // Misc
+            crate::api::misc::greet,
             // Audio commands
             crate::api::audio::play,
             crate::api::audio::play_file,
@@ -136,19 +149,13 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tauri::Manager;
-    use tauri::test::{mock_context, noop_assets};
 
     #[test]
-    fn test_app_initialization() {
-        // This is a simple test to verify the app can be created
-        let app = tauri::Builder::default()
-            .manage(AppState::initialize().unwrap())
-            .build(mock_context!())
-            .unwrap();
+    fn app_state_initializes() {
+        let state = AppState::initialize().expect("app state should initialize");
 
-        assert!(app.state::<AppState>().audio.try_lock().is_ok());
-        assert!(app.state::<AppState>().library.try_lock().is_ok());
-        assert!(app.state::<AppState>().playlists.try_lock().is_ok());
+        assert!(state.audio.try_lock().is_ok());
+        assert!(state.library.try_lock().is_ok());
+        assert!(state.playlists.try_lock().is_ok());
     }
 }

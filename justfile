@@ -92,7 +92,7 @@ dev:
     npm --prefix {{frontend_dir}} run dev &
     frontend_pid=$!
     trap 'kill $frontend_pid 2>/dev/null || true' INT TERM EXIT
-    TAURI_DEV_URL=${TAURI_DEV_URL:-http://localhost:1420} cargo tauri dev --manifest-path {{backend_dir}}/Cargo.toml
+    (cd {{backend_dir}} && TAURI_DEV_URL=${TAURI_DEV_URL:-http://localhost:1420} cargo tauri dev)
     trap - INT TERM EXIT
     kill $frontend_pid 2>/dev/null || true
 
@@ -104,3 +104,13 @@ run:
 # Show Tauri info
 info:
     cargo tauri info --manifest-path {{backend_dir}}/Cargo.toml
+
+# Development mode with DevTools opened automatically
+dev-tools:
+    set -euo pipefail
+    npm --prefix {{frontend_dir}} run dev &
+    frontend_pid=$!
+    trap 'kill $frontend_pid 2>/dev/null || true' INT TERM EXIT
+    (cd {{backend_dir}} && TAURI_OPEN_DEVTOOLS=1 TAURI_DEV_URL=${TAURI_DEV_URL:-http://localhost:1420} cargo tauri dev)
+    trap - INT TERM EXIT
+    kill $frontend_pid 2>/dev/null || true

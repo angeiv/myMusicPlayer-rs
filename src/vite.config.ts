@@ -3,6 +3,9 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { resolve } from 'path';
 
 export default defineConfig({
+  // Ensure built assets use relative paths so Tauri can load them
+  // from the app's bundled resources instead of absolute '/'.
+  base: './',
   plugins: [svelte()],
   resolve: {
     alias: {
@@ -20,11 +23,6 @@ export default defineConfig({
     minify: !process.env['TAURI_DEBUG'] ? 'esbuild' : false,
     sourcemap: !!process.env['TAURI_DEBUG'],
     outDir: '../dist',
-    emptyOutDir: true,
-    rollupOptions: {
-      external: (id) => {
-        return id.startsWith('@tauri-apps/');
-      }
-    }
+    emptyOutDir: true
   },
 });
