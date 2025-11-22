@@ -66,6 +66,7 @@ rayon = "1.10.0"
 rustfft = "6.0"
 realfft = "3.0"
 rusqlite = { version = "0.31", features = ["bundled"] }
+rand = "0.8"
 
 [features]
 default = ["custom-protocol"]

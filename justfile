@@ -98,8 +98,11 @@ dev:
 
 # Run in release mode
 run:
+    set -euo pipefail
     npm --prefix {{frontend_dir}} run build
+    trap 'exit 0' INT TERM
     cargo run --manifest-path {{backend_dir}}/Cargo.toml --release
+    trap - INT TERM
 
 # Show Tauri info
 info:

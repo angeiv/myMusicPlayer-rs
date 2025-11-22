@@ -74,13 +74,17 @@ pub fn run() {
         // Setup
         .setup(|app| {
             // Optionally open DevTools in development or when env overrides
-            let open_devtools = std::env::var("TAURI_OPEN_DEVTOOLS")
-                .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE"))
-                .unwrap_or(false);
-            if open_devtools {
-                if let Some(w) = app.get_webview_window("main") {
-                    w.open_devtools();
-                    let _ = w.set_focus();
+            #[cfg(debug_assertions)]
+            {
+                let open_devtools = std::env::var("TAURI_OPEN_DEVTOOLS")
+                    .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE"))
+                    .unwrap_or(false);
+                if open_devtools {
+                    if let Some(w) = app.get_webview_window("main") {
+                        #[cfg(any(debug_assertions, feature = "devtools"))]
+                        w.open_devtools();
+                        let _ = w.set_focus();
+                    }
                 }
             }
             // Initialize application directories
@@ -115,6 +119,15 @@ pub fn run() {
             crate::api::audio::toggle_play_pause,
             crate::api::audio::is_playing,
             crate::api::audio::get_visualization_data,
+            crate::api::audio::next_track,
+            crate::api::audio::previous_track,
+            crate::api::audio::set_play_mode,
+            crate::api::audio::get_play_mode,
+            crate::api::audio::set_queue,
+            crate::api::audio::get_queue,
+            crate::api::audio::add_to_queue,
+            crate::api::audio::clear_queue,
+            crate::api::audio::get_position,
             // Library commands
             crate::api::library::scan_directory,
             crate::api::library::get_tracks,

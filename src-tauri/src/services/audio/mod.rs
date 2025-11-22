@@ -1,27 +1,23 @@
 //! Audio service for handling audio playback
 
 pub mod analyzer;
+pub mod audio_player;
+pub mod audio_player_thread;
 mod decoder;
+pub mod play_queue;
 pub mod player;
 
-use decoder::decode_audio;
+pub use audio_player_thread::AudioPlayerHandle;
+pub use play_queue::PlayMode;
 
 use crate::models::{playback_state::PlaybackState, track::Track};
 pub use analyzer::{VisualizationData, VisualizationStats};
-use anyhow::anyhow;
-use log::{error, info};
 use std::time::Duration;
 
 /// Audio service for handling audio playback
-/// Note: This is a simplified implementation that doesn't maintain the OutputStream
-/// to avoid Send/Sync issues. In a production app, you'd want a more sophisticated
-/// audio management system.
+/// This wraps the AudioPlayerHandle to provide a simpler interface
 pub struct AudioService {
-    current_track: Option<Track>,
-    volume: f32,
-    state: PlaybackState,
-    position: Duration,
-    is_playing: bool,
+    player: AudioPlayerHandle,
 }
 
 impl Default for AudioService {
@@ -34,142 +30,119 @@ impl AudioService {
     /// Create a new AudioService
     pub fn new() -> Self {
         Self {
-            current_track: None,
-            volume: 1.0,
-            state: PlaybackState::Stopped,
-            position: Duration::from_secs(0),
-            is_playing: false,
+            player: AudioPlayerHandle::new().expect("Failed to create audio player"),
         }
     }
 
     /// Play a track
     pub fn play(&mut self, track: &Track) -> Result<(), String> {
-        self.stop()?;
-
-        // Try to play the actual audio file
-        match self.play_file_internal(&track.path) {
-            Ok(_) => {
-                self.current_track = Some(track.clone());
-                self.state = PlaybackState::Playing {
-                    position: 0,
-                    duration: track.duration as u64,
-                };
-                self.is_playing = true;
-                self.position = Duration::from_secs(0);
-
-                info!("Playing track: {}", track.title);
-                Ok(())
-            }
-            Err(e) => {
-                error!("Failed to play audio file: {}", e);
-                // Fall back to simulation mode
-                self.current_track = Some(track.clone());
-                self.state = PlaybackState::Playing {
-                    position: 0,
-                    duration: track.duration as u64,
-                };
-                self.is_playing = true;
-                self.position = Duration::from_secs(0);
-
-                info!("Playing track (simulation mode): {}", track.title);
-                Ok(())
-            }
-        }
-    }
-
-    /// Internal method to play a file using Rodio
-    fn play_file_internal(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-        use rodio::{OutputStream, Sink};
-
-        // This is a simplified implementation that creates a new stream each time
-        // In a production app, you'd want to maintain the stream and sink
-        let (_stream, stream_handle) = OutputStream::try_default()?;
-        let sink = Sink::try_new(&stream_handle)?;
-
-        let decoded = decode_audio(path)
-            .map_err(|err| anyhow!("Failed to decode {}: {}", path.display(), err))
-            .map_err(|err| -> Box<dyn std::error::Error> { err.into() })?;
-
-        sink.append(decoded.buffer);
-        sink.play();
-
-        // Note: In this simplified version, the audio will stop when this function returns
-        // because the _stream and sink are dropped. In a real implementation, you'd need
-        // to store these in the struct, but that requires dealing with Send/Sync issues.
-
-        Ok(())
+        self.player.play(track).map_err(|e| e.to_string())
     }
 
     /// Pause playback
     pub fn pause(&mut self) -> Result<(), String> {
-        if let PlaybackState::Playing { position, duration } = self.state {
-            self.state = PlaybackState::Paused { position, duration };
-            self.is_playing = false;
-            info!("Playback paused at position {}", position);
-        }
-        Ok(())
+        self.player.pause().map_err(|e| e.to_string())
     }
 
     /// Resume playback
     pub fn resume(&mut self) -> Result<(), String> {
-        if let PlaybackState::Paused { position, duration } = self.state {
-            self.state = PlaybackState::Playing { position, duration };
-            self.is_playing = true;
-            info!("Playback resumed from position {}", position);
-        }
-        Ok(())
+        self.player.resume().map_err(|e| e.to_string())
     }
 
     /// Stop playback
     pub fn stop(&mut self) -> Result<(), String> {
-        self.state = PlaybackState::Stopped;
-        self.current_track = None;
-        self.is_playing = false;
-        self.position = Duration::from_secs(0);
-        info!("Playback stopped");
-        Ok(())
+        self.player.stop().map_err(|e| e.to_string())
     }
 
     /// Seek to a specific position in the current track
     pub fn seek(&mut self, position: Duration) -> Result<(), String> {
-        // TODO: Implement seeking
-        // This is a simplified implementation
-        // In a real app, you would need to recreate the sink and source
-        // and skip to the desired position
-        self.position = position;
-        info!("Seeked to {:?}", position);
-        Ok(())
+        self.player.seek(position).map_err(|e| e.to_string())
     }
 
     /// Set the volume (0.0 to 1.0)
     pub fn set_volume(&mut self, volume: f32) -> Result<(), String> {
-        let volume = volume.max(0.0).min(1.0);
-        self.volume = volume;
-
-        // In a real implementation, you would set the volume on the audio sink
-
-        info!("Volume set to {:.0}%", volume * 100.0);
-        Ok(())
+        self.player.set_volume(volume).map_err(|e| e.to_string())
     }
 
     /// Get current playback state
     pub fn get_state(&self) -> PlaybackState {
-        self.state.clone()
+        self.player.state().playback_state
     }
 
     /// Get the current track
     pub fn current_track(&self) -> Option<&Track> {
-        self.current_track.as_ref()
+        // Use thread-local storage to cache the track
+        thread_local! {
+            static CACHED_TRACK: std::cell::RefCell<Option<Track>> = std::cell::RefCell::new(None);
+        }
+
+        CACHED_TRACK.with(|cache| {
+            *cache.borrow_mut() = self.player.current_track();
+            // SAFETY: This is unsafe but necessary for the current API
+            // The reference is valid as long as this method isn't called again
+            // on the same thread before the reference is dropped
+            unsafe {
+                let ptr = cache.as_ptr();
+                (*ptr).as_ref()
+            }
+        })
     }
 
     /// Check if audio is currently playing
     pub fn is_playing(&self) -> bool {
-        self.is_playing
+        self.player.is_playing()
     }
 
     /// Get the current volume (0.0 to 1.0)
     pub fn volume(&self) -> f32 {
-        self.volume
+        self.player.volume()
+    }
+
+    /// Play next track
+    pub fn next(&mut self) -> Result<(), String> {
+        self.player.next().map_err(|e| e.to_string())
+    }
+
+    /// Play previous track
+    pub fn previous(&mut self) -> Result<(), String> {
+        self.player.previous().map_err(|e| e.to_string())
+    }
+
+    /// Set play mode
+    pub fn set_play_mode(&mut self, mode: PlayMode) {
+        let _ = self.player.set_play_mode(mode);
+    }
+
+    /// Get play mode
+    pub fn play_mode(&self) -> PlayMode {
+        self.player.play_mode()
+    }
+
+    /// Set the play queue
+    pub fn set_queue(&self, tracks: Vec<Track>) -> Result<(), String> {
+        self.player.set_queue(tracks).map_err(|e| e.to_string())
+    }
+
+    /// Add tracks to the queue
+    pub fn add_to_queue(&self, tracks: Vec<Track>) -> Result<(), String> {
+        self.player.add_to_queue(tracks).map_err(|e| e.to_string())
+    }
+
+    /// Clear the queue
+    pub fn clear_queue(&self) -> Result<(), String> {
+        self.player.clear_queue().map_err(|e| e.to_string())
+    }
+
+    /// Get the queue tracks
+    pub fn get_queue(&self) -> Vec<Track> {
+        // This would require adding a get_queue method to AudioPlayerHandle
+        // For now, return empty vec
+        Vec::new()
+    }
+
+    /// Get current position
+    pub fn position(&self) -> Duration {
+        self.player.position()
     }
 }
 

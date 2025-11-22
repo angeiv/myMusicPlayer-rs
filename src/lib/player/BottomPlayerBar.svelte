@@ -25,7 +25,8 @@
 
   const volumePercentage = () => Math.round(volume * 100);
 
-  const isPlaying = () => playbackState.state === 'playing';
+  // Make isPlaying reactive
+  $: isPlaying = playbackState.state === 'playing';
 
   onMount(async () => {
     if (isTauri) {
@@ -160,20 +161,29 @@
     }
 
     try {
-      if (isPlaying()) {
+      if (isPlaying) {
+        // Optimistically update UI
+        playbackState = { state: 'paused', position: progress, duration: duration };
         await invoke('pause');
       } else if (playbackState.state === 'paused') {
+        // Optimistically update UI
+        playbackState = { state: 'playing', position: progress, duration: duration };
         await invoke('resume');
       } else if (!currentTrack) {
         await promptAndPlayFile();
         return;
       } else {
+        // Optimistically update UI
+        playbackState = { state: 'playing', position: progress, duration: duration };
         await invoke('resume');
       }
+      // Refresh state after command completes to ensure sync
+      await refreshState();
     } catch (error) {
       console.error('Failed to toggle playback:', error);
+      // Revert optimistic update on error
+      await refreshState();
     }
-    await refreshState();
   }
 
   async function promptAndPlayFile() {
@@ -200,12 +210,17 @@
       });
 
       if (typeof selected === 'string') {
+        // Optimistically set to playing state
+        playbackState = { state: 'playing', position: 0, duration: 0 };
+        progress = 0;
         await invoke('play_file', { filePath: selected });
+        // Refresh to get actual track info and duration
+        await refreshState();
       }
     } catch (error) {
       console.error('Failed to choose file:', error);
+      await refreshState();
     }
-    await refreshState();
   }
 
   async function handleSeek(event: Event) {
@@ -289,7 +304,7 @@
     return `${minutes}:${seconds}`;
   }
 
-  $: playingClass = isPlaying() ? 'playing' : '';
+  $: playingClass = isPlaying ? 'playing' : '';
 
   function initializeMockPlayback() {
     if (currentTrack) {
@@ -356,7 +371,7 @@
       </button>
       <button class="ghost" disabled title="Previous track coming soon">⏮</button>
       <button class={`play ${playingClass}`} on:click={togglePlayPause}>
-        {isPlaying() ? '⏸' : '▶'}
+        {isPlaying ? '⏸' : '▶'}
       </button>
       <button class="ghost" disabled title="Next track coming soon">⏭</button>
       <button

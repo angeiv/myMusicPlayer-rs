@@ -261,3 +261,142 @@ pub async fn get_visualization_data(
         },
     })
 }
+
+/// Play the next track in the queue
+#[tauri::command]
+pub async fn next_track(state: State<'_, AppState>) -> Result<(), String> {
+    let mut audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    audio.next().map_err(|e| {
+        error!("Failed to play next track: {}", e);
+        format!("Failed to play next track: {}", e)
+    })
+}
+
+/// Play the previous track in the queue
+#[tauri::command]
+pub async fn previous_track(state: State<'_, AppState>) -> Result<(), String> {
+    let mut audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    audio.previous().map_err(|e| {
+        error!("Failed to play previous track: {}", e);
+        format!("Failed to play previous track: {}", e)
+    })
+}
+
+/// Set the play mode
+#[tauri::command]
+pub async fn set_play_mode(
+    mode: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use crate::services::audio::PlayMode;
+
+    let play_mode = match mode.as_str() {
+        "sequential" => PlayMode::Sequential,
+        "random" => PlayMode::Random,
+        "single_repeat" => PlayMode::SingleRepeat,
+        "list_repeat" => PlayMode::ListRepeat,
+        _ => return Err(format!("Invalid play mode: {}", mode)),
+    };
+
+    let mut audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    audio.set_play_mode(play_mode);
+    info!("Play mode set to: {}", mode);
+    Ok(())
+}
+
+/// Get the current play mode
+#[tauri::command]
+pub async fn get_play_mode(state: State<'_, AppState>) -> Result<String, String> {
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    let mode = match audio.play_mode() {
+        crate::services::audio::PlayMode::Sequential => "sequential",
+        crate::services::audio::PlayMode::Random => "random",
+        crate::services::audio::PlayMode::SingleRepeat => "single_repeat",
+        crate::services::audio::PlayMode::ListRepeat => "list_repeat",
+    };
+
+    Ok(mode.to_string())
+}
+
+/// Set the play queue
+#[tauri::command]
+pub async fn set_queue(
+    tracks: Vec<Track>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    audio.set_queue(tracks)?;
+    info!("Play queue updated");
+    Ok(())
+}
+
+/// Get the current play queue
+#[tauri::command]
+pub async fn get_queue(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    Ok(audio.get_queue())
+}
+
+/// Add tracks to the play queue
+#[tauri::command]
+pub async fn add_to_queue(
+    tracks: Vec<Track>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    audio.add_to_queue(tracks)?;
+    info!("Added tracks to queue");
+    Ok(())
+}
+
+/// Clear the play queue
+#[tauri::command]
+pub async fn clear_queue(state: State<'_, AppState>) -> Result<(), String> {
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    audio.clear_queue()?;
+    info!("Play queue cleared");
+    Ok(())
+}
+
+/// Get the current playback position in seconds
+#[tauri::command]
+pub async fn get_position(state: State<'_, AppState>) -> Result<u64, String> {
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    Ok(audio.position().as_secs())
+}
