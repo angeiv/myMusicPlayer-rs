@@ -67,6 +67,7 @@ rustfft = "6.0"
 realfft = "3.0"
 rusqlite = { version = "0.31", features = ["bundled"] }
 rand = "0.8"
+glib = "0.21"
 
 [features]
 default = ["custom-protocol"]
