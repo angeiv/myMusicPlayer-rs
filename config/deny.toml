@@ -47,11 +47,15 @@ notice = "warn"
 
 # Ignore specific advisories
 ignore = [
-    # Example: { id = "RUSTSEC-2020-0001" }, 
+    # Example: { id = "RUSTSEC-2020-0001" },
+    # RUSTSEC-2024-0429：glib 0.18.x 的 VariantStrIter 存在未定义行为；该版本由 Tauri/Wry 的 Linux GTK3(WebKit2GTK) 依赖链引入，
+    # 目前上游仍依赖已停止维护的 gtk-rs GTK3 0.18 系列（glib < 0.20），短期内无法通过简单升级消除。
+    # 说明：如果你需要发布 Linux 版本，建议持续关注上游迁移（例如 GTK4/WebKitGTK 6）后再移除此忽略项。
+    { id = "RUSTSEC-2024-0429" },
 ]
 
-[advisories.db-path] = "~/.cargo/advisory-db"
-[advisories.db-urls] = ["https://github.com/RustSec/advisory-db"]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/RustSec/advisory-db"]
 
 [metadata]
 # Additional metadata
