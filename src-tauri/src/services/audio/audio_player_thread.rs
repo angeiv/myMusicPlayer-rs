@@ -27,7 +27,6 @@ enum PlayerCommand {
     SetQueue(Vec<Track>),
     AddToQueue(Vec<Track>),
     ClearQueue,
-    GetState(Sender<PlayerState>),
 }
 
 /// State information from the player
@@ -366,9 +365,6 @@ fn run_player_thread(
                     queue.clear();
                     state.lock().queue_length = 0;
                     info!("Queue cleared");
-                }
-                PlayerCommand::GetState(tx) => {
-                    let _ = tx.send(state.lock().clone());
                 }
             },
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {

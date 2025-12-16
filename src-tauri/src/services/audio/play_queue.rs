@@ -70,6 +70,7 @@ impl PlayQueue {
     }
 
     /// Add a track to the end of the queue
+    #[allow(dead_code)]
     pub fn add_track(&mut self, track: Track) {
         self.tracks.push(track);
         if self.current_index.is_none() && !self.tracks.is_empty() {
@@ -88,6 +89,7 @@ impl PlayQueue {
     }
 
     /// Insert a track at a specific position
+    #[allow(dead_code)]
     pub fn insert_track(&mut self, index: usize, track: Track) {
         if index <= self.tracks.len() {
             self.tracks.insert(index, track);
@@ -102,6 +104,7 @@ impl PlayQueue {
     }
 
     /// Remove a track by index
+    #[allow(dead_code)]
     pub fn remove_track(&mut self, index: usize) -> Option<Track> {
         if index < self.tracks.len() {
             let track = self.tracks.remove(index);
@@ -129,6 +132,7 @@ impl PlayQueue {
     }
 
     /// Remove a track by ID
+    #[allow(dead_code)]
     pub fn remove_track_by_id(&mut self, track_id: Uuid) -> Option<Track> {
         if let Some(index) = self.tracks.iter().position(|t| t.id == track_id) {
             self.remove_track(index)
@@ -152,11 +156,13 @@ impl PlayQueue {
     }
 
     /// Get the current track index
+    #[allow(dead_code)]
     pub fn current_index(&self) -> Option<usize> {
         self.current_index
     }
 
     /// Get all tracks in the queue
+    #[allow(dead_code)]
     pub fn tracks(&self) -> &[Track] {
         &self.tracks
     }
@@ -167,6 +173,7 @@ impl PlayQueue {
     }
 
     /// Check if the queue is empty
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.tracks.is_empty()
     }
@@ -287,6 +294,7 @@ impl PlayQueue {
     }
 
     /// Jump to a specific track by index
+    #[allow(dead_code)]
     pub fn jump_to(&mut self, index: usize) -> Option<&Track> {
         if index < self.tracks.len() {
             if let Some(current) = self.current_index {
@@ -303,6 +311,7 @@ impl PlayQueue {
     }
 
     /// Jump to a specific track by ID
+    #[allow(dead_code)]
     pub fn jump_to_id(&mut self, track_id: Uuid) -> Option<&Track> {
         if let Some(index) = self.tracks.iter().position(|t| t.id == track_id) {
             self.jump_to(index)
@@ -321,6 +330,7 @@ impl PlayQueue {
     }
 
     /// Check if there is a next track available
+    #[allow(dead_code)]
     pub fn has_next(&self) -> bool {
         if self.tracks.is_empty() {
             return false;
@@ -339,6 +349,7 @@ impl PlayQueue {
     }
 
     /// Check if there is a previous track available
+    #[allow(dead_code)]
     pub fn has_previous(&self) -> bool {
         if self.tracks.is_empty() {
             return false;

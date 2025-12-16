@@ -72,6 +72,7 @@ glib = "0.21"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+devtools = ["tauri/devtools"]
 
 [dev-dependencies]
 tempfile = "3.20.0"

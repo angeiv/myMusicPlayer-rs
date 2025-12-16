@@ -3,6 +3,7 @@
 use anyhow::Context;
 use std::sync::{Arc, Mutex};
 use tauri_plugin_log::Target;
+#[cfg(any(debug_assertions, feature = "devtools"))]
 use tauri::Manager;
 
 // Import our modules
@@ -72,16 +73,15 @@ pub fn run() {
         // Initialize application state
         .manage(app_state)
         // Setup
-        .setup(|app| {
-            // Optionally open DevTools in development or when env overrides
-            #[cfg(debug_assertions)]
+        .setup(|_app| {
+            // 可选：在开发环境或启用 devtools 特性时打开 DevTools（受环境变量控制）
+            #[cfg(any(debug_assertions, feature = "devtools"))]
             {
                 let open_devtools = std::env::var("TAURI_OPEN_DEVTOOLS")
                     .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE"))
                     .unwrap_or(false);
                 if open_devtools {
-                    if let Some(w) = app.get_webview_window("main") {
-                        #[cfg(any(debug_assertions, feature = "devtools"))]
+                    if let Some(w) = _app.get_webview_window("main") {
                         w.open_devtools();
                         let _ = w.set_focus();
                     }

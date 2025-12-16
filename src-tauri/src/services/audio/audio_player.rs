@@ -1,4 +1,5 @@
 //! Enhanced audio player with persistent stream and position tracking
+#![allow(dead_code)] // 该实现目前未接入主流程，保留备用
 
 use super::decoder::decode_audio;
 use super::play_queue::{PlayMode, PlayQueue};
