@@ -101,6 +101,7 @@ pub fn run() {
             crate::api::config::save_config,
             crate::api::config::add_library_path,
             crate::api::config::remove_library_path,
+            crate::api::config::pick_and_add_library_folder,
             // Misc
             crate::api::misc::greet,
             // Audio commands

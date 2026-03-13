@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { createEventDispatcher } from 'svelte';
-  import { open } from '@tauri-apps/plugin-dialog';
   import { invoke } from '@tauri-apps/api/core';
   import { getVersion } from '@tauri-apps/api/app';
   import { isTauri } from '../utils/env';
@@ -77,14 +76,8 @@
     }
 
     try {
-      const selected = await open({ directory: true, multiple: false });
-      if (typeof selected !== 'string') {
-        return;
-      }
-
       isUpdatingPaths = true;
-      await invoke('add_library_path', { path: selected });
-      await invoke('scan_directory', { path: selected });
+      await invoke('pick_and_add_library_folder');
       await loadLibraryPaths();
       dispatch('refreshLibrary');
     } catch (error) {
@@ -95,7 +88,10 @@
     }
   }
 
-  async function handleRemovePath(path: string) {
+  async function handleRemovePath(path: unknown) {
+    if (typeof path !== 'string') {
+      return;
+    }
     if (!isTauri) {
       libraryPaths = libraryPaths.filter((item) => item !== path);
       return;
