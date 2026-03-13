@@ -4,12 +4,66 @@
     'Open Sans', 'Helvetica Neue', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color-scheme: dark;
+  color-scheme: light dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+
+  --app-bg: #0b1120;
+  --app-fg: #e2e8f0;
+  --muted-fg: rgba(148, 163, 184, 0.8);
+
+  --panel-bg: rgba(15, 23, 42, 0.78);
+  --panel-border: rgba(148, 163, 184, 0.18);
+
+  --topbar-bg: linear-gradient(90deg, #1a1f2e, #252b3d);
+  --sidebar-bg: #101522;
+  --hover-bg: rgba(59, 130, 246, 0.12);
+  --active-bg: rgba(59, 130, 246, 0.18);
+  --accent: #3b82f6;
+}
+
+:root[data-theme='dark'] {
+  --app-bg: #0b1120;
+  --app-fg: #e2e8f0;
+  --muted-fg: rgba(148, 163, 184, 0.8);
+  --panel-bg: rgba(15, 23, 42, 0.78);
+  --panel-border: rgba(148, 163, 184, 0.18);
+  --topbar-bg: linear-gradient(90deg, #1a1f2e, #252b3d);
+  --sidebar-bg: #101522;
+  --hover-bg: rgba(59, 130, 246, 0.12);
+  --active-bg: rgba(59, 130, 246, 0.18);
+  --accent: #3b82f6;
+}
+
+:root[data-theme='light'] {
+  --app-bg: #f8fafc;
+  --app-fg: #0f172a;
+  --muted-fg: rgba(30, 41, 59, 0.65);
+  --panel-bg: rgba(255, 255, 255, 0.86);
+  --panel-border: rgba(15, 23, 42, 0.12);
+  --topbar-bg: linear-gradient(90deg, #ffffff, #f1f5f9);
+  --sidebar-bg: #ffffff;
+  --hover-bg: rgba(59, 130, 246, 0.08);
+  --active-bg: rgba(59, 130, 246, 0.12);
+  --accent: #2563eb;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --app-bg: #f8fafc;
+    --app-fg: #0f172a;
+    --muted-fg: rgba(30, 41, 59, 0.65);
+    --panel-bg: rgba(255, 255, 255, 0.86);
+    --panel-border: rgba(15, 23, 42, 0.12);
+    --topbar-bg: linear-gradient(90deg, #ffffff, #f1f5f9);
+    --sidebar-bg: #ffffff;
+    --hover-bg: rgba(59, 130, 246, 0.08);
+    --active-bg: rgba(59, 130, 246, 0.12);
+    --accent: #2563eb;
+  }
 }
 
 *, *::before, *::after {
@@ -22,7 +76,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #0b1120;
+  background: var(--app-bg);
+  color: var(--app-fg);
   overflow: hidden;
 }
 
