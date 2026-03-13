@@ -107,6 +107,7 @@ pub fn run() {
             // Audio commands
             crate::api::audio::play,
             crate::api::audio::play_file,
+            crate::api::audio::pick_and_play_file,
             crate::api::audio::pause,
             crate::api::audio::resume,
             crate::api::audio::stop,

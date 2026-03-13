@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { open } from '@tauri-apps/plugin-dialog';
   import type { PlaybackStateInfo, Track } from '../types';
   import { isTauri } from '../utils/env';
   import { getMockTracks } from '../mocks/library';
@@ -30,6 +29,7 @@ We are satellites tonight.`;
   let favorites = new Set<string>();
   let shuffleEnabled = false;
   let repeatMode: 'off' | 'all' | 'one' = 'off';
+  let uiError = '';
   let showQueue = false;
   let showVolumeSlider = false;
   let showDevicePicker = false;
@@ -93,6 +93,10 @@ We are satellites tonight.`;
       currentTrack = track as Track | null;
       volume = typeof currentVolume === 'number' ? currentVolume : volume;
 
+      if (playbackState.state === 'error') {
+        uiError = playbackState.message;
+      }
+
       if (!isSeeking) {
         if (playbackState.state === 'playing' || playbackState.state === 'paused') {
           progress = playbackState.position;
@@ -104,6 +108,7 @@ We are satellites tonight.`;
       }
     } catch (error) {
       console.error('Failed to refresh playback state:', error);
+      uiError = 'Failed to refresh playback state.';
     }
   }
 
@@ -179,6 +184,7 @@ We are satellites tonight.`;
     }
 
     try {
+      uiError = '';
       if (isPlaying) {
         playbackState = { state: 'paused', position: progress, duration: duration };
         await invoke('pause');
@@ -195,6 +201,7 @@ We are satellites tonight.`;
       await refreshState();
     } catch (error) {
       console.error('Failed to toggle playback:', error);
+      uiError = 'Playback operation failed.';
       await refreshState();
     }
   }
@@ -211,25 +218,16 @@ We are satellites tonight.`;
       return;
     }
 
-    try {
-      const selected = await open({
-        multiple: false,
-        filters: [
-          {
-            name: 'Audio',
-            extensions: ['mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a'],
-          },
-        ],
-      });
+    uiError = '';
 
-      if (typeof selected === 'string') {
-        playbackState = { state: 'playing', position: 0, duration: 0 };
-        progress = 0;
-        await invoke('play_file', { filePath: selected });
-        await refreshState();
-      }
+    try {
+      playbackState = { state: 'playing', position: 0, duration: 0 };
+      progress = 0;
+      await invoke('pick_and_play_file');
+      await refreshState();
     } catch (error) {
-      console.error('Failed to choose file:', error);
+      console.error('Failed to play selected file:', error);
+      uiError = error instanceof Error ? error.message : String(error);
       await refreshState();
     }
   }
@@ -401,6 +399,12 @@ We are satellites tonight.`;
 </script>
 
 <div class="player-bar">
+  {#if uiError}
+    <div class="error-banner" role="status">
+      <span>{uiError}</span>
+      <button type="button" on:click={() => (uiError = '')} aria-label="Dismiss error">✕</button>
+    </div>
+  {/if}
   <div class="now-playing">
     <div class="artwork" aria-hidden="true">
       <span>{currentTrack ? currentTrack.title.charAt(0) : '♪'}</span>
@@ -578,6 +582,44 @@ We are satellites tonight.`;
     min-height: 110px;
   }
 
+  .error-banner {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: rgba(254, 226, 226, 0.95);
+    font-size: 0.85rem;
+    max-width: min(900px, calc(100% - 32px));
+    z-index: 10;
+  }
+
+  .error-banner span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .error-banner button {
+    border: none;
+    background: transparent;
+    color: inherit;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+
+  .error-banner button:hover {
+    background: rgba(239, 68, 68, 0.22);
+  }
+
   .now-playing {
     display: flex;
     align-items: center;
@@ -702,10 +744,12 @@ We are satellites tonight.`;
     background: transparent;
     cursor: pointer;
     -webkit-appearance: none;
+    appearance: none;
   }
 
   .progress-rail input[type='range']::-webkit-slider-thumb {
     -webkit-appearance: none;
+    appearance: none;
     width: 14px;
     height: 14px;
     border-radius: 999px;
