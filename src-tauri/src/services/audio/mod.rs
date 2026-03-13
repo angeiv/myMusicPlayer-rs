@@ -70,22 +70,8 @@ impl AudioService {
     }
 
     /// Get the current track
-    pub fn current_track(&self) -> Option<&Track> {
-        // Use thread-local storage to cache the track
-        thread_local! {
-            static CACHED_TRACK: std::cell::RefCell<Option<Track>> = const { std::cell::RefCell::new(None) };
-        }
-
-        CACHED_TRACK.with(|cache| {
-            *cache.borrow_mut() = self.player.current_track();
-            // SAFETY: This is unsafe but necessary for the current API
-            // The reference is valid as long as this method isn't called again
-            // on the same thread before the reference is dropped
-            unsafe {
-                let ptr = cache.as_ptr();
-                (*ptr).as_ref()
-            }
-        })
+    pub fn current_track(&self) -> Option<Track> {
+        self.player.current_track()
     }
 
     /// Check if audio is currently playing

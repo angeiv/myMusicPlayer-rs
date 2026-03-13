@@ -169,7 +169,7 @@ pub async fn get_current_track(state: State<'_, AppState>) -> Result<Option<Trac
         "Failed to access audio service".to_string()
     })?;
 
-    Ok(audio.current_track().cloned())
+    Ok(audio.current_track())
 }
 
 /// Check if audio is currently playing
