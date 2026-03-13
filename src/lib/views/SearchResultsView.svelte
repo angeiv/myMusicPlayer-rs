@@ -22,6 +22,7 @@
   async function playTrack(track: Track) {
     if (isTauri) {
       try {
+        await invoke('set_queue', { tracks });
         await invoke('play', { track });
       } catch (error) {
         console.error('Failed to play track from search:', error);
