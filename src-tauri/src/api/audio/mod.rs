@@ -379,7 +379,51 @@ pub async fn get_queue(state: State<'_, AppState>) -> Result<Vec<Track>, String>
         "Failed to access audio service".to_string()
     })?;
 
-    Ok(audio.get_queue())
+    audio.get_queue().map_err(|e| {
+        error!("Failed to get queue: {}", e);
+        e
+    })
+}
+
+#[tauri::command]
+pub async fn get_output_devices(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::services::audio::OutputDeviceInfo>, String> {
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    audio.list_output_devices().map_err(|e| {
+        error!("Failed to list output devices: {}", e);
+        e
+    })
+}
+
+#[tauri::command]
+pub async fn set_output_device(
+    device_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    audio.set_output_device(device_id).map_err(|e| {
+        error!("Failed to set output device: {}", e);
+        e
+    })
+}
+
+#[tauri::command]
+pub async fn get_output_device(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    Ok(audio.output_device_id())
 }
 
 /// Add tracks to the play queue

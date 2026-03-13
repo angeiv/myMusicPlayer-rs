@@ -2,8 +2,9 @@
 
 use super::play_queue::{PlayMode, PlayQueue};
 use crate::models::{playback_state::PlaybackState, track::Track};
-use anyhow::{Context, Result, anyhow};
-use crossbeam_channel::{Receiver, Sender, bounded};
+use anyhow::{anyhow, Context, Result};
+use cpal::traits::{DeviceTrait, HostTrait};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use log::{error, info};
 use parking_lot::Mutex;
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
@@ -30,6 +31,16 @@ enum PlayerCommand {
     SetQueue(Vec<Track>),
     AddToQueue(Vec<Track>),
     ClearQueue,
+    GetQueue {
+        response_tx: Sender<Vec<Track>>,
+    },
+    ListOutputDevices {
+        response_tx: Sender<Result<Vec<OutputDeviceInfo>>>,
+    },
+    SetOutputDevice {
+        device_id: Option<String>,
+        response_tx: Sender<Result<()>>,
+    },
 }
 
 /// State information from the player
@@ -41,6 +52,14 @@ pub struct PlayerState {
     pub play_mode: PlayMode,
     pub queue_length: usize,
     pub position: Duration,
+    pub output_device_id: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OutputDeviceInfo {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
 }
 
 /// Thread-safe audio player handle
@@ -61,6 +80,7 @@ impl AudioPlayerHandle {
             play_mode: PlayMode::Sequential,
             queue_length: 0,
             position: Duration::ZERO,
+            output_device_id: None,
         }));
 
         let state_clone = Arc::clone(&state);
@@ -170,6 +190,42 @@ impl AudioPlayerHandle {
             .map_err(|e| anyhow!("Failed to send clear queue command: {}", e))
     }
 
+    pub fn get_queue(&self) -> Result<Vec<Track>> {
+        let (response_tx, response_rx) = bounded(1);
+        self.command_tx
+            .send(PlayerCommand::GetQueue { response_tx })
+            .map_err(|e| anyhow!("Failed to send get queue command: {e}"))?;
+
+        response_rx
+            .recv()
+            .map_err(|e| anyhow!("Failed to receive queue response: {e}"))
+    }
+
+    pub fn list_output_devices(&self) -> Result<Vec<OutputDeviceInfo>> {
+        let (response_tx, response_rx) = bounded(1);
+        self.command_tx
+            .send(PlayerCommand::ListOutputDevices { response_tx })
+            .map_err(|e| anyhow!("Failed to send list output devices command: {e}"))?;
+
+        response_rx
+            .recv()
+            .map_err(|e| anyhow!("Failed to receive output device list: {e}"))?
+    }
+
+    pub fn set_output_device(&self, device_id: Option<String>) -> Result<()> {
+        let (response_tx, response_rx) = bounded(1);
+        self.command_tx
+            .send(PlayerCommand::SetOutputDevice {
+                device_id,
+                response_tx,
+            })
+            .map_err(|e| anyhow!("Failed to send set output device command: {e}"))?;
+
+        response_rx
+            .recv()
+            .map_err(|e| anyhow!("Failed to receive set output device result: {e}"))?
+    }
+
     /// Get current state
     pub fn state(&self) -> PlayerState {
         self.state.lock().clone()
@@ -199,6 +255,10 @@ impl AudioPlayerHandle {
     pub fn position(&self) -> Duration {
         self.state.lock().position
     }
+
+    pub fn output_device_id(&self) -> Option<String> {
+        self.state.lock().output_device_id.clone()
+    }
 }
 
 /// Run the audio player in a dedicated thread
@@ -209,8 +269,9 @@ fn run_player_thread(
     let mut device_sink = DeviceSinkBuilder::open_default_sink()
         .map_err(|e| anyhow!("Failed to open default audio output device: {e}"))?;
     device_sink.log_on_drop(false);
+    state.lock().output_device_id = None;
 
-    let player = Player::connect_new(device_sink.mixer());
+    let mut player = Player::connect_new(device_sink.mixer());
     let mut queue = PlayQueue::new();
     let mut volume = 1.0f32;
     let mut position_tracker = PositionTracker::new();
@@ -413,6 +474,130 @@ fn run_player_thread(
                     state.lock().queue_length = 0;
                     info!("Queue cleared");
                 }
+                PlayerCommand::GetQueue { response_tx } => {
+                    let _ = response_tx.send(queue.tracks().to_vec());
+                }
+                PlayerCommand::ListOutputDevices { response_tx } => {
+                    let host = cpal::default_host();
+                    let default_name = host
+                        .default_output_device()
+                        .and_then(|d| d.name().ok())
+                        .map(|name| name.trim().to_string());
+
+                    let mut devices = Vec::new();
+                    match host.output_devices() {
+                        Ok(iter) => {
+                            for device in iter {
+                                let Ok(name) = device.name() else {
+                                    continue;
+                                };
+                                let trimmed = name.trim().to_string();
+                                if trimmed.is_empty() {
+                                    continue;
+                                }
+                                let is_default = default_name
+                                    .as_ref()
+                                    .map(|d| d == &trimmed)
+                                    .unwrap_or(false);
+
+                                devices.push(OutputDeviceInfo {
+                                    id: trimmed.clone(),
+                                    name: trimmed,
+                                    is_default,
+                                });
+                            }
+
+                            devices.sort_by(|a, b| {
+                                b.is_default
+                                    .cmp(&a.is_default)
+                                    .then_with(|| a.name.cmp(&b.name))
+                            });
+                            let _ = response_tx.send(Ok(devices));
+                        }
+                        Err(err) => {
+                            let _ = response_tx
+                                .send(Err(anyhow!("Failed to enumerate output devices: {err}")));
+                        }
+                    }
+                }
+                PlayerCommand::SetOutputDevice {
+                    device_id,
+                    response_tx,
+                } => {
+                    let next_sink = match device_id.as_deref() {
+                        None => DeviceSinkBuilder::open_default_sink()
+                            .map(|sink| (None, sink))
+                            .map_err(|e| anyhow!("Failed to open default output device: {e}")),
+                        Some(id) if id.eq_ignore_ascii_case("default") => {
+                            DeviceSinkBuilder::open_default_sink()
+                                .map(|sink| (None, sink))
+                                .map_err(|e| anyhow!("Failed to open default output device: {e}"))
+                        }
+                        Some(id) => {
+                            let requested = id.trim();
+                            if requested.is_empty() {
+                                DeviceSinkBuilder::open_default_sink()
+                                    .map(|sink| (None, sink))
+                                    .map_err(|e| {
+                                        anyhow!("Failed to open default output device: {e}")
+                                    })
+                            } else {
+                                let host = cpal::default_host();
+                                let mut devices = host
+                                    .output_devices()
+                                    .context("Failed to enumerate output devices")?;
+                                let device = devices
+                                    .find(|d| d.name().map(|n| n == requested).unwrap_or(false))
+                                    .with_context(|| {
+                                        format!("Output device not found: {requested}")
+                                    })?;
+
+                                let builder =
+                                    DeviceSinkBuilder::from_device(device).map_err(|e| {
+                                        anyhow!("Failed to open output device '{requested}': {e}")
+                                    })?;
+                                builder
+                                    .open_sink_or_fallback()
+                                    .map(|sink| (Some(requested.to_string()), sink))
+                                    .map_err(|e| anyhow!(
+                                        "Failed to start stream for output device '{requested}': {e}"
+                                    ))
+                            }
+                        }
+                    };
+
+                    match next_sink {
+                        Ok((selected_id, mut new_sink)) => {
+                            new_sink.log_on_drop(false);
+                            player.stop();
+                            player.clear();
+                            position_tracker.stop();
+
+                            device_sink = new_sink;
+                            player = Player::connect_new(device_sink.mixer());
+                            player.set_volume(volume);
+                            state.lock().output_device_id = selected_id.clone();
+
+                            update_state(
+                                &state,
+                                None,
+                                PlaybackState::Stopped,
+                                volume,
+                                &queue,
+                                &position_tracker,
+                            );
+                            info!(
+                                "Switched output device to {}",
+                                selected_id.as_deref().unwrap_or("(system default)")
+                            );
+                            let _ = response_tx.send(Ok(()));
+                        }
+                        Err(err) => {
+                            error!("Failed to switch output device: {err}");
+                            let _ = response_tx.send(Err(err));
+                        }
+                    }
+                }
             },
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                 // Normal timeout, continue loop
@@ -479,6 +664,13 @@ fn play_track_internal(
     enriched_track.duration = duration_secs.min(u64::from(u32::MAX)) as u32;
     enriched_track.sample_rate = sample_rate;
     enriched_track.channels = channels;
+
+    if queue.is_empty() {
+        queue.set_tracks(vec![enriched_track.clone()]);
+    } else if !queue.select_track_by_id(enriched_track.id) {
+        queue.add_track(enriched_track.clone());
+        let _ = queue.select_track_by_id(enriched_track.id);
+    }
 
     // Update state
     update_state(
@@ -707,6 +899,7 @@ mod tests {
             play_mode: PlayMode::Sequential,
             queue_length: 0,
             position: Duration::ZERO,
+            output_device_id: None,
         }));
         let queue = PlayQueue::new();
 

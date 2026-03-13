@@ -2729,6 +2729,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "cpal",
  "crossbeam-channel",
  "dirs",
  "env_logger",

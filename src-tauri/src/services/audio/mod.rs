@@ -8,6 +8,7 @@ pub mod play_queue;
 pub mod player;
 
 pub use audio_player_thread::AudioPlayerHandle;
+pub use audio_player_thread::OutputDeviceInfo;
 pub use play_queue::PlayMode;
 
 use crate::models::{playback_state::PlaybackState, track::Track};
@@ -120,10 +121,22 @@ impl AudioService {
     }
 
     /// Get the queue tracks
-    pub fn get_queue(&self) -> Vec<Track> {
-        // This would require adding a get_queue method to AudioPlayerHandle
-        // For now, return empty vec
-        Vec::new()
+    pub fn get_queue(&self) -> Result<Vec<Track>, String> {
+        self.player.get_queue().map_err(|e| e.to_string())
+    }
+
+    pub fn list_output_devices(&self) -> Result<Vec<OutputDeviceInfo>, String> {
+        self.player.list_output_devices().map_err(|e| e.to_string())
+    }
+
+    pub fn set_output_device(&self, device_id: Option<String>) -> Result<(), String> {
+        self.player
+            .set_output_device(device_id)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn output_device_id(&self) -> Option<String> {
+        self.player.output_device_id()
     }
 
     /// Get current position

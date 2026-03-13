@@ -128,6 +128,9 @@ pub fn run() {
             crate::api::audio::add_to_queue,
             crate::api::audio::clear_queue,
             crate::api::audio::get_position,
+            crate::api::audio::get_output_devices,
+            crate::api::audio::set_output_device,
+            crate::api::audio::get_output_device,
             // Library commands
             crate::api::library::scan_directory,
             crate::api::library::get_tracks,

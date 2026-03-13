@@ -69,6 +69,7 @@ realfft = "3.5.0"
 rusqlite = { version = "0.38.0", features = ["bundled"] }
 rand = "0.10.0"
 glib = "0.22.2"
+cpal = "0.15"
 
 [features]
 default = ["custom-protocol"]
