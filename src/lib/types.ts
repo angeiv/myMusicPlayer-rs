@@ -79,3 +79,19 @@ export type LibraryView =
   | 'playlistDetail';
 
 export type AppSection = 'home' | 'library' | 'settings';
+
+export type ThemeOption = 'system' | 'light' | 'dark';
+
+export interface AppConfig {
+  library_paths: string[];
+  default_volume: number;
+  auto_scan: boolean;
+  theme: ThemeOption;
+  output_device_id?: string | null;
+}
+
+export interface OutputDeviceInfo {
+  id: string;
+  name: string;
+  is_default: boolean;
+}

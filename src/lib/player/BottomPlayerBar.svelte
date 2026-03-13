@@ -1,18 +1,16 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import type { PlaybackStateInfo, Track } from '../types';
+  import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
   import { isTauri } from '../utils/env';
   import { getMockTracks } from '../mocks/library';
 
   const REFRESH_INTERVAL = 1000;
 
-  type OutputDevice = { id: string; name: string; description: string };
-
-  const devicePresets: OutputDevice[] = [
-    { id: 'system-default', name: '系统默认输出', description: '跟随当前系统设置' },
-    { id: 'scarlett-2i2', name: 'Scarlett 2i2', description: 'USB 24-bit / 96 kHz' },
-    { id: 'airpods-pro', name: 'AirPods Pro', description: '蓝牙 • 电量 80%' },
+  const mockDevices: OutputDeviceInfo[] = [
+    { id: 'default', name: 'System default', is_default: true },
+    { id: 'scarlett-2i2', name: 'Scarlett 2i2', is_default: false },
+    { id: 'airpods-pro', name: 'AirPods Pro', is_default: false },
   ];
 
   const fallbackLyrics = `Float softly through the midnight air
@@ -35,7 +33,8 @@ We are satellites tonight.`;
   let showDevicePicker = false;
   let showLyricsPanel = false;
   let queueTracks: Track[] = isTauri ? [] : getMockTracks();
-  let selectedDeviceId = devicePresets[0]?.id ?? 'system-default';
+  let outputDevices: OutputDeviceInfo[] = isTauri ? [] : mockDevices;
+  let selectedDeviceId = 'default';
   let lastUpdateTimer: ReturnType<typeof setInterval> | null = null;
 
   const repeatModes: Array<'off' | 'all' | 'one'> = ['off', 'all', 'one'];
@@ -49,10 +48,16 @@ We are satellites tonight.`;
 
   onMount(async () => {
     if (isTauri) {
-      await refreshState();
+      await Promise.all([
+        refreshState(),
+        loadPlayMode(),
+        loadOutputDevices(),
+      ]);
       lastUpdateTimer = setInterval(refreshState, REFRESH_INTERVAL);
     } else {
       initializeMockPlayback();
+      outputDevices = mockDevices;
+      selectedDeviceId = outputDevices[0]?.id ?? 'default';
       lastUpdateTimer = setInterval(() => {
         if (playbackState.state !== 'playing') {
           return;
@@ -70,6 +75,98 @@ We are satellites tonight.`;
       }, REFRESH_INTERVAL);
     }
   });
+
+  async function loadOutputDevices() {
+    if (!isTauri) {
+      outputDevices = mockDevices;
+      return;
+    }
+
+    try {
+      const [devices, current] = await Promise.all([
+        invoke<OutputDeviceInfo[]>('get_output_devices'),
+        invoke<string | null>('get_output_device'),
+      ]);
+      outputDevices = (devices ?? []).filter((device) => !device.is_default);
+      selectedDeviceId = current ?? 'default';
+    } catch (error) {
+      console.error('Failed to load output devices:', error);
+      outputDevices = [];
+      selectedDeviceId = 'default';
+    }
+  }
+
+  function applyBackendPlayMode(mode: unknown) {
+    if (mode === 'random') {
+      shuffleEnabled = true;
+      repeatMode = 'off';
+      return;
+    }
+    shuffleEnabled = false;
+    if (mode === 'single_repeat') {
+      repeatMode = 'one';
+      return;
+    }
+    if (mode === 'list_repeat') {
+      repeatMode = 'all';
+      return;
+    }
+    repeatMode = 'off';
+  }
+
+  async function loadPlayMode() {
+    if (!isTauri) {
+      return;
+    }
+
+    try {
+      const mode = await invoke<string>('get_play_mode');
+      applyBackendPlayMode(mode);
+    } catch (error) {
+      console.error('Failed to load play mode:', error);
+    }
+  }
+
+  function resolvePlayMode() {
+    if (shuffleEnabled) {
+      return 'random';
+    }
+
+    if (repeatMode === 'one') {
+      return 'single_repeat';
+    }
+
+    if (repeatMode === 'all') {
+      return 'list_repeat';
+    }
+
+    return 'sequential';
+  }
+
+  async function syncPlayMode() {
+    if (!isTauri) {
+      return;
+    }
+
+    try {
+      await invoke('set_play_mode', { mode: resolvePlayMode() });
+    } catch (error) {
+      console.error('Failed to set play mode:', error);
+    }
+  }
+
+  async function refreshQueue() {
+    if (!isTauri) {
+      return;
+    }
+
+    try {
+      queueTracks = (await invoke<Track[]>('get_queue')) ?? [];
+    } catch (error) {
+      console.error('Failed to load queue:', error);
+      queueTracks = [];
+    }
+  }
 
   onDestroy(() => {
     if (lastUpdateTimer) {
@@ -300,12 +397,79 @@ We are satellites tonight.`;
     const index = repeatModes.indexOf(repeatMode);
     const nextIndex = index === -1 ? 0 : (index + 1) % repeatModes.length;
     repeatMode = repeatModes[nextIndex]!;
+    if (repeatMode !== 'off') {
+      shuffleEnabled = false;
+    }
+    void syncPlayMode();
+  }
+
+  async function toggleShuffle() {
+    shuffleEnabled = !shuffleEnabled;
+    if (shuffleEnabled) {
+      repeatMode = 'off';
+    }
+    await syncPlayMode();
+  }
+
+  async function handlePrevious() {
+    if (!isTauri) {
+      if (queueTracks.length === 0 || !currentTrack) {
+        return;
+      }
+      const index = queueTracks.findIndex((t) => t.id === currentTrack?.id);
+      const prev = index > 0 ? queueTracks[index - 1] : queueTracks[0];
+      if (prev) {
+        handleQueuePlay(prev);
+      }
+      return;
+    }
+
+    try {
+      await invoke('previous_track');
+      await refreshState();
+      if (showQueue) {
+        await refreshQueue();
+      }
+    } catch (error) {
+      console.error('Failed to play previous track:', error);
+    }
+  }
+
+  async function handleNext() {
+    if (!isTauri) {
+      if (queueTracks.length === 0 || !currentTrack) {
+        return;
+      }
+      const index = queueTracks.findIndex((t) => t.id === currentTrack?.id);
+      const next = index >= 0 && index + 1 < queueTracks.length ? queueTracks[index + 1] : queueTracks[0];
+      if (next) {
+        handleQueuePlay(next);
+      }
+      return;
+    }
+
+    try {
+      await invoke('next_track');
+      await refreshState();
+      if (showQueue) {
+        await refreshQueue();
+      }
+    } catch (error) {
+      console.error('Failed to play next track:', error);
+    }
   }
 
   function handleQueuePlay(track: Track) {
     if (!track) return;
     if (isTauri) {
-      console.warn('Queue interactions are not wired in native mode yet.');
+      void (async () => {
+        try {
+          await invoke('play', { track });
+          await refreshState();
+        } catch (error) {
+          console.error('Failed to play queue track:', error);
+        }
+      })();
       return;
     }
     currentTrack = track;
@@ -321,7 +485,14 @@ We are satellites tonight.`;
   async function handleSelectDevice(deviceId: string) {
     selectedDeviceId = deviceId;
     if (isTauri) {
-      console.warn('Device switching is not available in native mode yet.');
+      try {
+        await invoke('set_output_device', {
+          deviceId: deviceId === 'default' ? null : deviceId,
+        });
+        await refreshState();
+      } catch (error) {
+        console.error('Failed to switch output device:', error);
+      }
       return;
     }
   }
@@ -340,6 +511,9 @@ We are satellites tonight.`;
     const next = !showQueue;
     closeTransientPopovers(next ? 'queue' : undefined);
     showQueue = next;
+    if (showQueue) {
+      void refreshQueue();
+    }
   }
 
   function toggleVolumePopover() {
@@ -459,16 +633,16 @@ We are satellites tonight.`;
     <div class="controls">
       <button
         class:active={shuffleEnabled}
-        on:click={() => (shuffleEnabled = !shuffleEnabled)}
+        on:click={toggleShuffle}
         title="Toggle shuffle"
       >
         🔀
       </button>
-      <button class="ghost" disabled title="Previous track coming soon">⏮</button>
+      <button class="ghost" on:click={handlePrevious} title="Previous track">⏮</button>
       <button class={`play ${playingClass}`} on:click={togglePlayPause} aria-label="Play or pause">
         {isPlaying ? '⏸' : '▶'}
       </button>
-      <button class="ghost" disabled title="Next track coming soon">⏭</button>
+      <button class="ghost" on:click={handleNext} title="Next track">⏭</button>
       <button
         class:active={repeatMode !== 'off'}
         on:click={nextRepeatMode}
@@ -530,7 +704,17 @@ We are satellites tonight.`;
         <div class="popover device-popover">
           <p class="heading">输出设备</p>
           <ul>
-            {#each devicePresets as device}
+            <li>
+              <button
+                type="button"
+                class:selected={selectedDeviceId === 'default'}
+                on:click={() => handleSelectDevice('default')}
+              >
+                <span class="device-name">System default</span>
+                <span class="device-desc">Use the OS default output</span>
+              </button>
+            </li>
+            {#each outputDevices as device}
               <li>
                 <button
                   type="button"
@@ -538,7 +722,7 @@ We are satellites tonight.`;
                   on:click={() => handleSelectDevice(device.id)}
                 >
                   <span class="device-name">{device.name}</span>
-                  <span class="device-desc">{device.description}</span>
+                  <span class="device-desc">{device.is_default ? 'Default device' : 'Output device'}</span>
                 </button>
               </li>
             {/each}
