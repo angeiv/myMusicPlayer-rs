@@ -21,6 +21,7 @@ We are satellites tonight.`;
   let currentTrack: Track | null = null;
   let playbackState: PlaybackStateInfo = { state: 'stopped' };
   let volume = 1.0;
+  let lastAudibleVolume = 0.68;
   let progress = 0;
   let duration = 0;
   let isSeeking = false;
@@ -42,6 +43,7 @@ We are satellites tonight.`;
   const volumePercentage = () => Math.round(volume * 100);
 
   $: isPlaying = playbackState.state === 'playing';
+  $: isMuted = volume <= 0;
   $: activeLyrics = (currentTrack?.lyrics?.trim() ?? fallbackLyrics).split('\n');
   $: remainingTime = duration > 0 ? Math.max(duration - progress, 0) : 0;
   $: progressPercent = duration ? Math.min(Math.max((progress / duration) * 100, 0), 100) : 0;
@@ -87,7 +89,7 @@ We are satellites tonight.`;
         invoke<OutputDeviceInfo[]>('get_output_devices'),
         invoke<string | null>('get_output_device'),
       ]);
-      outputDevices = (devices ?? []).filter((device) => !device.is_default);
+      outputDevices = (devices ?? []).filter((device: OutputDeviceInfo) => !device.is_default);
       selectedDeviceId = current ?? 'default';
     } catch (error) {
       console.error('Failed to load output devices:', error);
@@ -189,6 +191,9 @@ We are satellites tonight.`;
       playbackState = normalizePlaybackState(rawState);
       currentTrack = track as Track | null;
       volume = typeof currentVolume === 'number' ? currentVolume : volume;
+      if (volume > 0) {
+        lastAudibleVolume = volume;
+      }
 
       if (playbackState.state === 'error') {
         uiError = playbackState.message;
@@ -373,6 +378,9 @@ We are satellites tonight.`;
     const target = event.target as HTMLInputElement;
     const value = Number(target.value) / 100;
     volume = value;
+    if (value > 0) {
+      lastAudibleVolume = value;
+    }
     if (!isTauri) {
       return;
     }
@@ -381,6 +389,25 @@ We are satellites tonight.`;
       await invoke('set_volume', { volume: value });
     } catch (error) {
       console.error('Failed to set volume:', error);
+    }
+  }
+
+  async function toggleMute() {
+    if (volume > 0) {
+      lastAudibleVolume = volume;
+      volume = 0;
+    } else {
+      volume = lastAudibleVolume > 0 ? lastAudibleVolume : 0.68;
+    }
+
+    if (!isTauri) {
+      return;
+    }
+
+    try {
+      await invoke('set_volume', { volume });
+    } catch (error) {
+      console.error('Failed to toggle mute:', error);
     }
   }
 
@@ -559,6 +586,10 @@ We are satellites tonight.`;
       volume = 0.68;
     }
 
+    if (volume > 0) {
+      lastAudibleVolume = volume;
+    }
+
     if (currentTrack) {
       const total = duration || currentTrack.duration;
       playbackState = {
@@ -684,6 +715,9 @@ We are satellites tonight.`;
       {/if}
     </div>
 
+    <button class:active={isMuted} on:click={toggleMute} aria-pressed={isMuted} title="Mute">
+      {isMuted ? '🔇' : '🔊'}
+    </button>
     <div class="popover-group">
       <button on:click={toggleVolumePopover} aria-expanded={showVolumeSlider}>
         {volumePercentage() === 0 ? '🔇' : volumePercentage() < 50 ? '🔈' : '🔊'}
