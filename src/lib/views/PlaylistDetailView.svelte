@@ -70,8 +70,14 @@
       tracks = resolved.filter((track): track is Track => !!track);
     } catch (err) {
       console.error('Failed to load playlist detail:', err);
-      loadFromMock();
-      error = isTauri ? 'Unable to load playlist.' : '';
+      if (!isTauri) {
+        loadFromMock();
+        error = '';
+      } else {
+        playlist = null;
+        tracks = [];
+        error = 'Unable to load playlist.';
+      }
     } finally {
       if (lastRequestedId === id) {
         loading = false;

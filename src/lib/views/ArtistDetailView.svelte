@@ -73,8 +73,15 @@
       albums = albumsData ?? [];
     } catch (err) {
       console.error('Failed to load artist detail:', err);
-      loadFromMock();
-      error = isTauri ? 'Unable to load artist information.' : '';
+      if (!isTauri) {
+        loadFromMock();
+        error = '';
+      } else {
+        artist = null;
+        tracks = [];
+        albums = [];
+        error = 'Unable to load artist information.';
+      }
     } finally {
       if (lastRequestedId === id) {
         loading = false;

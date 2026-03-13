@@ -16,7 +16,14 @@
   import SettingsView from "./lib/views/SettingsView.svelte";
   import PlaylistDetailView from "./lib/views/PlaylistDetailView.svelte";
   import { hashPath, navigate, normalizeHashPath } from "./lib/stores/router";
-  import type { AppSection, LibraryView } from "./lib/types";
+  import type { AppSection, LibraryView, Playlist, SearchResults, Track, Album, Artist } from "./lib/types";
+  import { isTauri } from "./lib/utils/env";
+  import {
+    addMockPlaylist,
+    getMockLibraryOverview,
+    getMockPlaylists,
+    searchMockLibrary,
+  } from "./lib/mocks/library";
 
   type RouteMatch =
     | { name: "home" }
@@ -35,6 +42,21 @@
   let activePlaylistId: string | null = null;
   let searchInput = "";
   let currentPath = "/";
+
+  let tracks: Track[] = [];
+  let albums: Album[] = [];
+  let artists: Artist[] = [];
+  let playlists: Playlist[] = [];
+
+  let isLibraryLoading = false;
+  let isSearching = false;
+  let searchResults: SearchResults | null = null;
+
+  $: counts = {
+    songs: tracks.length,
+    albums: albums.length,
+    artists: artists.length,
+  };
 
   $: currentPath = normalizeHashPath($hashPath);
   $: route = matchRoute(currentPath);
@@ -195,9 +217,127 @@
   }
 
   onMount(async () => {
-    await invoke("greet", { name: "from svelte" });
-    await getCurrentWindow().show();
+    if (isTauri) {
+      await invoke("greet", { name: "from svelte" });
+      await getCurrentWindow().show();
+    }
+
+    await Promise.all([
+      loadLibrary(),
+      loadPlaylists(),
+    ]);
   });
+
+  function normalizeSearchResults(raw: unknown): SearchResults {
+    if (Array.isArray(raw) && raw.length === 3) {
+      const [t, a, r] = raw as [Track[], Album[], Artist[]];
+      return { tracks: t ?? [], albums: a ?? [], artists: r ?? [] };
+    }
+
+    if (raw && typeof raw === 'object') {
+      const data = raw as Partial<SearchResults>;
+      return {
+        tracks: data.tracks ?? [],
+        albums: data.albums ?? [],
+        artists: data.artists ?? [],
+      };
+    }
+
+    return { tracks: [], albums: [], artists: [] };
+  }
+
+  async function loadLibrary() {
+    isLibraryLoading = true;
+    try {
+      if (!isTauri) {
+        const overview = getMockLibraryOverview();
+        tracks = overview.tracks;
+        albums = overview.albums;
+        artists = overview.artists;
+        return;
+      }
+
+      const [t, a, r] = await Promise.all([
+        invoke<Track[]>("get_tracks"),
+        invoke<Album[]>("get_albums"),
+        invoke<Artist[]>("get_artists"),
+      ]);
+      tracks = t ?? [];
+      albums = a ?? [];
+      artists = r ?? [];
+    } catch (error) {
+      console.error('Failed to load library:', error);
+      tracks = [];
+      albums = [];
+      artists = [];
+    } finally {
+      isLibraryLoading = false;
+    }
+  }
+
+  async function loadPlaylists() {
+    try {
+      if (!isTauri) {
+        playlists = getMockPlaylists();
+        return;
+      }
+      playlists = (await invoke<Playlist[]>("get_playlists")) ?? [];
+    } catch (error) {
+      console.error('Failed to load playlists:', error);
+      playlists = [];
+    }
+  }
+
+  async function runSearch(term: string) {
+    const trimmed = term.trim();
+    if (!trimmed) {
+      searchResults = null;
+      isSearching = false;
+      return;
+    }
+
+    isSearching = true;
+    try {
+      if (!isTauri) {
+        searchResults = searchMockLibrary(trimmed);
+        return;
+      }
+
+      const raw = await invoke<unknown>("search", { query: trimmed });
+      searchResults = normalizeSearchResults(raw);
+    } catch (error) {
+      console.error('Search failed:', error);
+      searchResults = { tracks: [], albums: [], artists: [] };
+    } finally {
+      isSearching = false;
+    }
+  }
+
+  $: if (route.name === 'search') {
+    runSearch(searchInput);
+  } else if (searchResults) {
+    searchResults = null;
+    isSearching = false;
+  }
+
+  async function handleCreatePlaylist() {
+    if (!isTauri) {
+      addMockPlaylist('New playlist');
+      playlists = getMockPlaylists();
+      return;
+    }
+
+    try {
+      const name = window.prompt('Playlist name', 'New playlist');
+      const trimmed = name?.trim();
+      if (!trimmed) return;
+      await invoke('create_playlist', { name: trimmed });
+      await loadPlaylists();
+    } catch (error) {
+      console.error('Failed to create playlist:', error);
+      alert('Failed to create playlist.');
+    }
+  }
 </script>
 
 <div class="app-container">
@@ -207,27 +347,36 @@
     {activeSection}
     {activeLibraryView}
     {activePlaylistId}
+    {playlists}
+    {counts}
     on:navigate={handleSidebarNavigate}
     on:selectPlaylist={handleSelectPlaylist}
+    on:createPlaylist={handleCreatePlaylist}
   />
 
   <main class="main-content">
     {#if route.name === "home"}
-      <HomeView />
+      <HomeView {tracks} {albums} {artists} {playlists} />
     {:else if route.name === "songs"}
-      <SongsView searchTerm={searchInput} />
+      <SongsView {tracks} {isLibraryLoading} searchTerm={searchInput} />
     {:else if route.name === "albums"}
-      <AlbumsView on:openAlbum={handleOpenAlbum} />
+      <AlbumsView {albums} {isLibraryLoading} on:openAlbum={handleOpenAlbum} />
     {:else if route.name === "albumDetail"}
       <AlbumDetailView albumId={route.id} />
     {:else if route.name === "artists"}
-      <ArtistsView on:openArtist={handleOpenArtist} />
+      <ArtistsView {artists} {isLibraryLoading} on:openArtist={handleOpenArtist} />
     {:else if route.name === "artistDetail"}
       <ArtistDetailView artistId={route.id} on:openAlbum={handleOpenAlbum} />
     {:else if route.name === "search"}
-      <SearchResultsView searchTerm={searchInput} on:openAlbum={handleOpenAlbum} on:openArtist={handleOpenArtist} />
+      <SearchResultsView
+        searchTerm={searchInput}
+        {searchResults}
+        {isSearching}
+        on:openAlbum={handleOpenAlbum}
+        on:openArtist={handleOpenArtist}
+      />
     {:else if route.name === "settings"}
-      <SettingsView />
+      <SettingsView on:refreshLibrary={loadLibrary} on:refreshPlaylists={loadPlaylists} />
     {:else if route.name === "playlistDetail"}
       <PlaylistDetailView playlistId={route.id} />
     {/if}
@@ -261,6 +410,7 @@
   .main-content {
     grid-area: main;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 20px;
   }
 
