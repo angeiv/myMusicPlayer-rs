@@ -6,9 +6,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Play mode for the queue
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PlayMode {
     /// Play tracks in order
+    #[default]
     Sequential,
     /// Play tracks in random order
     Random,
@@ -16,12 +17,6 @@ pub enum PlayMode {
     SingleRepeat,
     /// Repeat the entire queue
     ListRepeat,
-}
-
-impl Default for PlayMode {
-    fn default() -> Self {
-        Self::Sequential
-    }
 }
 
 /// Play queue for managing track playback order
@@ -94,10 +89,10 @@ impl PlayQueue {
         if index <= self.tracks.len() {
             self.tracks.insert(index, track);
             // Adjust current index if needed
-            if let Some(current) = self.current_index {
-                if index <= current {
-                    self.current_index = Some(current + 1);
-                }
+            if let Some(current) = self.current_index
+                && index <= current
+            {
+                self.current_index = Some(current + 1);
             }
             self.regenerate_shuffle();
         }
@@ -151,8 +146,7 @@ impl PlayQueue {
 
     /// Get the current track
     pub fn current_track(&self) -> Option<&Track> {
-        self.current_index
-            .and_then(|index| self.tracks.get(index))
+        self.current_index.and_then(|index| self.tracks.get(index))
     }
 
     /// Get the current track index
@@ -217,7 +211,8 @@ impl PlayQueue {
             }
             PlayMode::Random => {
                 // Find current position in shuffled indices
-                if let Some(shuffle_pos) = self.shuffled_indices.iter().position(|&i| i == current) {
+                if let Some(shuffle_pos) = self.shuffled_indices.iter().position(|&i| i == current)
+                {
                     if shuffle_pos + 1 < self.shuffled_indices.len() {
                         self.current_index = Some(self.shuffled_indices[shuffle_pos + 1]);
                     } else {
@@ -254,11 +249,11 @@ impl PlayQueue {
         }
 
         // Try to get from history first
-        if let Some(prev_index) = self.history.pop() {
-            if prev_index < self.tracks.len() {
-                self.current_index = Some(prev_index);
-                return self.current_track();
-            }
+        if let Some(prev_index) = self.history.pop()
+            && prev_index < self.tracks.len()
+        {
+            self.current_index = Some(prev_index);
+            return self.current_track();
         }
 
         // If no history, move to previous track based on mode
@@ -274,10 +269,10 @@ impl PlayQueue {
             }
             PlayMode::Random => {
                 // In random mode without history, just go to a random track
-                if let Some(shuffle_pos) = self.shuffled_indices.iter().position(|&i| i == current) {
-                    if shuffle_pos > 0 {
-                        self.current_index = Some(self.shuffled_indices[shuffle_pos - 1]);
-                    }
+                if let Some(shuffle_pos) = self.shuffled_indices.iter().position(|&i| i == current)
+                    && shuffle_pos > 0
+                {
+                    self.current_index = Some(self.shuffled_indices[shuffle_pos - 1]);
                 }
             }
             PlayMode::ListRepeat => {
@@ -355,7 +350,7 @@ impl PlayQueue {
             return false;
         }
 
-        !self.history.is_empty() || self.current_index.map_or(false, |i| i > 0)
+        !self.history.is_empty() || self.current_index.is_some_and(|i| i > 0)
     }
 }
 

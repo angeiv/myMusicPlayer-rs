@@ -37,7 +37,7 @@ impl AudioAnalyzer {
         let mut real_planner = RealFftPlanner::<f32>::new();
         let r2c = real_planner.plan_fft_forward(fft_size);
 
-        let analyzer = Self {
+        Self {
             sample_rate,
             buffer_size,
             fft_size,
@@ -50,9 +50,7 @@ impl AudioAnalyzer {
             waveform_data: vec![0.0; buffer_size],
             smoothing_factor: 0.8,
             previous_spectrum: vec![0.0; fft_size / 2],
-        };
-
-        analyzer
+        }
     }
 
     /// Process audio samples and update analysis data

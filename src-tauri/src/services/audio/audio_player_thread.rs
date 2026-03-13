@@ -3,19 +3,19 @@
 use super::decoder::decode_audio;
 use super::play_queue::{PlayMode, PlayQueue};
 use crate::models::{playback_state::PlaybackState, track::Track};
-use anyhow::{anyhow, Result};
-use crossbeam_channel::{bounded, Receiver, Sender};
+use anyhow::{Result, anyhow};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use log::{error, info, warn};
+use parking_lot::Mutex;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use parking_lot::Mutex;
 
 /// Commands that can be sent to the audio player thread
 #[derive(Debug)]
 enum PlayerCommand {
-    Play(Track),
+    Play(Box<Track>),
     Pause,
     Resume,
     Stop,
@@ -75,7 +75,7 @@ impl AudioPlayerHandle {
     /// Play a track
     pub fn play(&self, track: &Track) -> Result<()> {
         self.command_tx
-            .send(PlayerCommand::Play(track.clone()))
+            .send(PlayerCommand::Play(Box::new(track.clone())))
             .map_err(|e| anyhow!("Failed to send play command: {}", e))
     }
 
@@ -109,8 +109,10 @@ impl AudioPlayerHandle {
 
     /// Set volume
     pub fn set_volume(&self, volume: f32) -> Result<()> {
+        let clamped = volume.clamp(0.0, 1.0);
+        self.state.lock().volume = clamped;
         self.command_tx
-            .send(PlayerCommand::SetVolume(volume))
+            .send(PlayerCommand::SetVolume(clamped))
             .map_err(|e| anyhow!("Failed to send set volume command: {}", e))
     }
 
@@ -205,28 +207,36 @@ fn run_player_thread(
 
     loop {
         // Check if current track ended
-        if let Some(ref s) = sink {
-            if s.empty() && position_tracker.is_playing {
-                info!("Track ended, playing next");
-                if let Some(track) = queue.next() {
-                    let track = track.clone();
-                    if let Err(e) = play_track_internal(
-                        &track,
-                        &stream_handle,
-                        &mut sink,
-                        volume,
-                        &mut position_tracker,
-                        &state,
-                        &mut queue,
-                    ) {
-                        error!("Failed to auto-play next track: {}", e);
-                    }
-                } else {
-                    // No more tracks
-                    sink = None;
-                    position_tracker.stop();
-                    update_state(&state, None, PlaybackState::Stopped, volume, &queue, &position_tracker);
+        if let Some(ref s) = sink
+            && s.empty()
+            && position_tracker.is_playing
+        {
+            info!("Track ended, playing next");
+            if let Some(track) = queue.next() {
+                let track = track.clone();
+                if let Err(e) = play_track_internal(
+                    &track,
+                    &stream_handle,
+                    &mut sink,
+                    volume,
+                    &mut position_tracker,
+                    &state,
+                    &mut queue,
+                ) {
+                    error!("Failed to auto-play next track: {}", e);
                 }
+            } else {
+                // No more tracks
+                sink = None;
+                position_tracker.stop();
+                update_state(
+                    &state,
+                    None,
+                    PlaybackState::Stopped,
+                    volume,
+                    &queue,
+                    &position_tracker,
+                );
             }
         }
 
@@ -246,7 +256,7 @@ fn run_player_thread(
             Ok(cmd) => match cmd {
                 PlayerCommand::Play(track) => {
                     if let Err(e) = play_track_internal(
-                        &track,
+                        track.as_ref(),
                         &stream_handle,
                         &mut sink,
                         volume,
@@ -255,7 +265,14 @@ fn run_player_thread(
                         &mut queue,
                     ) {
                         error!("Failed to play track: {}", e);
-                        update_state(&state, None, PlaybackState::Error(e.to_string()), volume, &queue, &position_tracker);
+                        update_state(
+                            &state,
+                            None,
+                            PlaybackState::Error(e.to_string()),
+                            volume,
+                            &queue,
+                            &position_tracker,
+                        );
                     }
                 }
                 PlayerCommand::Pause => {
@@ -268,7 +285,10 @@ fn run_player_thread(
                         update_state(
                             &state,
                             current,
-                            PlaybackState::Paused { position: pos, duration: dur },
+                            PlaybackState::Paused {
+                                position: pos,
+                                duration: dur,
+                            },
                             volume,
                             &queue,
                             &position_tracker,
@@ -286,7 +306,10 @@ fn run_player_thread(
                         update_state(
                             &state,
                             current,
-                            PlaybackState::Playing { position: pos, duration: dur },
+                            PlaybackState::Playing {
+                                position: pos,
+                                duration: dur,
+                            },
                             volume,
                             &queue,
                             &position_tracker,
@@ -299,7 +322,14 @@ fn run_player_thread(
                         s.stop();
                     }
                     position_tracker.stop();
-                    update_state(&state, None, PlaybackState::Stopped, volume, &queue, &position_tracker);
+                    update_state(
+                        &state,
+                        None,
+                        PlaybackState::Stopped,
+                        volume,
+                        &queue,
+                        &position_tracker,
+                    );
                     info!("Playback stopped");
                 }
                 PlayerCommand::Seek(pos) => {
