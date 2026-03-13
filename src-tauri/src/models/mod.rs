@@ -29,6 +29,8 @@ pub struct Config {
     pub auto_scan: bool,
     /// Theme preference
     pub theme: String,
+
+    pub output_device_id: Option<String>,
 }
 
 impl Default for Config {
@@ -37,7 +39,8 @@ impl Default for Config {
             library_paths: Vec::new(),
             default_volume: 0.7,
             auto_scan: true,
-            theme: "dark".to_string(),
+            theme: "system".to_string(),
+            output_device_id: None,
         }
     }
 }
