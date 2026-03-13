@@ -16,12 +16,14 @@ install:
 
 # Check code quality
 check:
+    mkdir -p dist
     cargo fmt --manifest-path {{backend_dir}}/Cargo.toml -- --check
     cargo clippy --manifest-path {{backend_dir}}/Cargo.toml --all-targets -- -D warnings
     npm --prefix {{frontend_dir}} run check
 
 # Run tests
 test:
+    mkdir -p dist
     cargo test --manifest-path {{backend_dir}}/Cargo.toml --all-features -- --nocapture
 
 # Run tests with coverage (requires cargo-tarpaulin)
