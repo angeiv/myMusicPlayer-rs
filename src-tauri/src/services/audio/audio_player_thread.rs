@@ -1,16 +1,16 @@
 //! Thread-safe audio player using message passing
 
-use super::decoder::decode_audio;
 use super::play_queue::{PlayMode, PlayQueue};
 use crate::models::{playback_state::PlaybackState, track::Track};
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use crossbeam_channel::{Receiver, Sender, bounded};
 use log::{error, info};
 use parking_lot::Mutex;
-use rodio::{OutputStream, OutputStreamHandle, Sink};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::{fs::File, io::BufReader};
 
 /// Commands that can be sent to the audio player thread
 #[derive(Debug)]
@@ -448,30 +448,56 @@ fn play_track_internal(
 ) -> Result<()> {
     info!("Playing track: {} - {}", track.title, track.path.display());
 
-    // Decode the audio
-    let decoded = decode_audio(&track.path)?;
+    if track
+        .path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("ape"))
+        .unwrap_or(false)
+    {
+        return Err(anyhow!(
+            "APE format is currently unsupported. Consider converting '{}' to a supported format.",
+            track.path.display()
+        ));
+    }
+
+    if let Some(old_sink) = sink.take() {
+        old_sink.stop();
+    }
+
+    let file = File::open(&track.path)
+        .with_context(|| format!("Failed to open audio file {}", track.path.display()))?;
+    let decoder = Decoder::new(BufReader::new(file))
+        .map_err(|e| anyhow!("Failed to create decoder for {}: {e}", track.path.display()))?;
+
+    let duration_secs = decoder
+        .total_duration()
+        .filter(|d| !d.is_zero())
+        .map(|d| d.as_secs())
+        .unwrap_or(track.duration as u64);
+    let sample_rate = decoder.sample_rate();
+    let channels = decoder.channels();
 
     // Create new sink
     let new_sink = Sink::try_new(stream_handle)?;
     new_sink.set_volume(volume);
-    new_sink.append(decoded.buffer);
-
-    // Replace old sink
-    if let Some(old_sink) = sink.take() {
-        old_sink.stop();
-    }
+    new_sink.append(decoder);
     *sink = Some(new_sink);
 
     // Update position tracker
-    let duration_secs = decoded.duration.unwrap_or(track.duration as u64);
     let duration = Duration::from_secs(duration_secs);
     position_tracker.stop();
     position_tracker.start(duration);
 
+    let mut enriched_track = track.clone();
+    enriched_track.duration = duration_secs.min(u64::from(u32::MAX)) as u32;
+    enriched_track.sample_rate = sample_rate;
+    enriched_track.channels = channels;
+
     // Update state
     update_state(
         state,
-        Some(track.clone()),
+        Some(enriched_track),
         PlaybackState::Playing {
             position: 0,
             duration: duration_secs,
@@ -518,7 +544,9 @@ fn handle_seek(
             return Err(anyhow!("No active playback to seek"));
         }
 
-        return Err(anyhow!("Cannot seek because the playback sink is unavailable"));
+        return Err(anyhow!(
+            "Cannot seek because the playback sink is unavailable"
+        ));
     };
 
     active_sink
@@ -636,7 +664,10 @@ mod tests {
             clamp_seek_target(Duration::from_secs(30), duration),
             Duration::from_secs(30)
         );
-        assert_eq!(clamp_seek_target(Duration::from_secs(999), duration), duration);
+        assert_eq!(
+            clamp_seek_target(Duration::from_secs(999), duration),
+            duration
+        );
     }
 
     #[test]
@@ -703,7 +734,10 @@ mod tests {
         );
 
         let updated_state = state.lock().clone();
-        assert_eq!(updated_state.current_track.as_ref().map(|track| track.id), Some(current_track.id));
+        assert_eq!(
+            updated_state.current_track.as_ref().map(|track| track.id),
+            Some(current_track.id)
+        );
         assert!(
             updated_state.position >= Duration::from_secs(2)
                 && updated_state.position < Duration::from_secs(2) + Duration::from_millis(50),
