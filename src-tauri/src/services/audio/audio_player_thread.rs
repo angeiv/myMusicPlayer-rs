@@ -5,7 +5,7 @@ use super::play_queue::{PlayMode, PlayQueue};
 use crate::models::{playback_state::PlaybackState, track::Track};
 use anyhow::{Result, anyhow};
 use crossbeam_channel::{Receiver, Sender, bounded};
-use log::{error, info, warn};
+use log::{error, info};
 use parking_lot::Mutex;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 use std::sync::Arc;
@@ -19,7 +19,10 @@ enum PlayerCommand {
     Pause,
     Resume,
     Stop,
-    Seek(Duration),
+    Seek {
+        position: Duration,
+        response_tx: Sender<Result<()>>,
+    },
     SetVolume(f32),
     Next,
     Previous,
@@ -102,9 +105,18 @@ impl AudioPlayerHandle {
 
     /// Seek to a position
     pub fn seek(&self, position: Duration) -> Result<()> {
+        let (response_tx, response_rx) = bounded(1);
+
         self.command_tx
-            .send(PlayerCommand::Seek(position))
-            .map_err(|e| anyhow!("Failed to send seek command: {}", e))
+            .send(PlayerCommand::Seek {
+                position,
+                response_tx,
+            })
+            .map_err(|e| anyhow!("Failed to send seek command: {}", e))?;
+
+        response_rx
+            .recv()
+            .map_err(|e| anyhow!("Failed to receive seek result: {}", e))?
     }
 
     /// Set volume
@@ -332,9 +344,24 @@ fn run_player_thread(
                     );
                     info!("Playback stopped");
                 }
-                PlayerCommand::Seek(pos) => {
-                    warn!("Seeking not fully implemented");
-                    position_tracker.seek(pos);
+                PlayerCommand::Seek {
+                    position,
+                    response_tx,
+                } => {
+                    let seek_result = handle_seek(
+                        &mut sink,
+                        position,
+                        &mut position_tracker,
+                        &state,
+                        &queue,
+                        volume,
+                    );
+
+                    if let Err(ref error) = seek_result {
+                        error!("Failed to seek to {}s: {}", position.as_secs(), error);
+                    }
+
+                    let _ = response_tx.send(seek_result);
                 }
                 PlayerCommand::SetVolume(vol) => {
                     volume = vol.clamp(0.0, 1.0);
@@ -475,6 +502,58 @@ fn update_state(
     s.position = position_tracker.current_position();
 }
 
+fn handle_seek(
+    sink: &mut Option<Sink>,
+    position: Duration,
+    position_tracker: &mut PositionTracker,
+    state: &Arc<Mutex<PlayerState>>,
+    queue: &PlayQueue,
+    volume: f32,
+) -> Result<()> {
+    let target = clamp_seek_target(position, position_tracker.duration());
+    let current = state.lock().current_track.clone();
+
+    let Some(active_sink) = sink.as_ref() else {
+        if current.is_none() {
+            return Err(anyhow!("No active playback to seek"));
+        }
+
+        return Err(anyhow!("Cannot seek because the playback sink is unavailable"));
+    };
+
+    active_sink
+        .try_seek(target)
+        .map_err(|error| anyhow!("Failed to seek playback: {error}"))?;
+
+    position_tracker.seek(target);
+
+    let duration = position_tracker.duration().as_secs();
+    let next_state = if position_tracker.is_playing {
+        PlaybackState::Playing {
+            position: target.as_secs(),
+            duration,
+        }
+    } else {
+        PlaybackState::Paused {
+            position: target.as_secs(),
+            duration,
+        }
+    };
+
+    update_state(state, current, next_state, volume, queue, position_tracker);
+    info!("Playback seeked to {}s", target.as_secs());
+
+    Ok(())
+}
+
+fn clamp_seek_target(position: Duration, duration: Duration) -> Duration {
+    if duration.is_zero() {
+        Duration::ZERO
+    } else {
+        position.min(duration)
+    }
+}
+
 /// Tracks playback position
 #[derive(Debug, Clone)]
 struct PositionTracker {
@@ -541,5 +620,102 @@ impl PositionTracker {
 
     fn duration(&self) -> Duration {
         self.duration
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rodio::buffer::SamplesBuffer;
+
+    #[test]
+    fn clamp_seek_target_caps_to_track_duration() {
+        let duration = Duration::from_secs(180);
+
+        assert_eq!(
+            clamp_seek_target(Duration::from_secs(30), duration),
+            Duration::from_secs(30)
+        );
+        assert_eq!(clamp_seek_target(Duration::from_secs(999), duration), duration);
+    }
+
+    #[test]
+    fn clamp_seek_target_returns_zero_when_duration_is_unknown() {
+        assert_eq!(
+            clamp_seek_target(Duration::from_secs(30), Duration::ZERO),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn position_tracker_seek_preserves_pause_state() {
+        let mut tracker = PositionTracker::new();
+        tracker.start(Duration::from_secs(120));
+        tracker.pause();
+
+        tracker.seek(Duration::from_secs(45));
+
+        assert!(!tracker.is_playing);
+        assert_eq!(tracker.current_position(), Duration::from_secs(45));
+    }
+
+    #[test]
+    fn handle_seek_updates_real_sink_position_and_state() {
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+        let source = SamplesBuffer::new(2, 44_100, vec![0.0f32; 44_100 * 2 * 3]);
+        sink.append(source);
+
+        let mut sink = Some(sink);
+        let mut tracker = PositionTracker::new();
+        tracker.start(Duration::from_secs(3));
+
+        let current_track = Track::default();
+        let state = Arc::new(Mutex::new(PlayerState {
+            current_track: Some(current_track.clone()),
+            playback_state: PlaybackState::Playing {
+                position: 0,
+                duration: 3,
+            },
+            volume: 1.0,
+            play_mode: PlayMode::Sequential,
+            queue_length: 0,
+            position: Duration::ZERO,
+        }));
+        let queue = PlayQueue::new();
+
+        handle_seek(
+            &mut sink,
+            Duration::from_secs(2),
+            &mut tracker,
+            &state,
+            &queue,
+            1.0,
+        )
+        .unwrap();
+
+        let seeked_position = tracker.current_position();
+        assert!(
+            seeked_position >= Duration::from_secs(2)
+                && seeked_position < Duration::from_secs(2) + Duration::from_millis(50),
+            "unexpected seeked position: {:?}",
+            seeked_position
+        );
+
+        let updated_state = state.lock().clone();
+        assert_eq!(updated_state.current_track.as_ref().map(|track| track.id), Some(current_track.id));
+        assert!(
+            updated_state.position >= Duration::from_secs(2)
+                && updated_state.position < Duration::from_secs(2) + Duration::from_millis(50),
+            "unexpected state position: {:?}",
+            updated_state.position
+        );
+        assert_eq!(
+            updated_state.playback_state,
+            PlaybackState::Playing {
+                position: 2,
+                duration: 3,
+            }
+        );
     }
 }
