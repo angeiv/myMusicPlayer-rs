@@ -16,7 +16,7 @@
   import SettingsView from "./lib/views/SettingsView.svelte";
   import PlaylistDetailView from "./lib/views/PlaylistDetailView.svelte";
   import { hashPath, navigate, normalizeHashPath } from "./lib/stores/router";
-  import type { AppSection, LibraryView, Playlist, SearchResults, Track, Album, Artist } from "./lib/types";
+  import type { AppSection, LibraryView, Playlist, SearchResults, Track, Album, Artist, AppConfig, ThemeOption } from "./lib/types";
   import { isTauri } from "./lib/utils/env";
   import {
     addMockPlaylist,
@@ -51,6 +51,65 @@
   let isLibraryLoading = false;
   let isSearching = false;
   let searchResults: SearchResults | null = null;
+
+  function normalizeTheme(raw: unknown): ThemeOption {
+    if (raw === 'light' || raw === 'dark' || raw === 'system') {
+      return raw;
+    }
+    return 'system';
+  }
+
+  function applyTheme(theme: ThemeOption) {
+    const root = document.documentElement;
+    if (theme === 'system') {
+      root.removeAttribute('data-theme');
+    } else {
+      root.setAttribute('data-theme', theme);
+    }
+  }
+
+  async function loadAndApplyConfig() {
+    if (!isTauri) {
+      return;
+    }
+
+    try {
+      const config = await invoke<AppConfig>('get_config');
+      applyTheme(normalizeTheme(config?.theme));
+
+      const deviceId = typeof config?.output_device_id === 'string' ? config.output_device_id : null;
+      if (deviceId) {
+        try {
+          await invoke('set_output_device', { deviceId });
+        } catch (error) {
+          console.warn('Failed to restore output device:', error);
+        }
+      }
+
+      if (typeof config?.default_volume === 'number') {
+        try {
+          await invoke('set_volume', { volume: config.default_volume });
+        } catch (error) {
+          console.warn('Failed to restore default volume:', error);
+        }
+      }
+
+      if (config?.auto_scan && Array.isArray(config?.library_paths) && config.library_paths.length > 0) {
+        isLibraryLoading = true;
+        for (const path of config.library_paths) {
+          try {
+            await invoke('scan_directory', { path });
+          } catch (error) {
+            console.warn('Auto-scan failed for path:', path, error);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load config:', error);
+    } finally {
+      isLibraryLoading = false;
+    }
+  }
 
   $: counts = {
     songs: tracks.length,
@@ -222,10 +281,9 @@
       await getCurrentWindow().show();
     }
 
-    await Promise.all([
-      loadLibrary(),
-      loadPlaylists(),
-    ]);
+    await loadAndApplyConfig();
+
+    await Promise.all([loadLibrary(), loadPlaylists()]);
   });
 
   function normalizeSearchResults(raw: unknown): SearchResults {
@@ -395,8 +453,8 @@
       "sidebar main"
       "player player";
     height: 100vh;
-    background-color: #000;
-    color: #fff;
+    background-color: var(--app-bg);
+    color: var(--app-fg);
   }
 
   :global(header.top-bar) {
