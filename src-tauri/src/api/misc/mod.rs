@@ -4,4 +4,3 @@ use tauri::command;
 pub async fn greet(name: String) -> Result<String, String> {
     Ok(format!("Hello, {}!", name))
 }
-

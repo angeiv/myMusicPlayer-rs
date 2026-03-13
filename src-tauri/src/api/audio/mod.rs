@@ -292,10 +292,7 @@ pub async fn previous_track(state: State<'_, AppState>) -> Result<(), String> {
 
 /// Set the play mode
 #[tauri::command]
-pub async fn set_play_mode(
-    mode: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn set_play_mode(mode: String, state: State<'_, AppState>) -> Result<(), String> {
     use crate::services::audio::PlayMode;
 
     let play_mode = match mode.as_str() {
@@ -336,10 +333,7 @@ pub async fn get_play_mode(state: State<'_, AppState>) -> Result<String, String>
 
 /// Set the play queue
 #[tauri::command]
-pub async fn set_queue(
-    tracks: Vec<Track>,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn set_queue(tracks: Vec<Track>, state: State<'_, AppState>) -> Result<(), String> {
     let audio = state.audio.lock().map_err(|e| {
         error!("Failed to acquire audio lock: {}", e);
         "Failed to access audio service".to_string()
@@ -363,10 +357,7 @@ pub async fn get_queue(state: State<'_, AppState>) -> Result<Vec<Track>, String>
 
 /// Add tracks to the play queue
 #[tauri::command]
-pub async fn add_to_queue(
-    tracks: Vec<Track>,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn add_to_queue(tracks: Vec<Track>, state: State<'_, AppState>) -> Result<(), String> {
     let audio = state.audio.lock().map_err(|e| {
         error!("Failed to acquire audio lock: {}", e);
         "Failed to access audio service".to_string()

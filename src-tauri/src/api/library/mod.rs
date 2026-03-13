@@ -8,6 +8,8 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::models::{Album, Artist, Track};
 
+type LibrarySearchResult = (Vec<Track>, Vec<Album>, Vec<Artist>);
+
 /// Scan a directory for music files and add them to the library
 #[tauri::command]
 pub async fn scan_directory(path: PathBuf, state: State<'_, AppState>) -> Result<usize, String> {
@@ -178,7 +180,7 @@ pub async fn get_albums_by_artist(
 pub async fn search(
     query: String,
     state: State<'_, AppState>,
-) -> Result<(Vec<Track>, Vec<Album>, Vec<Artist>), String> {
+) -> Result<LibrarySearchResult, String> {
     if query.trim().is_empty() {
         return Ok((Vec::new(), Vec::new(), Vec::new()));
     }
