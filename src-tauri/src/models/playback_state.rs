@@ -3,9 +3,10 @@
 use serde::{Deserialize, Serialize};
 
 /// Represents the current playback state
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PlaybackState {
     /// No track is currently playing
+    #[default]
     Stopped,
     /// A track is currently playing
     Playing {
@@ -23,12 +24,6 @@ pub enum PlaybackState {
     },
     /// An error occurred during playback
     Error(String),
-}
-
-impl Default for PlaybackState {
-    fn default() -> Self {
-        Self::Stopped
-    }
 }
 
 impl PlaybackState {

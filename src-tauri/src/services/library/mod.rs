@@ -79,7 +79,7 @@ impl LibraryService {
                     .path()
                     .extension()
                     .and_then(|ext| ext.to_str())
-                    .map(|ext| is_supported_extension(ext))
+                    .map(is_supported_extension)
                     .unwrap_or(false)
             })
             .map(|entry| entry.path().to_path_buf())
@@ -154,7 +154,7 @@ impl LibraryService {
         let mut tracks = Vec::new();
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
-            tracks.push(row_to_track(&row)?);
+            tracks.push(row_to_track(row)?);
         }
         Ok(tracks)
     }
@@ -196,7 +196,7 @@ impl LibraryService {
 
         let mut rows = stmt.query([id.to_string()])?;
         if let Some(row) = rows.next()? {
-            Ok(Some(row_to_track(&row)?))
+            Ok(Some(row_to_track(row)?))
         } else {
             Ok(None)
         }
@@ -228,7 +228,7 @@ impl LibraryService {
         let mut albums = Vec::new();
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
-            albums.push(row_to_album(&row)?);
+            albums.push(row_to_album(row)?);
         }
         Ok(albums)
     }
@@ -258,7 +258,7 @@ impl LibraryService {
 
         let mut rows = stmt.query([id.to_string()])?;
         if let Some(row) = rows.next()? {
-            Ok(Some(row_to_album(&row)?))
+            Ok(Some(row_to_album(row)?))
         } else {
             Ok(None)
         }
@@ -286,7 +286,7 @@ impl LibraryService {
         let mut artists = Vec::new();
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
-            artists.push(row_to_artist(&row)?);
+            artists.push(row_to_artist(row)?);
         }
         Ok(artists)
     }
@@ -312,7 +312,7 @@ impl LibraryService {
 
         let mut rows = stmt.query([id.to_string()])?;
         if let Some(row) = rows.next()? {
-            Ok(Some(row_to_artist(&row)?))
+            Ok(Some(row_to_artist(row)?))
         } else {
             Ok(None)
         }
@@ -359,7 +359,7 @@ impl LibraryService {
         let mut albums = Vec::new();
         let mut rows = stmt.query([artist_id.to_string()])?;
         while let Some(row) = rows.next()? {
-            albums.push(row_to_album(&row)?);
+            albums.push(row_to_album(row)?);
         }
         Ok(albums)
     }
@@ -402,7 +402,7 @@ impl LibraryService {
         let mut albums_rows = album_stmt.query([&like])?;
         let mut albums = Vec::new();
         while let Some(row) = albums_rows.next()? {
-            albums.push(row_to_album(&row)?);
+            albums.push(row_to_album(row)?);
         }
 
         let mut artist_stmt = self.conn.prepare(
@@ -425,7 +425,7 @@ impl LibraryService {
         let mut artists_rows = artist_stmt.query([&like])?;
         let mut artists = Vec::new();
         while let Some(row) = artists_rows.next()? {
-            artists.push(row_to_artist(&row)?);
+            artists.push(row_to_artist(row)?);
         }
 
         Ok((tracks, albums, artists))
@@ -447,7 +447,7 @@ fn default_database_path() -> Result<PathBuf> {
 
 /// Ensure the core schema exists for the library database.
 fn initialize_schema(conn: &mut Connection) -> Result<()> {
-    conn.pragma_update(None, "foreign_keys", &"ON")?;
+    conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS artists (
@@ -707,17 +707,17 @@ fn row_to_track(row: &Row<'_>) -> Result<Track> {
         channels: row.get::<_, Option<i64>>("channels")?.unwrap_or(2) as u16,
         artist_id: row
             .get::<_, Option<String>>("artist_id")?
-            .map(|id| parse_uuid(id))
+            .map(parse_uuid)
             .transpose()?,
         artist_name: row.get("artist_name")?,
         album_artist_id: row
             .get::<_, Option<String>>("album_artist_id")?
-            .map(|id| parse_uuid(id))
+            .map(parse_uuid)
             .transpose()?,
         album_artist_name: row.get("album_artist_name")?,
         album_id: row
             .get::<_, Option<String>>("album_id")?
-            .map(|id| parse_uuid(id))
+            .map(parse_uuid)
             .transpose()?,
         album_title: row.get("album_title")?,
         year: row.get("year")?,
@@ -727,8 +727,7 @@ fn row_to_track(row: &Row<'_>) -> Result<Track> {
         play_count: row.get::<_, i64>("play_count")? as u32,
         last_played: row
             .get::<_, Option<i64>>("last_played")?
-            .map(|ts| Utc.timestamp_opt(ts, 0).single())
-            .flatten(),
+            .and_then(|ts| Utc.timestamp_opt(ts, 0).single()),
         date_added: Utc
             .timestamp_opt(row.get::<_, i64>("date_added")?, 0)
             .single()
@@ -743,7 +742,7 @@ fn row_to_album(row: &Row<'_>) -> Result<Album> {
         title: row.get("title")?,
         artist_id: row
             .get::<_, Option<String>>("artist_id")?
-            .map(|id| parse_uuid(id))
+            .map(parse_uuid)
             .transpose()?,
         artist_name: row.get("artist_name")?,
         year: row.get("year")?,
@@ -866,7 +865,7 @@ fn query_tracks_with_condition(
     let mut rows = stmt.query(params)?;
     let mut tracks = Vec::new();
     while let Some(row) = rows.next()? {
-        tracks.push(row_to_track(&row)?);
+        tracks.push(row_to_track(row)?);
     }
     Ok(tracks)
 }
@@ -878,7 +877,7 @@ mod tests {
 
     #[test]
     fn schema_initializes_successfully() {
-        let mut temp = NamedTempFile::new().unwrap();
+        let temp = NamedTempFile::new().unwrap();
         let mut conn = Connection::open(temp.path()).unwrap();
         initialize_schema(&mut conn).unwrap();
     }

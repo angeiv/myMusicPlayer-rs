@@ -4,7 +4,7 @@
 use super::decoder::decode_audio;
 use super::play_queue::{PlayMode, PlayQueue};
 use crate::models::{playback_state::PlaybackState, track::Track};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::{error, info, warn};
 use parking_lot::Mutex;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
@@ -126,8 +126,8 @@ impl AudioPlayer {
         info!("Playing track: {} - {}", track.title, track.path.display());
 
         // Decode the audio file
-        let decoded = decode_audio(&track.path)
-            .map_err(|e| anyhow!("Failed to decode audio file: {}", e))?;
+        let decoded =
+            decode_audio(&track.path).map_err(|e| anyhow!("Failed to decode audio file: {}", e))?;
 
         // Create a new sink
         let new_sink = Sink::try_new(&self.stream_handle)
@@ -369,7 +369,7 @@ impl AudioPlayer {
                 std::thread::sleep(Duration::from_millis(500));
 
                 let sink_guard = sink.lock();
-                let is_empty = sink_guard.as_ref().map_or(true, |s| s.empty());
+                let is_empty = sink_guard.as_ref().is_none_or(|s| s.empty());
                 drop(sink_guard);
 
                 if is_empty {

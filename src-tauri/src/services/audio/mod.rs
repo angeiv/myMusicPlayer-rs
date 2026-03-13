@@ -73,7 +73,7 @@ impl AudioService {
     pub fn current_track(&self) -> Option<&Track> {
         // Use thread-local storage to cache the track
         thread_local! {
-            static CACHED_TRACK: std::cell::RefCell<Option<Track>> = std::cell::RefCell::new(None);
+            static CACHED_TRACK: std::cell::RefCell<Option<Track>> = const { std::cell::RefCell::new(None) };
         }
 
         CACHED_TRACK.with(|cache| {

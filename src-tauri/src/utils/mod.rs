@@ -117,7 +117,6 @@ pub fn init_app_dirs() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn test_format_duration() {

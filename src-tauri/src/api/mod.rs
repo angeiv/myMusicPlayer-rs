@@ -1,5 +1,5 @@
 pub mod audio;
 pub mod config;
 pub mod library;
-pub mod playlist;
 pub mod misc;
+pub mod playlist;

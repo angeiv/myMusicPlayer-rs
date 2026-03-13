@@ -2,9 +2,9 @@
 
 use anyhow::Context;
 use std::sync::{Arc, Mutex};
-use tauri_plugin_log::Target;
 #[cfg(any(debug_assertions, feature = "devtools"))]
 use tauri::Manager;
+use tauri_plugin_log::Target;
 
 // Import our modules
 mod api;
@@ -80,11 +80,9 @@ pub fn run() {
                 let open_devtools = std::env::var("TAURI_OPEN_DEVTOOLS")
                     .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE"))
                     .unwrap_or(false);
-                if open_devtools {
-                    if let Some(w) = _app.get_webview_window("main") {
-                        w.open_devtools();
-                        let _ = w.set_focus();
-                    }
+                if open_devtools && let Some(w) = _app.get_webview_window("main") {
+                    w.open_devtools();
+                    let _ = w.set_focus();
                 }
             }
             // Initialize application directories
