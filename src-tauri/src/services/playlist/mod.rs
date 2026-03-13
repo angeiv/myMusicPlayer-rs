@@ -7,18 +7,10 @@ use uuid::Uuid;
 use crate::models::Playlist;
 
 /// Playlist service for managing playlists
+#[derive(Default)]
 pub struct PlaylistService {
     playlists: HashMap<Uuid, Playlist>,
     playlist_names: HashMap<String, Uuid>,
-}
-
-impl Default for PlaylistService {
-    fn default() -> Self {
-        Self {
-            playlists: HashMap::new(),
-            playlist_names: HashMap::new(),
-        }
-    }
 }
 
 impl PlaylistService {
@@ -112,21 +104,22 @@ impl PlaylistService {
         description: Option<&str>,
     ) -> Result<(), String> {
         if let Some(playlist) = self.playlists.get_mut(id) {
-            if let Some(new_name) = name {
-                if !new_name.trim().is_empty() && new_name != playlist.name {
-                    // Check if the new name is already taken
-                    let new_key = new_name.to_lowercase();
-                    if self.playlist_names.contains_key(&new_key) {
-                        return Err(format!("A playlist named '{}' already exists", new_name));
-                    }
-
-                    // Remove old name
-                    self.playlist_names.remove(&playlist.name.to_lowercase());
-
-                    // Update name
-                    playlist.name = new_name.to_string();
-                    self.playlist_names.insert(new_key, *id);
+            if let Some(new_name) = name
+                && !new_name.trim().is_empty()
+                && new_name != playlist.name
+            {
+                // Check if the new name is already taken
+                let new_key = new_name.to_lowercase();
+                if self.playlist_names.contains_key(&new_key) {
+                    return Err(format!("A playlist named '{}' already exists", new_name));
                 }
+
+                // Remove old name
+                self.playlist_names.remove(&playlist.name.to_lowercase());
+
+                // Update name
+                playlist.name = new_name.to_string();
+                self.playlist_names.insert(new_key, *id);
             }
 
             if let Some(desc) = description {
@@ -164,7 +157,7 @@ mod tests {
         let result = service.create_playlist("My Playlist");
         assert!(result.is_ok());
 
-        let playlist_id = result.unwrap();
+        let _playlist_id = result.unwrap();
         assert_eq!(service.count(), 1);
 
         // Try to create a duplicate playlist
