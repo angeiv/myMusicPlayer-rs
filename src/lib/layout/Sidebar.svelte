@@ -134,12 +134,12 @@
   .sidebar {
     width: 260px;
     padding: 24px 20px;
-    background: #101522;
-    color: #cbd5f5;
+    background: var(--sidebar-bg);
+    color: var(--app-fg);
     display: flex;
     flex-direction: column;
     gap: 24px;
-    border-right: 1px solid rgba(148, 163, 184, 0.12);
+    border-right: 1px solid var(--panel-border);
   }
 
   .brand {
@@ -147,7 +147,7 @@
     gap: 12px;
     align-items: center;
     padding-bottom: 18px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    border-bottom: 1px solid var(--panel-border);
   }
 
   .logo {
@@ -157,13 +157,13 @@
   .brand h1 {
     margin: 0;
     font-size: 1.1rem;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   .brand p {
     margin: 0;
     font-size: 0.75rem;
-    color: rgba(226, 232, 240, 0.6);
+    color: var(--muted-fg);
   }
 
   .nav-section {
@@ -176,7 +176,7 @@
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(148, 163, 184, 0.7);
+    color: var(--muted-fg);
     margin: 0 0 4px 12px;
   }
 
@@ -202,17 +202,17 @@
   .nav-section button .meta {
     margin-left: auto;
     font-size: 0.75rem;
-    color: rgba(148, 163, 184, 0.7);
+    color: var(--muted-fg);
   }
 
   .nav-section button:hover {
-    background: rgba(59, 130, 246, 0.12);
-    color: #f8fafc;
+    background: var(--hover-bg);
+    color: var(--app-fg);
   }
 
   .nav-section button.active {
-    background: rgba(59, 130, 246, 0.18);
-    color: #ffffff;
+    background: var(--active-bg);
+    color: var(--app-fg);
   }
 
   .playlists {
@@ -231,8 +231,8 @@
 
   .create {
     border: none;
-    background: rgba(59, 130, 246, 0.18);
-    color: #93c5fd;
+    background: var(--active-bg);
+    color: var(--accent);
     border-radius: 8px;
     width: 28px;
     height: 28px;
@@ -242,14 +242,14 @@
   }
 
   .create:hover {
-    background: rgba(59, 130, 246, 0.3);
-    color: #bfdbfe;
+    background: var(--hover-bg);
+    color: var(--accent);
   }
 
   .empty {
     margin: 12px 0 0 0;
     font-size: 0.85rem;
-    color: rgba(148, 163, 184, 0.7);
+    color: var(--muted-fg);
   }
 
   ul {
