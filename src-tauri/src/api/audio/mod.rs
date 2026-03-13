@@ -4,6 +4,7 @@ use crate::AppState;
 use crate::models::{PlaybackState, Track};
 use crate::services::audio::VisualizationData;
 use log::{error, info};
+use serde::Deserialize;
 use std::time::Duration;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
@@ -402,7 +403,7 @@ pub async fn get_output_devices(
 
 #[tauri::command]
 pub async fn set_output_device(
-    device_id: Option<String>,
+    payload: SetOutputDevicePayload,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let audio = state.audio.lock().map_err(|e| {
@@ -410,10 +411,16 @@ pub async fn set_output_device(
         "Failed to access audio service".to_string()
     })?;
 
-    audio.set_output_device(device_id).map_err(|e| {
+    audio.set_output_device(payload.device_id).map_err(|e| {
         error!("Failed to set output device: {}", e);
         e
     })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetOutputDevicePayload {
+    #[serde(alias = "deviceId")]
+    pub device_id: Option<String>,
 }
 
 #[tauri::command]
