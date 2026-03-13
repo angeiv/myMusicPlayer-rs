@@ -88,13 +88,7 @@ package-linux:
 
 # Run the application in development mode
 dev:
-    set -euo pipefail
-    npm --prefix {{frontend_dir}} run dev &
-    frontend_pid=$!
-    trap 'kill $frontend_pid 2>/dev/null || true' INT TERM EXIT
-    (cd {{backend_dir}} && TAURI_DEV_URL=${TAURI_DEV_URL:-http://localhost:1420} cargo tauri dev)
-    trap - INT TERM EXIT
-    kill $frontend_pid 2>/dev/null || true
+    bash scripts/dev.sh
 
 # Run in release mode
 run:
@@ -110,10 +104,4 @@ info:
 
 # Development mode with DevTools opened automatically
 dev-tools:
-    set -euo pipefail
-    npm --prefix {{frontend_dir}} run dev &
-    frontend_pid=$!
-    trap 'kill $frontend_pid 2>/dev/null || true' INT TERM EXIT
-    (cd {{backend_dir}} && TAURI_OPEN_DEVTOOLS=1 TAURI_DEV_URL=${TAURI_DEV_URL:-http://localhost:1420} cargo tauri dev)
-    trap - INT TERM EXIT
-    kill $frontend_pid 2>/dev/null || true
+    bash scripts/dev-tools.sh

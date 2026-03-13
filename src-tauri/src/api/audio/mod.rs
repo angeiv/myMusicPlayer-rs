@@ -6,6 +6,7 @@ use crate::services::audio::VisualizationData;
 use log::{error, info};
 use std::time::Duration;
 use tauri::State;
+use tauri_plugin_dialog::DialogExt;
 
 /// Play a track
 #[tauri::command]
@@ -28,23 +29,27 @@ pub async fn play_file(file_path: String, state: State<'_, AppState>) -> Result<
 
     // Create a temporary track for the file
     let path = std::path::PathBuf::from(&file_path);
+    if !path.is_file() {
+        return Err(format!("Selected path is not a file: {}", path.display()));
+    }
+
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+
     let track = Track {
         id: uuid::Uuid::new_v4(),
         title: path
             .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Unknown")
-            .to_string(),
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Unknown".to_string()),
         duration: 0, // TODO: Extract from metadata
         track_number: None,
         disc_number: None,
         path: path.clone(),
-        size: 0, // TODO: Get file size
+        size,
         format: path
             .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_string(),
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "unknown".to_string()),
         bitrate: 0,
         sample_rate: 44100,
         channels: 2,
@@ -72,6 +77,28 @@ pub async fn play_file(file_path: String, state: State<'_, AppState>) -> Result<
         error!("Failed to play file: {}", e);
         format!("Failed to play file: {}", e)
     })
+}
+
+#[tauri::command]
+pub async fn pick_and_play_file(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let selected = window
+        .dialog()
+        .file()
+        .add_filter("Audio", &["mp3", "flac", "wav", "aac", "ogg", "m4a"])
+        .blocking_pick_file();
+
+    let Some(file_path) = selected else {
+        return Ok(());
+    };
+
+    let path = file_path
+        .into_path()
+        .map_err(|e| format!("Failed to resolve selected file path: {e}"))?;
+
+    play_file(path.to_string_lossy().into_owned(), state).await
 }
 
 /// Pause the current playback

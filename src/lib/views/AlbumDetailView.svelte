@@ -56,8 +56,14 @@
       tracks = tracksResponse ?? [];
     } catch (err) {
       console.error('Failed to load album detail:', err);
-      loadFromMock();
-      error = isTauri ? 'Unable to load album information.' : '';
+      if (!isTauri) {
+        loadFromMock();
+        error = '';
+      } else {
+        album = null;
+        tracks = [];
+        error = 'Unable to load album information.';
+      }
     } finally {
       if (lastRequestedId === id) {
         loading = false;

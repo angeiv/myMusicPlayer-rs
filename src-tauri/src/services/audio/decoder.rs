@@ -146,7 +146,17 @@ fn decode_with_symphonia(path: &Path) -> Result<DecodedAudio> {
         return Err(anyhow!("Decoded zero samples for {}", path.display()));
     }
 
+    let sample_count = samples.len() as u64;
     let buffer = SamplesBuffer::new(channels, sample_rate, samples);
+
+    let duration = duration.or_else(|| {
+        let channels = u64::from(channels);
+        if channels == 0 || sample_rate == 0 {
+            return None;
+        }
+        let frames = sample_count / channels;
+        Some(frames / u64::from(sample_rate))
+    });
 
     Ok(DecodedAudio {
         buffer,
