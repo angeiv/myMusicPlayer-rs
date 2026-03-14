@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
+  import type { AppConfig, OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
   import { isTauri } from '../utils/env';
   import { getMockTracks } from '../mocks/library';
 
@@ -22,15 +22,21 @@ We are satellites tonight.`;
   let playbackState: PlaybackStateInfo = { state: 'stopped' };
   let volume = 1.0;
   let lastAudibleVolume = 0.68;
+  let volumePercentUi = 100;
+  let isVolumeAdjusting = false;
+  let volumeAdjustTimer: ReturnType<typeof setTimeout> | null = null;
+  let configCache: AppConfig | null = null;
+  let lastPersistedSession: { trackId: string; positionSeconds: number } | null = null;
+  let persistSessionTimer: ReturnType<typeof setTimeout> | null = null;
   let progress = 0;
   let duration = 0;
   let isSeeking = false;
+  let seekCooldownTimer: ReturnType<typeof setTimeout> | null = null;
   let favorites = new Set<string>();
   let shuffleEnabled = false;
   let repeatMode: 'off' | 'all' | 'one' = 'off';
   let uiError = '';
   let showQueue = false;
-  let showVolumeSlider = false;
   let showDevicePicker = false;
   let showLyricsPanel = false;
   let queueTracks: Track[] = isTauri ? [] : getMockTracks();
@@ -39,6 +45,10 @@ We are satellites tonight.`;
   let lastUpdateTimer: ReturnType<typeof setInterval> | null = null;
 
   const repeatModes: Array<'off' | 'all' | 'one'> = ['off', 'all', 'one'];
+
+  $: if (!isVolumeAdjusting) {
+    volumePercentUi = Math.round(volume * 100);
+  }
 
   const volumePercentage = () => Math.round(volume * 100);
 
@@ -171,10 +181,116 @@ We are satellites tonight.`;
   }
 
   onDestroy(() => {
+    if (
+      isTauri &&
+      currentTrack &&
+      (playbackState.state === 'playing' || playbackState.state === 'paused')
+    ) {
+      void persistLastSession(currentTrack.id, Math.max(0, Math.floor(progress)));
+    }
+
     if (lastUpdateTimer) {
       clearInterval(lastUpdateTimer);
     }
+
+    if (volumeAdjustTimer) {
+      clearTimeout(volumeAdjustTimer);
+      volumeAdjustTimer = null;
+    }
+
+    if (seekCooldownTimer) {
+      clearTimeout(seekCooldownTimer);
+      seekCooldownTimer = null;
+    }
+
+    if (persistSessionTimer) {
+      clearTimeout(persistSessionTimer);
+      persistSessionTimer = null;
+    }
   });
+
+  async function loadConfigFresh() {
+    if (!isTauri) {
+      return null;
+    }
+    try {
+      configCache = await invoke<AppConfig>('get_config');
+      return configCache;
+    } catch (error) {
+      console.warn('Failed to load config:', error);
+      configCache = null;
+      return null;
+    }
+  }
+
+  function schedulePersistLastSession(trackId: string, positionSeconds: number) {
+    if (!isTauri) {
+      return;
+    }
+    if (!trackId) {
+      return;
+    }
+
+    const pos = Math.max(0, Math.floor(positionSeconds));
+    const prev = lastPersistedSession;
+    if (prev && prev.trackId === trackId && Math.abs(prev.positionSeconds - pos) < 2) {
+      return;
+    }
+
+    if (persistSessionTimer) {
+      clearTimeout(persistSessionTimer);
+    }
+    persistSessionTimer = setTimeout(() => {
+      persistSessionTimer = null;
+      void persistLastSession(trackId, pos);
+    }, 1200);
+  }
+
+  async function persistLastSession(trackId: string, positionSeconds: number) {
+    try {
+      await invoke('set_last_session', {
+        lastTrackId: trackId,
+        lastPositionSeconds: Math.max(0, Math.floor(positionSeconds)),
+      });
+      if (configCache) {
+        configCache = {
+          ...configCache,
+          last_track_id: trackId,
+          last_position_seconds: Math.max(0, Math.floor(positionSeconds)),
+        };
+      }
+      lastPersistedSession = { trackId, positionSeconds };
+    } catch (error) {
+      console.warn('Failed to persist last session:', error);
+    }
+  }
+
+  async function tryResumeLastSession(): Promise<boolean> {
+    const config = await loadConfigFresh();
+    const lastTrackId = config?.last_track_id ?? null;
+    const lastPos = config?.last_position_seconds ?? 0;
+
+    if (!lastTrackId) {
+      return false;
+    }
+    try {
+      const track = await invoke<Track | null>('get_track', { id: lastTrackId });
+      if (!track) {
+        return false;
+      }
+
+      await invoke('set_queue', { tracks: [track] });
+      await invoke('play', { track });
+      const posSeconds = Math.max(0, Math.floor(Number(lastPos) || 0));
+      if (posSeconds > 0) {
+        await invoke('seek', { position: posSeconds });
+      }
+      return true;
+    } catch (error) {
+      console.warn('Failed to resume last session:', error);
+      return false;
+    }
+  }
 
   async function refreshState() {
     if (!isTauri) {
@@ -183,16 +299,18 @@ We are satellites tonight.`;
 
     try {
       const [rawState, track, currentVolume] = await Promise.all([
-        invoke('get_playback_state'),
-        invoke('get_current_track'),
-        invoke('get_volume'),
+        invoke<unknown>('get_playback_state'),
+        invoke<Track | null>('get_current_track'),
+        invoke<number>('get_volume'),
       ]);
 
       playbackState = normalizePlaybackState(rawState);
-      currentTrack = track as Track | null;
-      volume = typeof currentVolume === 'number' ? currentVolume : volume;
-      if (volume > 0) {
-        lastAudibleVolume = volume;
+      currentTrack = track;
+      if (!isVolumeAdjusting) {
+        volume = typeof currentVolume === 'number' ? currentVolume : volume;
+        if (volume > 0) {
+          lastAudibleVolume = volume;
+        }
       }
 
       if (playbackState.state === 'error') {
@@ -207,6 +325,10 @@ We are satellites tonight.`;
           progress = 0;
           duration = 0;
         }
+      }
+
+      if (currentTrack && (playbackState.state === 'playing' || playbackState.state === 'paused')) {
+        schedulePersistLastSession(currentTrack.id, progress);
       }
     } catch (error) {
       console.error('Failed to refresh playback state:', error);
@@ -294,6 +416,10 @@ We are satellites tonight.`;
         playbackState = { state: 'playing', position: progress, duration: duration };
         await invoke('resume');
       } else if (!currentTrack) {
+        if (await tryResumeLastSession()) {
+          await refreshState();
+          return;
+        }
         await promptAndPlayFile();
         return;
       } else {
@@ -360,8 +486,14 @@ We are satellites tonight.`;
       }
     }
 
-    isSeeking = false;
-    await refreshState();
+    if (seekCooldownTimer) {
+      clearTimeout(seekCooldownTimer);
+    }
+    seekCooldownTimer = setTimeout(() => {
+      isSeeking = false;
+      seekCooldownTimer = null;
+      void refreshState();
+    }, 450);
   }
 
   function handleSeekStart() {
@@ -376,6 +508,15 @@ We are satellites tonight.`;
 
   async function adjustVolume(event: Event) {
     const target = event.target as HTMLInputElement;
+    isVolumeAdjusting = true;
+    if (volumeAdjustTimer) {
+      clearTimeout(volumeAdjustTimer);
+    }
+    volumeAdjustTimer = setTimeout(() => {
+      isVolumeAdjusting = false;
+      volumeAdjustTimer = null;
+    }, 350);
+
     const value = Number(target.value) / 100;
     volume = value;
     if (value > 0) {
@@ -528,9 +669,8 @@ We are satellites tonight.`;
     showLyricsPanel = !showLyricsPanel;
   }
 
-  function closeTransientPopovers(except?: 'queue' | 'volume' | 'device') {
+  function closeTransientPopovers(except?: 'queue' | 'device') {
     if (except !== 'queue') showQueue = false;
-    if (except !== 'volume') showVolumeSlider = false;
     if (except !== 'device') showDevicePicker = false;
   }
 
@@ -541,12 +681,6 @@ We are satellites tonight.`;
     if (showQueue) {
       void refreshQueue();
     }
-  }
-
-  function toggleVolumePopover() {
-    const next = !showVolumeSlider;
-    closeTransientPopovers(next ? 'volume' : undefined);
-    showVolumeSlider = next;
   }
 
   function toggleDevicePopover() {
@@ -715,21 +849,22 @@ We are satellites tonight.`;
       {/if}
     </div>
 
-    <button class:active={isMuted} on:click={toggleMute} aria-pressed={isMuted} title="Mute">
-      {isMuted ? '🔇' : '🔊'}
-    </button>
-    <div class="popover-group">
-      <button on:click={toggleVolumePopover} aria-expanded={showVolumeSlider}>
+  <div class="volume-wrap">
+      <button
+        class:active={isMuted}
+        on:click={() => void toggleMute()}
+        aria-pressed={isMuted}
+        title={isMuted ? 'Unmute' : 'Mute'}
+      >
         {volumePercentage() === 0 ? '🔇' : volumePercentage() < 50 ? '🔈' : '🔊'}
       </button>
-      {#if showVolumeSlider}
-        <div class="popover volume-popover">
-          <label>
-            音量 {volumePercentage()}%
-            <input type="range" min="0" max="100" value={volumePercentage()} on:input={adjustVolume} />
-          </label>
+      <div class="popover volume-popover" role="group" aria-label="Volume">
+        <div class="volume-header">
+          <span class="volume-title">音量</span>
+          <span class="volume-value">{Math.round(volumePercentUi)}%</span>
         </div>
-      {/if}
+        <input type="range" min="0" max="100" bind:value={volumePercentUi} on:input={adjustVolume} />
+      </div>
     </div>
 
     <div class="popover-group">
@@ -794,9 +929,9 @@ We are satellites tonight.`;
     align-items: center;
     gap: 24px;
     padding: 16px 28px;
-    background: linear-gradient(180deg, #0f172a 0%, #0b1120 100%);
-    border-top: 1px solid rgba(148, 163, 184, 0.15);
-    color: #e2e8f0;
+    background: var(--player-bg);
+    border-top: 1px solid var(--player-border);
+    color: var(--player-fg);
     min-height: 110px;
   }
 
@@ -886,19 +1021,19 @@ We are satellites tonight.`;
     display: flex;
     gap: 8px;
     font-size: 0.75rem;
-    color: rgba(226, 232, 240, 0.8);
+    color: var(--player-muted);
   }
 
   .badge {
     padding: 2px 8px;
     border-radius: 999px;
-    background: rgba(59, 130, 246, 0.15);
-    border: 1px solid rgba(96, 165, 250, 0.3);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--player-border));
   }
 
   .badge.subtle {
-    background: rgba(148, 163, 184, 0.15);
-    border-color: rgba(148, 163, 184, 0.3);
+    background: color-mix(in srgb, var(--player-border) 60%, transparent);
+    border-color: color-mix(in srgb, var(--player-border) 85%, transparent);
   }
 
   .favorite {
@@ -930,7 +1065,7 @@ We are satellites tonight.`;
 
   .time {
     font-size: 0.8rem;
-    color: rgba(148, 163, 184, 0.85);
+    color: var(--player-muted);
     min-width: 40px;
     text-align: center;
   }
@@ -938,7 +1073,7 @@ We are satellites tonight.`;
   .progress-rail {
     position: relative;
     height: 6px;
-    background: rgba(51, 65, 85, 0.8);
+    background: color-mix(in srgb, var(--player-border) 55%, transparent);
     border-radius: 999px;
     overflow: hidden;
   }
@@ -948,7 +1083,7 @@ We are satellites tonight.`;
     left: 0;
     top: 0;
     bottom: 0;
-    background: linear-gradient(90deg, #60a5fa, #22d3ee);
+    background: linear-gradient(90deg, var(--player-progress-from), var(--player-progress-to));
     border-radius: inherit;
     pointer-events: none;
   }
@@ -971,8 +1106,8 @@ We are satellites tonight.`;
     width: 14px;
     height: 14px;
     border-radius: 999px;
-    background: #93c5fd;
-    border: 2px solid #1d4ed8;
+    background: color-mix(in srgb, var(--player-progress-from) 75%, #ffffff);
+    border: 2px solid color-mix(in srgb, var(--player-progress-from) 70%, #000000);
   }
 
   .controls {
@@ -996,7 +1131,7 @@ We are satellites tonight.`;
   }
 
   .controls button:hover:not(:disabled) {
-    background: rgba(59, 130, 246, 0.18);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
 
   .controls button:disabled {
@@ -1111,7 +1246,7 @@ We are satellites tonight.`;
     gap: 10px;
     align-items: center;
     border: none;
-    background: rgba(30, 41, 59, 0.45);
+    background: color-mix(in srgb, var(--player-border) 55%, transparent);
     border-radius: 10px;
     padding: 8px 10px;
     color: inherit;
@@ -1119,11 +1254,11 @@ We are satellites tonight.`;
   }
 
   .queue-popover li button:hover {
-    background: rgba(59, 130, 246, 0.2);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   .queue-popover li.active button {
-    background: rgba(59, 130, 246, 0.28);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
   .queue-title {
@@ -1133,12 +1268,12 @@ We are satellites tonight.`;
 
   .queue-artist {
     font-size: 0.75rem;
-    color: rgba(148, 163, 184, 0.85);
+    color: var(--player-muted);
   }
 
   .queue-time {
     font-size: 0.75rem;
-    color: rgba(148, 163, 184, 0.85);
+    color: var(--player-muted);
   }
 
   .index {
@@ -1147,16 +1282,60 @@ We are satellites tonight.`;
     width: 1.5rem;
   }
 
-  .volume-popover label {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    font-size: 0.85rem;
-    color: rgba(226, 232, 240, 0.86);
+  .volume-header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
   }
 
-  .volume-popover input[type='range'] {
-    accent-color: #f59e0b;
+  .volume-title {
+    font-size: 0.85rem;
+    color: var(--player-muted);
+  }
+
+  .volume-value {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+    color: var(--player-muted);
+  }
+
+  .volume-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .volume-popover {
+    bottom: calc(100% + 10px);
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 120ms ease,
+      transform 120ms ease,
+      visibility 120ms ease;
+  }
+
+  .volume-popover::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 12px;
+    bottom: -12px;
+  }
+
+  .volume-wrap:hover .volume-popover,
+  .volume-wrap:focus-within .volume-popover {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(-50%);
   }
 
   .device-popover button {
