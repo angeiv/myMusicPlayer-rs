@@ -658,9 +658,9 @@ fn extract_metadata(path: &Path) -> Result<ExtractedTrack> {
     let track_number = tag.track();
     let disc_number = tag.disk();
     let artist_name = tag.artist().map(|s| s.to_string());
-    let album_artist_name = tag.get_string(&ItemKey::AlbumArtist).map(|s| s.to_string());
+    let album_artist_name = tag.get_string(ItemKey::AlbumArtist).map(|s| s.to_string());
     let album_title = tag.album().map(|s| s.to_string());
-    let year = tag.year().map(|year| year as i32);
+    let year = tag.date().map(|ts| i32::from(ts.year));
     let genre = tag.genre().map(|s| s.to_string());
     let size = std::fs::metadata(path)?.len();
     let format = path
