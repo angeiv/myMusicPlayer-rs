@@ -12,6 +12,9 @@
 
 # Frontend build outputs
 /dist/
+!/dist/
+/dist/*
+!/dist/.gitkeep
 
 # Tool caches and build info
 *.tsbuildinfo
