@@ -1,19 +1,15 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { getAlbumsByArtist, getArtist, getTracksByArtist } from '../api/library';
+  import { playTrack as playTrackCommand, setQueue } from '../api/playback';
   import type { Album, Artist, Track } from '../types';
+  import { createStaleRequestTracker, runGuardedRequest } from './stale-request';
   import {
     formatDate,
     formatDuration,
     formatLongDuration,
     formatTrackIndex,
   } from '../utils/format';
-  import { isTauri } from '../utils/env';
-  import {
-    getMockAlbumsByArtist,
-    getMockArtistById,
-    getMockTracksByArtist,
-  } from '../mocks/library';
 
   export let artistId: string | null = null;
 
@@ -28,6 +24,7 @@
   let loading = false;
   let error = '';
   let lastRequestedId: string | null = null;
+  const requestTracker = createStaleRequestTracker();
 
   $: if (artistId) {
     loadArtist(artistId);
@@ -46,57 +43,47 @@
     error = '';
     lastRequestedId = id;
 
-    const loadFromMock = () => {
-      artist = getMockArtistById(id);
-      tracks = getMockTracksByArtist(id);
-      albums = getMockAlbumsByArtist(id);
-    };
-
-    try {
-      if (!isTauri) {
-        loadFromMock();
-        return;
-      }
-
-      const [artistData, tracksData, albumsData] = await Promise.all([
-        invoke<Artist | null>('get_artist', { id }),
-        invoke<Track[]>('get_tracks_by_artist', { artistId: id }),
-        invoke<Album[]>('get_albums_by_artist', { artistId: id }),
-      ]);
-
-      if (lastRequestedId !== id) {
-        return;
-      }
-
-      artist = artistData;
-      tracks = tracksData ?? [];
-      albums = albumsData ?? [];
-    } catch (err) {
-      console.error('Failed to load artist detail:', err);
-      if (!isTauri) {
-        loadFromMock();
+    await runGuardedRequest({
+      id,
+      tracker: requestTracker,
+      onStart: () => {
+        loading = true;
         error = '';
-      } else {
+      },
+      request: async () => {
+        const [artistData, tracksData, albumsData] = await Promise.all([
+          getArtist(id),
+          getTracksByArtist(id),
+          getAlbumsByArtist(id),
+        ]);
+        return { artistData, tracksData, albumsData };
+      },
+      onSuccess: ({ artistData, tracksData, albumsData }) => {
+        artist = artistData;
+        tracks = tracksData ?? [];
+        albums = albumsData ?? [];
+      },
+      onError: (err) => {
+        console.error('Failed to load artist detail:', err);
         artist = null;
         tracks = [];
         albums = [];
         error = 'Unable to load artist information.';
-      }
-    } finally {
-      if (lastRequestedId === id) {
-        loading = false;
-      }
-    }
+      },
+      onFinally: () => {
+        if (lastRequestedId === id) {
+          loading = false;
+        }
+      },
+    });
   }
 
   async function playTrack(track: Track) {
-    if (isTauri) {
-      try {
-        await invoke('set_queue', { tracks });
-        await invoke('play', { track });
-      } catch (err) {
-        console.error('Failed to play track:', err);
-      }
+    try {
+      await setQueue(tracks);
+      await playTrackCommand(track);
+    } catch (err) {
+      console.error('Failed to play track:', err);
     }
     dispatch('playTrack', { track });
   }
