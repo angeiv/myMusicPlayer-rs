@@ -1,37 +1,24 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  import type { AppConfig, OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
-  import { isTauri } from '../utils/env';
-  import { getMockTracks } from '../mocks/library';
 
-  const REFRESH_INTERVAL = 1000;
-
-  const mockDevices: OutputDeviceInfo[] = [
-    { id: 'default', name: 'System default', is_default: true },
-    { id: 'scarlett-2i2', name: 'Scarlett 2i2', is_default: false },
-    { id: 'airpods-pro', name: 'AirPods Pro', is_default: false },
-  ];
+  import { createPlaybackStore } from '../stores/playback';
+  import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
 
   const fallbackLyrics = `Float softly through the midnight air
 Windows glow with silver light
 Every heartbeat keeps the rhythm
 We are satellites tonight.`;
 
+  const playback = createPlaybackStore();
+
   let currentTrack: Track | null = null;
   let playbackState: PlaybackStateInfo = { state: 'stopped' };
-  let volume = 1.0;
-  let lastAudibleVolume = 0.68;
+  let volume = 1;
   let volumePercentUi = 100;
   let isVolumeAdjusting = false;
   let volumeAdjustTimer: ReturnType<typeof setTimeout> | null = null;
-  let configCache: AppConfig | null = null;
-  let lastPersistedSession: { trackId: string; positionSeconds: number } | null = null;
-  let persistSessionTimer: ReturnType<typeof setTimeout> | null = null;
   let progress = 0;
   let duration = 0;
-  let isSeeking = false;
-  let seekCooldownTimer: ReturnType<typeof setTimeout> | null = null;
   let favorites = new Set<string>();
   let shuffleEnabled = false;
   let repeatMode: 'off' | 'all' | 'one' = 'off';
@@ -39,12 +26,27 @@ We are satellites tonight.`;
   let showQueue = false;
   let showDevicePicker = false;
   let showLyricsPanel = false;
-  let queueTracks: Track[] = isTauri ? [] : getMockTracks();
-  let outputDevices: OutputDeviceInfo[] = isTauri ? [] : mockDevices;
+  let queueTracks: Track[] = [];
+  let outputDevices: OutputDeviceInfo[] = [];
   let selectedDeviceId = 'default';
-  let lastUpdateTimer: ReturnType<typeof setInterval> | null = null;
+  let isPlaying = false;
+  let isMuted = false;
+  let activeLyrics: string[] = [];
+  let remainingTime = 0;
+  let progressPercent = 0;
+  let playingClass = '';
 
-  const repeatModes: Array<'off' | 'all' | 'one'> = ['off', 'all', 'one'];
+  $: currentTrack = $playback.currentTrack;
+  $: playbackState = $playback.playbackState;
+  $: volume = $playback.volume;
+  $: progress = $playback.progress;
+  $: duration = $playback.duration;
+  $: queueTracks = $playback.queueTracks;
+  $: outputDevices = $playback.outputDevices;
+  $: selectedDeviceId = $playback.selectedDeviceId;
+  $: shuffleEnabled = $playback.shuffleEnabled;
+  $: repeatMode = $playback.repeatMode;
+  $: uiError = $playback.uiError;
 
   $: if (!isVolumeAdjusting) {
     volumePercentUi = Math.round(volume * 100);
@@ -58,452 +60,40 @@ We are satellites tonight.`;
   $: remainingTime = duration > 0 ? Math.max(duration - progress, 0) : 0;
   $: progressPercent = duration ? Math.min(Math.max((progress / duration) * 100, 0), 100) : 0;
 
-  onMount(async () => {
-    if (isTauri) {
-      await Promise.all([
-        refreshState(),
-        loadPlayMode(),
-        loadOutputDevices(),
-      ]);
-      lastUpdateTimer = setInterval(refreshState, REFRESH_INTERVAL);
-    } else {
-      initializeMockPlayback();
-      outputDevices = mockDevices;
-      selectedDeviceId = outputDevices[0]?.id ?? 'default';
-      lastUpdateTimer = setInterval(() => {
-        if (playbackState.state !== 'playing') {
-          return;
-        }
-        if (!duration && currentTrack) {
-          duration = currentTrack.duration;
-        }
-        const total = duration || currentTrack?.duration || 0;
-        if (total === 0) return;
-        progress = Math.min(progress + 1, total);
-        if (progress >= total) {
-          progress = 0;
-        }
-        playbackState = { state: 'playing', position: progress, duration: total };
-      }, REFRESH_INTERVAL);
-    }
+  onMount(() => {
+    void playback.start();
+
+    return () => {
+      playback.destroy();
+    };
   });
 
-  async function loadOutputDevices() {
-    if (!isTauri) {
-      outputDevices = mockDevices;
-      return;
-    }
-
-    try {
-      const [devices, current] = await Promise.all([
-        invoke<OutputDeviceInfo[]>('get_output_devices'),
-        invoke<string | null>('get_output_device'),
-      ]);
-      outputDevices = (devices ?? []).filter((device: OutputDeviceInfo) => !device.is_default);
-      selectedDeviceId = current ?? 'default';
-    } catch (error) {
-      console.error('Failed to load output devices:', error);
-      outputDevices = [];
-      selectedDeviceId = 'default';
-    }
-  }
-
-  function applyBackendPlayMode(mode: unknown) {
-    if (mode === 'random') {
-      shuffleEnabled = true;
-      repeatMode = 'off';
-      return;
-    }
-    shuffleEnabled = false;
-    if (mode === 'single_repeat') {
-      repeatMode = 'one';
-      return;
-    }
-    if (mode === 'list_repeat') {
-      repeatMode = 'all';
-      return;
-    }
-    repeatMode = 'off';
-  }
-
-  async function loadPlayMode() {
-    if (!isTauri) {
-      return;
-    }
-
-    try {
-      const mode = await invoke<string>('get_play_mode');
-      applyBackendPlayMode(mode);
-    } catch (error) {
-      console.error('Failed to load play mode:', error);
-    }
-  }
-
-  function resolvePlayMode() {
-    if (shuffleEnabled) {
-      return 'random';
-    }
-
-    if (repeatMode === 'one') {
-      return 'single_repeat';
-    }
-
-    if (repeatMode === 'all') {
-      return 'list_repeat';
-    }
-
-    return 'sequential';
-  }
-
-  async function syncPlayMode() {
-    if (!isTauri) {
-      return;
-    }
-
-    try {
-      await invoke('set_play_mode', { mode: resolvePlayMode() });
-    } catch (error) {
-      console.error('Failed to set play mode:', error);
-    }
-  }
-
-  async function refreshQueue() {
-    if (!isTauri) {
-      return;
-    }
-
-    try {
-      queueTracks = (await invoke<Track[]>('get_queue')) ?? [];
-    } catch (error) {
-      console.error('Failed to load queue:', error);
-      queueTracks = [];
-    }
-  }
-
   onDestroy(() => {
-    if (
-      isTauri &&
-      currentTrack &&
-      (playbackState.state === 'playing' || playbackState.state === 'paused')
-    ) {
-      void persistLastSession(currentTrack.id, Math.max(0, Math.floor(progress)));
-    }
-
-    if (lastUpdateTimer) {
-      clearInterval(lastUpdateTimer);
-    }
-
     if (volumeAdjustTimer) {
       clearTimeout(volumeAdjustTimer);
       volumeAdjustTimer = null;
     }
-
-    if (seekCooldownTimer) {
-      clearTimeout(seekCooldownTimer);
-      seekCooldownTimer = null;
-    }
-
-    if (persistSessionTimer) {
-      clearTimeout(persistSessionTimer);
-      persistSessionTimer = null;
-    }
   });
 
-  async function loadConfigFresh() {
-    if (!isTauri) {
-      return null;
-    }
-    try {
-      configCache = await invoke<AppConfig>('get_config');
-      return configCache;
-    } catch (error) {
-      console.warn('Failed to load config:', error);
-      configCache = null;
-      return null;
-    }
-  }
-
-  function schedulePersistLastSession(trackId: string, positionSeconds: number) {
-    if (!isTauri) {
-      return;
-    }
-    if (!trackId) {
-      return;
-    }
-
-    const pos = Math.max(0, Math.floor(positionSeconds));
-    const prev = lastPersistedSession;
-    if (prev && prev.trackId === trackId && Math.abs(prev.positionSeconds - pos) < 2) {
-      return;
-    }
-
-    if (persistSessionTimer) {
-      clearTimeout(persistSessionTimer);
-    }
-    persistSessionTimer = setTimeout(() => {
-      persistSessionTimer = null;
-      void persistLastSession(trackId, pos);
-    }, 1200);
-  }
-
-  async function persistLastSession(trackId: string, positionSeconds: number) {
-    try {
-      await invoke('set_last_session', {
-        lastTrackId: trackId,
-        lastPositionSeconds: Math.max(0, Math.floor(positionSeconds)),
-      });
-      if (configCache) {
-        configCache = {
-          ...configCache,
-          last_track_id: trackId,
-          last_position_seconds: Math.max(0, Math.floor(positionSeconds)),
-        };
-      }
-      lastPersistedSession = { trackId, positionSeconds };
-    } catch (error) {
-      console.warn('Failed to persist last session:', error);
-    }
-  }
-
-  async function tryResumeLastSession(): Promise<boolean> {
-    const config = await loadConfigFresh();
-    const lastTrackId = config?.last_track_id ?? null;
-    const lastPos = config?.last_position_seconds ?? 0;
-
-    if (!lastTrackId) {
-      return false;
-    }
-    try {
-      const track = await invoke<Track | null>('get_track', { id: lastTrackId });
-      if (!track) {
-        return false;
-      }
-
-      await invoke('set_queue', { tracks: [track] });
-      await invoke('play', { track });
-      const posSeconds = Math.max(0, Math.floor(Number(lastPos) || 0));
-      if (posSeconds > 0) {
-        await invoke('seek', { position: posSeconds });
-      }
-      return true;
-    } catch (error) {
-      console.warn('Failed to resume last session:', error);
-      return false;
-    }
-  }
-
-  async function refreshState() {
-    if (!isTauri) {
-      return;
-    }
-
-    try {
-      const [rawState, track, currentVolume] = await Promise.all([
-        invoke<unknown>('get_playback_state'),
-        invoke<Track | null>('get_current_track'),
-        invoke<number>('get_volume'),
-      ]);
-
-      playbackState = normalizePlaybackState(rawState);
-      currentTrack = track;
-      if (!isVolumeAdjusting) {
-        volume = typeof currentVolume === 'number' ? currentVolume : volume;
-        if (volume > 0) {
-          lastAudibleVolume = volume;
-        }
-      }
-
-      if (playbackState.state === 'error') {
-        uiError = playbackState.message;
-      }
-
-      if (!isSeeking) {
-        if (playbackState.state === 'playing' || playbackState.state === 'paused') {
-          progress = playbackState.position;
-          duration = playbackState.duration;
-        } else {
-          progress = 0;
-          duration = 0;
-        }
-      }
-
-      if (currentTrack && (playbackState.state === 'playing' || playbackState.state === 'paused')) {
-        schedulePersistLastSession(currentTrack.id, progress);
-      }
-    } catch (error) {
-      console.error('Failed to refresh playback state:', error);
-      uiError = 'Failed to refresh playback state.';
-    }
-  }
-
-  function normalizePlaybackState(raw: unknown): PlaybackStateInfo {
-    if (!raw) {
-      return { state: 'stopped' };
-    }
-
-    if (typeof raw === 'string') {
-      if (raw === 'Stopped') return { state: 'stopped' };
-      if (raw.startsWith('Error')) return { state: 'error', message: raw };
-      return { state: 'stopped' };
-    }
-
-    if (typeof raw === 'object') {
-      const data = raw as Record<string, any>;
-      if (data['Playing']) {
-        const playing = data['Playing'];
-        return {
-          state: 'playing',
-          position: Number(playing?.position ?? 0),
-          duration: Number(playing?.duration ?? 0),
-        };
-      }
-      if (data['Paused']) {
-        const paused = data['Paused'];
-        return {
-          state: 'paused',
-          position: Number(paused?.position ?? 0),
-          duration: Number(paused?.duration ?? 0),
-        };
-      }
-      if (data['Stopped'] !== undefined) {
-        return { state: 'stopped' };
-      }
-      if (data['Error']) {
-        const message = typeof data['Error'] === 'string' ? data['Error'] : 'Playback error';
-        return { state: 'error', message };
-      }
-      if (data['playing']) {
-        const playing = data['playing'];
-        return {
-          state: 'playing',
-          position: Number(playing?.position ?? 0),
-          duration: Number(playing?.duration ?? 0),
-        };
-      }
-      if (data['paused']) {
-        const paused = data['paused'];
-        return {
-          state: 'paused',
-          position: Number(paused?.position ?? 0),
-          duration: Number(paused?.duration ?? 0),
-        };
-      }
-    }
-
-    return { state: 'stopped' };
-  }
-
   async function togglePlayPause() {
-    if (!isTauri) {
-      if (!currentTrack) {
-        initializeMockPlayback();
-      }
-      if (playbackState.state === 'playing') {
-        playbackState = { state: 'paused', position: progress, duration: duration || currentTrack?.duration || 0 };
-      } else {
-        const total = duration || currentTrack?.duration || 0;
-        playbackState = { state: 'playing', position: progress, duration: total };
-      }
-      return;
-    }
-
-    try {
-      uiError = '';
-      if (isPlaying) {
-        playbackState = { state: 'paused', position: progress, duration: duration };
-        await invoke('pause');
-      } else if (playbackState.state === 'paused') {
-        playbackState = { state: 'playing', position: progress, duration: duration };
-        await invoke('resume');
-      } else if (!currentTrack) {
-        if (await tryResumeLastSession()) {
-          await refreshState();
-          return;
-        }
-        await promptAndPlayFile();
-        return;
-      } else {
-        playbackState = { state: 'playing', position: progress, duration: duration };
-        await invoke('resume');
-      }
-      await refreshState();
-    } catch (error) {
-      console.error('Failed to toggle playback:', error);
-      uiError = 'Playback operation failed.';
-      await refreshState();
-    }
+    await playback.togglePlayPause();
   }
 
   async function promptAndPlayFile() {
-    if (!isTauri) {
-      initializeMockPlayback();
-      playbackState = {
-        state: 'playing',
-        position: 0,
-        duration: duration || currentTrack?.duration || 0,
-      };
-      progress = 0;
-      return;
-    }
-
-    uiError = '';
-
-    try {
-      playbackState = { state: 'playing', position: 0, duration: 0 };
-      progress = 0;
-      await invoke('pick_and_play_file');
-      await refreshState();
-    } catch (error) {
-      console.error('Failed to play selected file:', error);
-      uiError = error instanceof Error ? error.message : String(error);
-      await refreshState();
-    }
+    await playback.promptAndPlayFile();
   }
 
   async function handleSeek(event: Event) {
     const target = event.target as HTMLInputElement;
-    const nextPosition = Number(target.value);
-    progress = nextPosition;
-
-    if (!isTauri) {
-      if (duration === 0 && currentTrack) {
-        duration = currentTrack.duration;
-      }
-      playbackState = {
-        state: playbackState.state === 'paused' ? 'paused' : 'playing',
-        position: progress,
-        duration: duration || currentTrack?.duration || 0,
-      };
-      isSeeking = false;
-      return;
-    }
-
-    if (playbackState.state === 'playing' || playbackState.state === 'paused') {
-      try {
-        await invoke('seek', { position: Math.round(nextPosition) });
-      } catch (error) {
-        console.error('Failed to seek:', error);
-      }
-    }
-
-    if (seekCooldownTimer) {
-      clearTimeout(seekCooldownTimer);
-    }
-    seekCooldownTimer = setTimeout(() => {
-      isSeeking = false;
-      seekCooldownTimer = null;
-      void refreshState();
-    }, 450);
+    await playback.commitSeek(Number(target.value));
   }
 
   function handleSeekStart() {
-    isSeeking = true;
+    playback.beginSeek();
   }
 
   function handleSeekMove(event: Event) {
-    if (!isSeeking) return;
-    const target = event.target as HTMLInputElement;
-    progress = Number(target.value);
+    playback.previewSeek(Number((event.target as HTMLInputElement).value));
   }
 
   async function adjustVolume(event: Event) {
@@ -517,39 +107,12 @@ We are satellites tonight.`;
       volumeAdjustTimer = null;
     }, 350);
 
-    const value = Number(target.value) / 100;
-    volume = value;
-    if (value > 0) {
-      lastAudibleVolume = value;
-    }
-    if (!isTauri) {
-      return;
-    }
-
-    try {
-      await invoke('set_volume', { volume: value });
-    } catch (error) {
-      console.error('Failed to set volume:', error);
-    }
+    volumePercentUi = Number(target.value);
+    await playback.setVolume(volumePercentUi / 100);
   }
 
   async function toggleMute() {
-    if (volume > 0) {
-      lastAudibleVolume = volume;
-      volume = 0;
-    } else {
-      volume = lastAudibleVolume > 0 ? lastAudibleVolume : 0.68;
-    }
-
-    if (!isTauri) {
-      return;
-    }
-
-    try {
-      await invoke('set_volume', { volume });
-    } catch (error) {
-      console.error('Failed to toggle mute:', error);
-    }
+    await playback.toggleMute();
   }
 
   function toggleFavorite() {
@@ -562,107 +125,27 @@ We are satellites tonight.`;
   }
 
   function nextRepeatMode() {
-    const index = repeatModes.indexOf(repeatMode);
-    const nextIndex = index === -1 ? 0 : (index + 1) % repeatModes.length;
-    repeatMode = repeatModes[nextIndex]!;
-    if (repeatMode !== 'off') {
-      shuffleEnabled = false;
-    }
-    void syncPlayMode();
+    void playback.cycleRepeatMode();
   }
 
   async function toggleShuffle() {
-    shuffleEnabled = !shuffleEnabled;
-    if (shuffleEnabled) {
-      repeatMode = 'off';
-    }
-    await syncPlayMode();
+    await playback.toggleShuffle();
   }
 
   async function handlePrevious() {
-    if (!isTauri) {
-      if (queueTracks.length === 0 || !currentTrack) {
-        return;
-      }
-      const index = queueTracks.findIndex((t) => t.id === currentTrack?.id);
-      const prev = index > 0 ? queueTracks[index - 1] : queueTracks[0];
-      if (prev) {
-        handleQueuePlay(prev);
-      }
-      return;
-    }
-
-    try {
-      await invoke('previous_track');
-      await refreshState();
-      if (showQueue) {
-        await refreshQueue();
-      }
-    } catch (error) {
-      console.error('Failed to play previous track:', error);
-    }
+    await playback.playPrevious(showQueue);
   }
 
   async function handleNext() {
-    if (!isTauri) {
-      if (queueTracks.length === 0 || !currentTrack) {
-        return;
-      }
-      const index = queueTracks.findIndex((t) => t.id === currentTrack?.id);
-      const next = index >= 0 && index + 1 < queueTracks.length ? queueTracks[index + 1] : queueTracks[0];
-      if (next) {
-        handleQueuePlay(next);
-      }
-      return;
-    }
-
-    try {
-      await invoke('next_track');
-      await refreshState();
-      if (showQueue) {
-        await refreshQueue();
-      }
-    } catch (error) {
-      console.error('Failed to play next track:', error);
-    }
+    await playback.playNext(showQueue);
   }
 
   function handleQueuePlay(track: Track) {
-    if (!track) return;
-    if (isTauri) {
-      void (async () => {
-        try {
-          await invoke('play', { track });
-          await refreshState();
-        } catch (error) {
-          console.error('Failed to play queue track:', error);
-        }
-      })();
-      return;
-    }
-    currentTrack = track;
-    duration = track.duration;
-    progress = 0;
-    playbackState = {
-      state: 'playing',
-      position: 0,
-      duration: track.duration,
-    };
+    void playback.playQueueTrack(track);
   }
 
   async function handleSelectDevice(deviceId: string) {
-    selectedDeviceId = deviceId;
-    if (isTauri) {
-      try {
-        await invoke('set_output_device', {
-          deviceId: deviceId === 'default' ? null : deviceId,
-        });
-        await refreshState();
-      } catch (error) {
-        console.error('Failed to switch output device:', error);
-      }
-      return;
-    }
+    await playback.selectOutputDevice(deviceId);
   }
 
   function toggleLyrics() {
@@ -679,8 +162,16 @@ We are satellites tonight.`;
     closeTransientPopovers(next ? 'queue' : undefined);
     showQueue = next;
     if (showQueue) {
-      void refreshQueue();
+      void playback.refreshQueue();
     }
+  }
+
+  function asTrack(value: unknown): Track {
+    return value as Track;
+  }
+
+  function asDevice(value: unknown): OutputDeviceInfo {
+    return value as OutputDeviceInfo;
   }
 
   function toggleDevicePopover() {
@@ -702,46 +193,13 @@ We are satellites tonight.`;
 
   $: playingClass = isPlaying ? 'playing' : '';
 
-  function initializeMockPlayback() {
-    queueTracks = getMockTracks();
-
-    if (currentTrack) {
-      if (!duration) {
-        duration = currentTrack.duration;
-      }
-    } else {
-      const [firstTrack] = queueTracks;
-      currentTrack = firstTrack ?? null;
-      duration = firstTrack?.duration ?? 0;
-      progress = Math.min(42, duration || 0);
-    }
-
-    if (volume === 1.0) {
-      volume = 0.68;
-    }
-
-    if (volume > 0) {
-      lastAudibleVolume = volume;
-    }
-
-    if (currentTrack) {
-      const total = duration || currentTrack.duration;
-      playbackState = {
-        state: 'playing',
-        position: Math.min(progress, total),
-        duration: total,
-      };
-    } else {
-      playbackState = { state: 'stopped' };
-    }
-  }
 </script>
 
 <div class="player-bar">
   {#if uiError}
     <div class="error-banner" role="status">
       <span>{uiError}</span>
-      <button type="button" on:click={() => (uiError = '')} aria-label="Dismiss error">✕</button>
+      <button type="button" on:click={() => playback.dismissError()} aria-label="Dismiss error">✕</button>
     </div>
   {/if}
   <div class="now-playing">
@@ -831,15 +289,15 @@ We are satellites tonight.`;
             <p class="muted">队列信息即将推出。</p>
           {:else}
             <ul>
-              {#each queueTracks as track, index}
-                <li class:active={currentTrack?.id === track.id}>
-                  <button type="button" on:click={() => handleQueuePlay(track)}>
+              {#each queueTracks as track, index (asTrack(track).id)}
+                <li class:active={currentTrack?.id === asTrack(track).id}>
+                  <button type="button" on:click={() => handleQueuePlay(asTrack(track))}>
                     <span class="index">{index + 1}</span>
                     <div>
-                      <p class="queue-title">{track.title}</p>
-                      <p class="queue-artist">{track.artist_name ?? 'Unknown Artist'}</p>
+                      <p class="queue-title">{asTrack(track).title}</p>
+                      <p class="queue-artist">{asTrack(track).artist_name ?? 'Unknown Artist'}</p>
                     </div>
-                    <span class="queue-time">{formatDuration(track.duration)}</span>
+                    <span class="queue-time">{formatDuration(asTrack(track).duration)}</span>
                   </button>
                 </li>
               {/each}
@@ -883,15 +341,15 @@ We are satellites tonight.`;
                 <span class="device-desc">Use the OS default output</span>
               </button>
             </li>
-            {#each outputDevices as device}
+            {#each outputDevices as device (asDevice(device).id)}
               <li>
                 <button
                   type="button"
-                  class:selected={selectedDeviceId === device.id}
-                  on:click={() => handleSelectDevice(device.id)}
+                  class:selected={selectedDeviceId === asDevice(device).id}
+                  on:click={() => handleSelectDevice(asDevice(device).id)}
                 >
-                  <span class="device-name">{device.name}</span>
-                  <span class="device-desc">{device.is_default ? 'Default device' : 'Output device'}</span>
+                  <span class="device-name">{asDevice(device).name}</span>
+                  <span class="device-desc">{asDevice(device).is_default ? 'Default device' : 'Output device'}</span>
                 </button>
               </li>
             {/each}
