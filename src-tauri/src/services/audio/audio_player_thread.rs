@@ -63,6 +63,13 @@ pub struct OutputDeviceInfo {
     pub is_default: bool,
 }
 
+#[cfg_attr(test, allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioBackend {
+    Os,
+    InMemory,
+}
+
 /// Thread-safe audio player handle
 pub struct AudioPlayerHandle {
     command_tx: Sender<PlayerCommand>,
@@ -86,9 +93,14 @@ impl AudioPlayerHandle {
 
         let state_clone = Arc::clone(&state);
 
+        #[cfg(test)]
+        let backend = AudioBackend::InMemory;
+        #[cfg(not(test))]
+        let backend = AudioBackend::Os;
+
         // Spawn the audio player thread
         thread::spawn(move || {
-            if let Err(e) = run_player_thread(command_rx, state_clone) {
+            if let Err(e) = run_player_thread(command_rx, state_clone, backend) {
                 error!("Audio player thread error: {}", e);
             }
         });
@@ -266,13 +278,41 @@ impl AudioPlayerHandle {
 fn run_player_thread(
     command_rx: Receiver<PlayerCommand>,
     state: Arc<Mutex<PlayerState>>,
+    backend: AudioBackend,
 ) -> Result<()> {
-    let mut device_sink = DeviceSinkBuilder::open_default_sink()
-        .map_err(|e| anyhow!("Failed to open default audio output device: {e}"))?;
-    device_sink.log_on_drop(false);
+    let mut device_sink = match backend {
+        AudioBackend::Os => Some(
+            DeviceSinkBuilder::open_default_sink()
+                .map_err(|e| anyhow!("Failed to open default audio output device: {e}"))?,
+        ),
+        AudioBackend::InMemory => None,
+    };
+
+    if let Some(sink) = device_sink.as_mut() {
+        sink.log_on_drop(false);
+    }
     state.lock().output_device_id = None;
 
-    let mut player = Player::connect_new(device_sink.mixer());
+    let (mut player, mock_output) = match device_sink.as_ref() {
+        Some(sink) => (Player::connect_new(sink.mixer()), None),
+        None => {
+            let (player, output) = Player::new();
+            (player, Some(output))
+        }
+    };
+
+    let mock_drive_thread = mock_output.map(|mut output| {
+        thread::spawn(move || {
+            loop {
+                for _ in 0..2048 {
+                    if output.next().is_none() {
+                        return;
+                    }
+                }
+                thread::sleep(Duration::from_millis(8));
+            }
+        })
+    });
     let mut queue = PlayQueue::new();
     let mut volume = 1.0f32;
     let mut position_tracker = PositionTracker::new();
@@ -479,6 +519,11 @@ fn run_player_thread(
                     let _ = response_tx.send(queue.tracks().to_vec());
                 }
                 PlayerCommand::ListOutputDevices { response_tx } => {
+                    if backend == AudioBackend::InMemory {
+                        let _ = response_tx.send(Ok(Vec::new()));
+                        continue;
+                    }
+
                     let host = cpal::default_host();
                     let default_id = host
                         .default_output_device()
@@ -529,6 +574,11 @@ fn run_player_thread(
                     device_id,
                     response_tx,
                 } => {
+                    if backend == AudioBackend::InMemory {
+                        let _ = response_tx.send(Ok(()));
+                        continue;
+                    }
+
                     let next_sink = match device_id.as_deref() {
                         None => DeviceSinkBuilder::open_default_sink()
                             .map(|sink| (None, sink))
@@ -597,8 +647,11 @@ fn run_player_thread(
                             player.clear();
                             position_tracker.stop();
 
-                            device_sink = new_sink;
-                            player = Player::connect_new(device_sink.mixer());
+                            device_sink = Some(new_sink);
+                            let sink = device_sink
+                                .as_ref()
+                                .context("Missing device sink after switching output")?;
+                            player = Player::connect_new(sink.mixer());
                             player.set_volume(volume);
                             state.lock().output_device_id = selected_id.clone();
 
@@ -633,6 +686,10 @@ fn run_player_thread(
         }
     }
 
+    if let Some(handle) = mock_drive_thread {
+        let _ = handle.join();
+    }
+
     Ok(())
 }
 
@@ -664,7 +721,15 @@ fn play_track_internal(
 
     let file = File::open(&track.path)
         .with_context(|| format!("Failed to open audio file {}", track.path.display()))?;
-    let decoder = Decoder::new(BufReader::new(file))
+    let byte_len = file
+        .metadata()
+        .map(|m| m.len())
+        .with_context(|| format!("Failed to read metadata for {}", track.path.display()))?;
+    let decoder = Decoder::builder()
+        .with_data(BufReader::new(file))
+        .with_byte_len(byte_len)
+        .with_coarse_seek(true)
+        .build()
         .map_err(|e| anyhow!("Failed to create decoder for {}: {e}", track.path.display()))?;
 
     let duration_secs = decoder
@@ -745,9 +810,58 @@ fn handle_seek(
         return Err(anyhow!("No active playback to seek"));
     }
 
-    player
-        .try_seek(target)
-        .map_err(|error| anyhow!("Failed to seek playback: {error}"))?;
+    if player.try_seek(target).is_err() {
+        let track = current
+            .clone()
+            .context("Missing current track while seeking")?;
+        let was_playing = position_tracker.is_playing;
+
+        let file = File::open(&track.path)
+            .with_context(|| format!("Failed to open audio file {}", track.path.display()))?;
+        let byte_len = file
+            .metadata()
+            .map(|m| m.len())
+            .with_context(|| format!("Failed to read metadata for {}", track.path.display()))?;
+
+        let mut decoder = Decoder::builder()
+            .with_data(BufReader::new(file))
+            .with_byte_len(byte_len)
+            .with_coarse_seek(true)
+            .build()
+            .map_err(|e| anyhow!("Failed to create decoder for {}: {e}", track.path.display()))?;
+
+        let decoder = if decoder.try_seek(target).is_ok() {
+            decoder.skip_duration(Duration::ZERO)
+        } else {
+            let file = File::open(&track.path)
+                .with_context(|| format!("Failed to open audio file {}", track.path.display()))?;
+            let byte_len = file
+                .metadata()
+                .map(|m| m.len())
+                .with_context(|| format!("Failed to read metadata for {}", track.path.display()))?;
+            let decoder = Decoder::builder()
+                .with_data(BufReader::new(file))
+                .with_byte_len(byte_len)
+                .with_coarse_seek(true)
+                .build()
+                .map_err(|e| {
+                    anyhow!("Failed to create decoder for {}: {e}", track.path.display())
+                })?;
+            decoder.skip_duration(target)
+        };
+
+        player.stop();
+        player.clear();
+
+        player.set_volume(volume);
+        player.append(decoder);
+        if was_playing {
+            player.play();
+        } else {
+            player.pause();
+        }
+        info!("Fallback seek: rebuilt decoder at {}s", target.as_secs());
+    }
 
     position_tracker.seek(target);
 
