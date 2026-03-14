@@ -320,8 +320,8 @@
   }
 
   .track-body {
-    max-height: calc(100vh - 320px);
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .track-row {

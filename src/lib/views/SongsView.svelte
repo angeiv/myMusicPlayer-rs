@@ -232,8 +232,8 @@
   }
 
   .table-body {
-    max-height: calc(100vh - 260px);
-    overflow-y: overlay;
+    /* Use the main content scroll container to avoid nested scrollbars. */
+    overflow: visible;
   }
 
   .row {

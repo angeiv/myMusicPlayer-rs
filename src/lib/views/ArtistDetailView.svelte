@@ -339,8 +339,8 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-height: 360px;
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .row {
@@ -382,8 +382,8 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    max-height: 360px;
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .album-card {
