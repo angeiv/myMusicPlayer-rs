@@ -1,15 +1,28 @@
+<script context="module" lang="ts">
+  type PlaylistLoadGuardState = {
+    lastRequestedId: string | null;
+    loading: boolean;
+    hasPlaylist: boolean;
+    force: boolean;
+  };
+
+  export function shouldSkipPlaylistLoad(id: string, state: PlaylistLoadGuardState): boolean {
+    return !state.force && state.lastRequestedId === id && (state.loading || state.hasPlaylist);
+  }
+</script>
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { playTrack as playTrackCommand, setQueue } from '../api/playback';
+  import {
+    getPlaylist,
+    getPlaylistTracks,
+    removeFromPlaylist,
+    updatePlaylistMetadata,
+  } from '../api/playlist';
   import type { Playlist, Track } from '../types';
   import { formatDate, formatDuration, formatLongDuration, formatTrackIndex } from '../utils/format';
-  import { isTauri } from '../utils/env';
-  import {
-    getMockPlaylistById,
-    getMockPlaylistTracks,
-    removeMockTrackFromPlaylist,
-    renameMockPlaylist,
-  } from '../mocks/library';
+  import { createStaleRequestTracker, runGuardedRequest } from './stale-request';
 
   export let playlistId: string | null = null;
 
@@ -20,6 +33,11 @@
   let loading = false;
   let error = '';
   let lastRequestedId: string | null = null;
+  const requestTracker = createStaleRequestTracker();
+
+  type LoadPlaylistOptions = {
+    force?: boolean;
+  };
 
   $: if (playlistId) {
     loadPlaylist(playlistId);
@@ -28,8 +46,15 @@
     tracks = [];
   }
 
-  async function loadPlaylist(id: string) {
-    if (lastRequestedId === id && (loading || playlist)) {
+  async function loadPlaylist(id: string, options: LoadPlaylistOptions = {}) {
+    if (
+      shouldSkipPlaylistLoad(id, {
+        lastRequestedId,
+        loading,
+        hasPlaylist: Boolean(playlist),
+        force: options.force ?? false,
+      })
+    ) {
       return;
     }
 
@@ -37,59 +62,46 @@
     error = '';
     lastRequestedId = id;
 
-    const loadFromMock = () => {
-      playlist = getMockPlaylistById(id);
-      tracks = getMockPlaylistTracks(id);
-    };
-
-    try {
-      if (!isTauri) {
-        loadFromMock();
-        return;
-      }
-
-      const playlistData = await invoke<Playlist | null>('get_playlist', { id });
-      if (lastRequestedId !== id) {
-        return;
-      }
-
-      playlist = playlistData;
-      if (!playlistData) {
-        tracks = [];
-        return;
-      }
-
-      const resolved = await invoke<Track[]>('get_playlist_tracks', { id });
-      if (lastRequestedId !== id) {
-        return;
-      }
-
-      tracks = resolved ?? [];
-    } catch (err) {
-      console.error('Failed to load playlist detail:', err);
-      if (!isTauri) {
-        loadFromMock();
+    await runGuardedRequest({
+      id,
+      tracker: requestTracker,
+      onStart: () => {
+        loading = true;
         error = '';
-      } else {
+      },
+      request: async () => {
+        const playlistData = await getPlaylist(id);
+        if (!playlistData) {
+          return { playlistData, tracks: [] as Track[] };
+        }
+
+        const resolved = await getPlaylistTracks(id);
+        return { playlistData, tracks: resolved ?? [] };
+      },
+      onSuccess: ({ playlistData, tracks: resolvedTracks }) => {
+        playlist = playlistData;
+        tracks = resolvedTracks;
+      },
+      onError: (err) => {
+        console.error('Failed to load playlist detail:', err);
         playlist = null;
         tracks = [];
         error = 'Unable to load playlist.';
-      }
-    } finally {
-      if (lastRequestedId === id) {
-        loading = false;
-      }
-    }
+      },
+      onFinally: () => {
+        if (lastRequestedId === id) {
+          loading = false;
+        }
+      },
+    });
   }
 
   async function playTrack(track: Track) {
-    if (isTauri) {
-      try {
-        await invoke('set_queue', { tracks });
-        await invoke('play', { track });
-      } catch (err) {
-        console.error('Failed to play track:', err);
-      }
+    try {
+      await setQueue(tracks);
+      await playTrackCommand(track);
+    } catch (err) {
+      console.error('Failed to play track:', err);
     }
     dispatch('playTrack', { track });
   }
@@ -103,15 +115,10 @@
 
   async function handleRemoveTrack(index: number) {
     if (!playlistId) return;
-    if (!isTauri) {
-      removeMockTrackFromPlaylist(playlistId, index);
-      await loadPlaylist(playlistId);
-      return;
-    }
 
     try {
-      await invoke('remove_from_playlist', { playlistId, trackIndex: index });
-      await loadPlaylist(playlistId);
+      await removeFromPlaylist(playlistId, index);
+      await loadPlaylist(playlistId, { force: true });
     } catch (err) {
       console.error('Failed to remove track:', err);
       alert('Failed to remove track from playlist.');
@@ -125,19 +132,9 @@
 
     const trimmed = name.trim();
 
-    if (!isTauri) {
-      renameMockPlaylist(playlistId, trimmed);
-      await loadPlaylist(playlistId);
-      return;
-    }
-
     try {
-      await invoke('update_playlist_metadata', {
-        id: playlistId,
-        name: trimmed,
-        description: playlist.description,
-      });
-      await loadPlaylist(playlistId);
+      await updatePlaylistMetadata(playlistId, trimmed, playlist.description ?? null);
+      await loadPlaylist(playlistId, { force: true });
     } catch (err) {
       console.error('Failed to rename playlist:', err);
       alert('Could not rename playlist.');
