@@ -5,20 +5,16 @@ use super::decoder::decode_audio;
 use super::play_queue::{PlayMode, PlayQueue};
 use crate::models::{playback_state::PlaybackState, track::Track};
 use anyhow::{Result, anyhow};
-use log::{error, info, warn};
+use log::info;
 use parking_lot::Mutex;
-use rodio::{OutputStream, OutputStreamHandle, Sink};
+use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Audio player with persistent stream and position tracking
 pub struct AudioPlayer {
-    /// Output stream (must be kept alive)
-    _stream: OutputStream,
-    /// Stream handle for creating sinks
-    stream_handle: OutputStreamHandle,
-    /// Current audio sink
-    sink: Arc<Mutex<Option<Sink>>>,
+    device_sink: Arc<Mutex<Option<MixerDeviceSink>>>,
+    player: Arc<Mutex<Option<Player>>>,
     /// Play queue
     queue: Arc<Mutex<PlayQueue>>,
     /// Current track
@@ -106,13 +102,9 @@ impl PositionTracker {
 impl AudioPlayer {
     /// Create a new audio player
     pub fn new() -> Result<Self> {
-        let (_stream, stream_handle) = OutputStream::try_default()
-            .map_err(|e| anyhow!("Failed to create audio output stream: {}", e))?;
-
         Ok(Self {
-            _stream,
-            stream_handle,
-            sink: Arc::new(Mutex::new(None)),
+            device_sink: Arc::new(Mutex::new(None)),
+            player: Arc::new(Mutex::new(None)),
             queue: Arc::new(Mutex::new(PlayQueue::new())),
             current_track: Arc::new(Mutex::new(None)),
             volume: Arc::new(Mutex::new(1.0)),
@@ -129,24 +121,30 @@ impl AudioPlayer {
         let decoded =
             decode_audio(&track.path).map_err(|e| anyhow!("Failed to decode audio file: {}", e))?;
 
-        // Create a new sink
-        let new_sink = Sink::try_new(&self.stream_handle)
-            .map_err(|e| anyhow!("Failed to create audio sink: {}", e))?;
-
-        // Set volume
-        let volume = *self.volume.lock();
-        new_sink.set_volume(volume);
-
-        // Append the decoded audio
-        new_sink.append(decoded.buffer);
-
-        // Replace the old sink
         {
-            let mut sink = self.sink.lock();
-            if let Some(old_sink) = sink.take() {
-                old_sink.stop();
+            let mut device_sink_guard = self.device_sink.lock();
+            let mut player_guard = self.player.lock();
+
+            if device_sink_guard.is_none() {
+                let mut device_sink = DeviceSinkBuilder::open_default_sink()
+                    .map_err(|e| anyhow!("Failed to open default audio output device: {e}"))?;
+                device_sink.log_on_drop(false);
+                *device_sink_guard = Some(device_sink);
             }
-            *sink = Some(new_sink);
+
+            let device_sink = device_sink_guard
+                .as_ref()
+                .expect("device sink just initialized");
+            if player_guard.is_none() {
+                *player_guard = Some(Player::connect_new(device_sink.mixer()));
+            }
+
+            let player = player_guard.as_ref().expect("player just initialized");
+            player.stop();
+            player.clear();
+            player.set_volume(*self.volume.lock());
+            player.append(decoded.buffer);
+            player.play();
         }
 
         // Update state
@@ -168,17 +166,14 @@ impl AudioPlayer {
 
         info!("Successfully started playing: {}", track.title);
 
-        // Start monitoring for track end
-        self.start_track_end_monitor();
-
         Ok(())
     }
 
     /// Pause playback
     pub fn pause(&self) -> Result<()> {
-        let sink = self.sink.lock();
-        if let Some(sink) = sink.as_ref() {
-            sink.pause();
+        let player_guard = self.player.lock();
+        if let Some(player) = player_guard.as_ref() {
+            player.pause();
 
             let mut tracker = self.position_tracker.lock();
             tracker.pause();
@@ -197,9 +192,9 @@ impl AudioPlayer {
 
     /// Resume playback
     pub fn resume(&self) -> Result<()> {
-        let sink = self.sink.lock();
-        if let Some(sink) = sink.as_ref() {
-            sink.play();
+        let player_guard = self.player.lock();
+        if let Some(player) = player_guard.as_ref() {
+            player.play();
 
             let mut tracker = self.position_tracker.lock();
             tracker.resume();
@@ -218,9 +213,9 @@ impl AudioPlayer {
 
     /// Stop playback
     pub fn stop(&self) -> Result<()> {
-        let mut sink = self.sink.lock();
-        if let Some(s) = sink.take() {
-            s.stop();
+        if let Some(player) = self.player.lock().as_ref() {
+            player.stop();
+            player.clear();
         }
 
         *self.current_track.lock() = None;
@@ -233,12 +228,14 @@ impl AudioPlayer {
 
     /// Seek to a specific position
     pub fn seek(&self, position: Duration) -> Result<()> {
-        // Note: Rodio's Sink doesn't support seeking directly
-        // We need to reload the track and skip to the position
-        // For now, we'll just update the position tracker
-        // A full implementation would require reloading the audio
+        let player_guard = self.player.lock();
+        let Some(player) = player_guard.as_ref() else {
+            return Err(anyhow!("No active playback to seek"));
+        };
 
-        warn!("Seeking is not fully implemented yet. Position tracking updated.");
+        player
+            .try_seek(position)
+            .map_err(|e| anyhow!("Failed to seek playback: {e}"))?;
 
         let mut tracker = self.position_tracker.lock();
         tracker.seek(position);
@@ -268,9 +265,8 @@ impl AudioPlayer {
         let clamped = volume.clamp(0.0, 1.0);
         *self.volume.lock() = clamped;
 
-        let sink = self.sink.lock();
-        if let Some(sink) = sink.as_ref() {
-            sink.set_volume(clamped);
+        if let Some(player) = self.player.lock().as_ref() {
+            player.set_volume(clamped);
         }
 
         info!("Volume set to {:.0}%", clamped * 100.0);
@@ -348,93 +344,6 @@ impl AudioPlayer {
     /// Get play mode
     pub fn play_mode(&self) -> PlayMode {
         self.queue.lock().mode()
-    }
-
-    /// Start monitoring for track end
-    fn start_track_end_monitor(&self) {
-        let sink = Arc::clone(&self.sink);
-        let player = AudioPlayerHandle {
-            queue: Arc::clone(&self.queue),
-            current_track: Arc::clone(&self.current_track),
-            state: Arc::clone(&self.state),
-            position_tracker: Arc::clone(&self.position_tracker),
-            stream_handle: self.stream_handle.clone(),
-            volume: Arc::clone(&self.volume),
-        };
-
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(100));
-
-            loop {
-                std::thread::sleep(Duration::from_millis(500));
-
-                let sink_guard = sink.lock();
-                let is_empty = sink_guard.as_ref().is_none_or(|s| s.empty());
-                drop(sink_guard);
-
-                if is_empty {
-                    // Track ended, play next
-                    if let Err(e) = player.play_next_on_end() {
-                        error!("Failed to play next track: {}", e);
-                        break;
-                    }
-                    break;
-                }
-            }
-        });
-    }
-}
-
-/// Handle for playing next track from background thread
-struct AudioPlayerHandle {
-    queue: Arc<Mutex<PlayQueue>>,
-    current_track: Arc<Mutex<Option<Track>>>,
-    state: Arc<Mutex<PlaybackState>>,
-    position_tracker: Arc<Mutex<PositionTracker>>,
-    stream_handle: OutputStreamHandle,
-    volume: Arc<Mutex<f32>>,
-}
-
-impl AudioPlayerHandle {
-    fn play_next_on_end(&self) -> Result<()> {
-        let mut queue = self.queue.lock();
-        if let Some(track) = queue.next() {
-            let track = track.clone();
-            drop(queue);
-
-            // Decode and play
-            let decoded = decode_audio(&track.path)?;
-            let new_sink = Sink::try_new(&self.stream_handle)?;
-
-            let volume = *self.volume.lock();
-            new_sink.set_volume(volume);
-            new_sink.append(decoded.buffer);
-
-            *self.current_track.lock() = Some(track.clone());
-
-            let duration_secs = decoded.duration.unwrap_or(track.duration as u64);
-            let duration = Duration::from_secs(duration_secs);
-
-            {
-                let mut tracker = self.position_tracker.lock();
-                tracker.stop();
-                tracker.start(duration);
-            }
-
-            *self.state.lock() = PlaybackState::Playing {
-                position: 0,
-                duration: duration_secs,
-            };
-
-            info!("Auto-playing next track: {}", track.title);
-            Ok(())
-        } else {
-            // No more tracks, stop
-            *self.current_track.lock() = None;
-            self.position_tracker.lock().stop();
-            *self.state.lock() = PlaybackState::Stopped;
-            Ok(())
-        }
     }
 }
 
