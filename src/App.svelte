@@ -446,13 +446,13 @@
 <style>
   .app-container {
     display: grid;
-    grid-template-columns: 250px 1fr;
-    grid-template-rows: 60px 1fr auto;
+    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-rows: 64px minmax(0, 1fr) auto;
     grid-template-areas:
       "sidebar topbar"
       "sidebar main"
       "player player";
-    height: 100vh;
+    height: 100dvh;
     background-color: var(--app-bg);
     color: var(--app-fg);
   }
@@ -467,7 +467,9 @@
 
   .main-content {
     grid-area: main;
-    overflow-y: auto;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
     overscroll-behavior: contain;
     padding: 20px;
   }
