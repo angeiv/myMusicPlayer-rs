@@ -1,9 +1,8 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { playTrack as playTrackCommand, setQueue } from '../api/playback';
   import type { Album, Artist, SearchResults, Track } from '../types';
   import { formatDate, formatDuration } from '../utils/format';
-  import { isTauri } from '../utils/env';
 
   export let searchTerm = '';
   export let searchResults: SearchResults | null = null;
@@ -20,14 +19,13 @@
   $: artists = searchResults?.artists ?? [];
 
   async function playTrack(track: Track) {
-    if (isTauri) {
-      try {
-        await invoke('set_queue', { tracks });
-        await invoke('play', { track });
-      } catch (error) {
-        console.error('Failed to play track from search:', error);
-      }
+    try {
+      await setQueue(tracks);
+      await playTrackCommand(track);
+    } catch (error) {
+      console.error('Failed to play track from search:', error);
     }
+
     dispatch('playTrack', { track });
   }
 
