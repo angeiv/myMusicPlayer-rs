@@ -4,7 +4,7 @@
 use super::decoder::decode_audio;
 use crate::models::{playback_state::PlaybackState, track::Track};
 use log::info;
-use rodio::{OutputStream, Sink};
+use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -18,8 +18,9 @@ pub enum PlayMode {
 
 /// Real audio player that can actually play audio files
 pub struct RealAudioPlayer {
-    _stream: OutputStream,
-    sink: Arc<Mutex<Sink>>,
+    #[allow(dead_code)]
+    device_sink: MixerDeviceSink,
+    player: Player,
     current_track: Arc<Mutex<Option<Track>>>,
     volume: Arc<Mutex<f32>>,
     play_mode: Arc<Mutex<PlayMode>>,
@@ -28,12 +29,13 @@ pub struct RealAudioPlayer {
 impl RealAudioPlayer {
     /// Create a new RealAudioPlayer
     pub fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let (_stream, stream_handle) = OutputStream::try_default()?;
-        let sink = Sink::try_new(&stream_handle)?;
+        let mut device_sink = DeviceSinkBuilder::open_default_sink()?;
+        device_sink.log_on_drop(false);
+        let player = Player::connect_new(device_sink.mixer());
 
         Ok(RealAudioPlayer {
-            _stream,
-            sink: Arc::new(Mutex::new(sink)),
+            device_sink,
+            player,
             current_track: Arc::new(Mutex::new(None)),
             volume: Arc::new(Mutex::new(1.0)),
             play_mode: Arc::new(Mutex::new(PlayMode::Sequential)),
@@ -50,14 +52,13 @@ impl RealAudioPlayer {
 
         // Stop current playback and start new track
         {
-            let sink = self.sink.lock().unwrap();
-            sink.stop();
-            sink.append(decoded.buffer);
-            sink.play();
+            self.player.stop();
+            self.player.clear();
+            self.player.append(decoded.buffer);
+            self.player.play();
 
-            // Apply current volume
             let volume = *self.volume.lock().unwrap();
-            sink.set_volume(volume);
+            self.player.set_volume(volume);
         }
 
         // Update current track
@@ -108,22 +109,20 @@ impl RealAudioPlayer {
 
     /// Pause playback
     pub fn pause(&self) {
-        let sink = self.sink.lock().unwrap();
-        sink.pause();
+        self.player.pause();
         info!("Playback paused");
     }
 
     /// Resume playback
     pub fn resume(&self) {
-        let sink = self.sink.lock().unwrap();
-        sink.play();
+        self.player.play();
         info!("Playback resumed");
     }
 
     /// Stop playback
     pub fn stop(&self) {
-        let sink = self.sink.lock().unwrap();
-        sink.stop();
+        self.player.stop();
+        self.player.clear();
         *self.current_track.lock().unwrap() = None;
         info!("Playback stopped");
     }
@@ -133,8 +132,7 @@ impl RealAudioPlayer {
         let clamped_volume = volume.clamp(0.0, 1.0);
 
         {
-            let sink = self.sink.lock().unwrap();
-            sink.set_volume(clamped_volume);
+            self.player.set_volume(clamped_volume);
         }
 
         *self.volume.lock().unwrap() = clamped_volume;
@@ -164,29 +162,24 @@ impl RealAudioPlayer {
 
     /// Check if currently playing
     pub fn is_playing(&self) -> bool {
-        let sink = self.sink.lock().unwrap();
-        !sink.is_paused() && !sink.empty()
+        !self.player.is_paused() && !self.player.empty()
     }
 
     /// Check if paused
     pub fn is_paused(&self) -> bool {
-        let sink = self.sink.lock().unwrap();
-        sink.is_paused()
+        self.player.is_paused()
     }
 
     /// Check if stopped/empty
     pub fn is_empty(&self) -> bool {
-        let sink = self.sink.lock().unwrap();
-        sink.empty()
+        self.player.empty()
     }
 
     /// Get current playback state
     pub fn get_playback_state(&self) -> PlaybackState {
-        let sink = self.sink.lock().unwrap();
-
-        if sink.empty() {
+        if self.player.empty() {
             PlaybackState::Stopped
-        } else if sink.is_paused() {
+        } else if self.player.is_paused() {
             PlaybackState::Paused {
                 position: 0,
                 duration: 0,

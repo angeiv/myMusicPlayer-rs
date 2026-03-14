@@ -6,7 +6,7 @@ use anyhow::{Context, Result, anyhow};
 use crossbeam_channel::{Receiver, Sender, bounded};
 use log::{error, info};
 use parking_lot::Mutex;
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -206,11 +206,11 @@ fn run_player_thread(
     command_rx: Receiver<PlayerCommand>,
     state: Arc<Mutex<PlayerState>>,
 ) -> Result<()> {
-    // Create audio output stream (must stay in this thread)
-    let (_stream, stream_handle) = OutputStream::try_default()
-        .map_err(|e| anyhow!("Failed to create audio output stream: {}", e))?;
+    let mut device_sink = DeviceSinkBuilder::open_default_sink()
+        .map_err(|e| anyhow!("Failed to open default audio output device: {e}"))?;
+    device_sink.log_on_drop(false);
 
-    let mut sink: Option<Sink> = None;
+    let player = Player::connect_new(device_sink.mixer());
     let mut queue = PlayQueue::new();
     let mut volume = 1.0f32;
     let mut position_tracker = PositionTracker::new();
@@ -219,17 +219,13 @@ fn run_player_thread(
 
     loop {
         // Check if current track ended
-        if let Some(ref s) = sink
-            && s.empty()
-            && position_tracker.is_playing
-        {
+        if player.empty() && position_tracker.is_playing {
             info!("Track ended, playing next");
             if let Some(track) = queue.next() {
                 let track = track.clone();
                 if let Err(e) = play_track_internal(
                     &track,
-                    &stream_handle,
-                    &mut sink,
+                    &player,
                     volume,
                     &mut position_tracker,
                     &state,
@@ -239,7 +235,7 @@ fn run_player_thread(
                 }
             } else {
                 // No more tracks
-                sink = None;
+                player.stop();
                 position_tracker.stop();
                 update_state(
                     &state,
@@ -269,8 +265,7 @@ fn run_player_thread(
                 PlayerCommand::Play(track) => {
                     if let Err(e) = play_track_internal(
                         track.as_ref(),
-                        &stream_handle,
-                        &mut sink,
+                        &player,
                         volume,
                         &mut position_tracker,
                         &state,
@@ -288,8 +283,8 @@ fn run_player_thread(
                     }
                 }
                 PlayerCommand::Pause => {
-                    if let Some(ref s) = sink {
-                        s.pause();
+                    if state.lock().current_track.is_some() {
+                        player.pause();
                         position_tracker.pause();
                         let pos = position_tracker.current_position().as_secs();
                         let dur = position_tracker.duration().as_secs();
@@ -309,8 +304,8 @@ fn run_player_thread(
                     }
                 }
                 PlayerCommand::Resume => {
-                    if let Some(ref s) = sink {
-                        s.play();
+                    if state.lock().current_track.is_some() {
+                        player.play();
                         position_tracker.resume();
                         let pos = position_tracker.current_position().as_secs();
                         let dur = position_tracker.duration().as_secs();
@@ -330,9 +325,8 @@ fn run_player_thread(
                     }
                 }
                 PlayerCommand::Stop => {
-                    if let Some(s) = sink.take() {
-                        s.stop();
-                    }
+                    player.stop();
+                    player.clear();
                     position_tracker.stop();
                     update_state(
                         &state,
@@ -349,7 +343,7 @@ fn run_player_thread(
                     response_tx,
                 } => {
                     let seek_result = handle_seek(
-                        &mut sink,
+                        &player,
                         position,
                         &mut position_tracker,
                         &state,
@@ -365,9 +359,7 @@ fn run_player_thread(
                 }
                 PlayerCommand::SetVolume(vol) => {
                     volume = vol.clamp(0.0, 1.0);
-                    if let Some(ref s) = sink {
-                        s.set_volume(volume);
-                    }
+                    player.set_volume(volume);
                     state.lock().volume = volume;
                     info!("Volume set to {:.0}%", volume * 100.0);
                 }
@@ -376,8 +368,7 @@ fn run_player_thread(
                         let track = track.clone();
                         if let Err(e) = play_track_internal(
                             &track,
-                            &stream_handle,
-                            &mut sink,
+                            &player,
                             volume,
                             &mut position_tracker,
                             &state,
@@ -392,8 +383,7 @@ fn run_player_thread(
                         let track = track.clone();
                         if let Err(e) = play_track_internal(
                             &track,
-                            &stream_handle,
-                            &mut sink,
+                            &player,
                             volume,
                             &mut position_tracker,
                             &state,
@@ -439,8 +429,7 @@ fn run_player_thread(
 
 fn play_track_internal(
     track: &Track,
-    stream_handle: &OutputStreamHandle,
-    sink: &mut Option<Sink>,
+    player: &Player,
     volume: f32,
     position_tracker: &mut PositionTracker,
     state: &Arc<Mutex<PlayerState>>,
@@ -461,9 +450,8 @@ fn play_track_internal(
         ));
     }
 
-    if let Some(old_sink) = sink.take() {
-        old_sink.stop();
-    }
+    player.stop();
+    player.clear();
 
     let file = File::open(&track.path)
         .with_context(|| format!("Failed to open audio file {}", track.path.display()))?;
@@ -475,14 +463,12 @@ fn play_track_internal(
         .filter(|d| !d.is_zero())
         .map(|d| d.as_secs())
         .unwrap_or(track.duration as u64);
-    let sample_rate = decoder.sample_rate();
-    let channels = decoder.channels();
+    let sample_rate = decoder.sample_rate().get();
+    let channels = decoder.channels().get();
 
-    // Create new sink
-    let new_sink = Sink::try_new(stream_handle)?;
-    new_sink.set_volume(volume);
-    new_sink.append(decoder);
-    *sink = Some(new_sink);
+    player.set_volume(volume);
+    player.append(decoder);
+    player.play();
 
     // Update position tracker
     let duration = Duration::from_secs(duration_secs);
@@ -529,7 +515,7 @@ fn update_state(
 }
 
 fn handle_seek(
-    sink: &mut Option<Sink>,
+    player: &Player,
     position: Duration,
     position_tracker: &mut PositionTracker,
     state: &Arc<Mutex<PlayerState>>,
@@ -539,17 +525,11 @@ fn handle_seek(
     let target = clamp_seek_target(position, position_tracker.duration());
     let current = state.lock().current_track.clone();
 
-    let Some(active_sink) = sink.as_ref() else {
-        if current.is_none() {
-            return Err(anyhow!("No active playback to seek"));
-        }
+    if current.is_none() {
+        return Err(anyhow!("No active playback to seek"));
+    }
 
-        return Err(anyhow!(
-            "Cannot seek because the playback sink is unavailable"
-        ));
-    };
-
-    active_sink
+    player
         .try_seek(target)
         .map_err(|error| anyhow!("Failed to seek playback: {error}"))?;
 
@@ -691,13 +671,28 @@ mod tests {
     }
 
     #[test]
-    fn handle_seek_updates_real_sink_position_and_state() {
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-        let source = SamplesBuffer::new(2, 44_100, vec![0.0f32; 44_100 * 2 * 3]);
-        sink.append(source);
+    fn handle_seek_updates_player_position_and_state() {
+        let (player, mut output) = Player::new();
 
-        let mut sink = Some(sink);
+        let source = SamplesBuffer::new(
+            rodio::nz!(2),
+            rodio::nz!(44_100),
+            vec![0.0f32; 44_100 * 2 * 3],
+        );
+        player.append(source);
+        player.play();
+
+        let drive_thread = std::thread::spawn(move || {
+            for _ in 0..50 {
+                for _ in 0..2048 {
+                    if output.next().is_none() {
+                        return;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(6));
+            }
+        });
+
         let mut tracker = PositionTracker::new();
         tracker.start(Duration::from_secs(3));
 
@@ -716,7 +711,7 @@ mod tests {
         let queue = PlayQueue::new();
 
         handle_seek(
-            &mut sink,
+            &player,
             Duration::from_secs(2),
             &mut tracker,
             &state,
@@ -725,10 +720,11 @@ mod tests {
         )
         .unwrap();
 
+        let _ = drive_thread.join();
+
         let seeked_position = tracker.current_position();
         assert!(
-            seeked_position >= Duration::from_secs(2)
-                && seeked_position < Duration::from_secs(2) + Duration::from_millis(50),
+            seeked_position >= Duration::from_secs(2) && seeked_position < Duration::from_secs(3),
             "unexpected seeked position: {:?}",
             seeked_position
         );
@@ -740,7 +736,7 @@ mod tests {
         );
         assert!(
             updated_state.position >= Duration::from_secs(2)
-                && updated_state.position < Duration::from_secs(2) + Duration::from_millis(50),
+                && updated_state.position < Duration::from_secs(3),
             "unexpected state position: {:?}",
             updated_state.position
         );

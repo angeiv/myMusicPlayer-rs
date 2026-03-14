@@ -319,7 +319,7 @@ impl PlayQueue {
     fn regenerate_shuffle(&mut self) {
         if self.mode == PlayMode::Random && !self.tracks.is_empty() {
             self.shuffled_indices = (0..self.tracks.len()).collect();
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             self.shuffled_indices.shuffle(&mut rng);
         }
     }

@@ -17,7 +17,7 @@ use symphonia::core::probe::Hint;
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct DecodedAudio {
-    pub buffer: SamplesBuffer<f32>,
+    pub buffer: SamplesBuffer,
     pub duration: Option<u64>,
     pub sample_rate: u32,
     pub channels: u16,
@@ -146,16 +146,21 @@ fn decode_with_symphonia(path: &Path) -> Result<DecodedAudio> {
         return Err(anyhow!("Decoded zero samples for {}", path.display()));
     }
 
+    let channels_nz = std::num::NonZeroU16::new(channels).ok_or_else(|| {
+        anyhow!(
+            "Invalid channel count (0) while decoding {}",
+            path.display()
+        )
+    })?;
+    let sample_rate_nz = std::num::NonZeroU32::new(sample_rate)
+        .ok_or_else(|| anyhow!("Invalid sample rate (0) while decoding {}", path.display()))?;
+
     let sample_count = samples.len() as u64;
-    let buffer = SamplesBuffer::new(channels, sample_rate, samples);
+    let buffer = SamplesBuffer::new(channels_nz, sample_rate_nz, samples);
 
     let duration = duration.or_else(|| {
-        let channels = u64::from(channels);
-        if channels == 0 || sample_rate == 0 {
-            return None;
-        }
-        let frames = sample_count / channels;
-        Some(frames / u64::from(sample_rate))
+        let frames = sample_count / u64::from(channels_nz.get());
+        Some(frames / u64::from(sample_rate_nz.get()))
     });
 
     Ok(DecodedAudio {
