@@ -2,12 +2,13 @@
 
 use super::play_queue::{PlayMode, PlayQueue};
 use crate::models::{playback_state::PlaybackState, track::Track};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait};
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use log::{error, info};
 use parking_lot::Mutex;
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -479,30 +480,34 @@ fn run_player_thread(
                 }
                 PlayerCommand::ListOutputDevices { response_tx } => {
                     let host = cpal::default_host();
-                    let default_name = host
+                    let default_id = host
                         .default_output_device()
-                        .and_then(|d| d.name().ok())
-                        .map(|name| name.trim().to_string());
+                        .and_then(|d| d.id().ok())
+                        .map(|id| id.to_string());
 
                     let mut devices = Vec::new();
                     match host.output_devices() {
                         Ok(iter) => {
                             for device in iter {
-                                let Ok(name) = device.name() else {
+                                let Ok(desc) = device.description() else {
                                     continue;
                                 };
-                                let trimmed = name.trim().to_string();
-                                if trimmed.is_empty() {
+                                let name = desc.name().trim().to_string();
+                                if name.is_empty() {
                                     continue;
                                 }
-                                let is_default = default_name
+                                let Ok(device_id) = device.id() else {
+                                    continue;
+                                };
+                                let id_string = device_id.to_string();
+                                let is_default = default_id
                                     .as_ref()
-                                    .map(|d| d == &trimmed)
+                                    .map(|d| d == &id_string)
                                     .unwrap_or(false);
 
                                 devices.push(OutputDeviceInfo {
-                                    id: trimmed.clone(),
-                                    name: trimmed,
+                                    id: id_string,
+                                    name,
                                     is_default,
                                 });
                             }
@@ -543,14 +548,31 @@ fn run_player_thread(
                                     })
                             } else {
                                 let host = cpal::default_host();
-                                let mut devices = host
-                                    .output_devices()
-                                    .context("Failed to enumerate output devices")?;
-                                let device = devices
-                                    .find(|d| d.name().map(|n| n == requested).unwrap_or(false))
-                                    .with_context(|| {
-                                        format!("Output device not found: {requested}")
-                                    })?;
+                                let maybe_by_id = cpal::DeviceId::from_str(requested)
+                                    .ok()
+                                    .and_then(|id| host.device_by_id(&id));
+
+                                let device = if let Some(device) = maybe_by_id {
+                                    device
+                                } else {
+                                    let mut devices = host
+                                        .output_devices()
+                                        .context("Failed to enumerate output devices")?;
+                                    devices
+                                        .find(|d| {
+                                            d.description()
+                                                .map(|desc| desc.name() == requested)
+                                                .unwrap_or(false)
+                                        })
+                                        .with_context(|| {
+                                            format!("Output device not found: {requested}")
+                                        })?
+                                };
+
+                                let selected_id = device
+                                    .id()
+                                    .map(|id| id.to_string())
+                                    .unwrap_or_else(|_| requested.to_string());
 
                                 let builder =
                                     DeviceSinkBuilder::from_device(device).map_err(|e| {
@@ -558,10 +580,12 @@ fn run_player_thread(
                                     })?;
                                 builder
                                     .open_sink_or_fallback()
-                                    .map(|sink| (Some(requested.to_string()), sink))
-                                    .map_err(|e| anyhow!(
-                                        "Failed to start stream for output device '{requested}': {e}"
-                                    ))
+                                    .map(|sink| (Some(selected_id), sink))
+                                    .map_err(|e| {
+                                        anyhow!(
+                                            "Failed to start stream for output device '{requested}': {e}"
+                                        )
+                                    })
                             }
                         }
                     };
