@@ -99,6 +99,7 @@ pub fn run() {
             crate::api::config::get_config,
             crate::api::config::get_library_paths,
             crate::api::config::save_config,
+            crate::api::config::set_last_session,
             crate::api::config::add_library_path,
             crate::api::config::remove_library_path,
             crate::api::config::pick_and_add_library_folder,
