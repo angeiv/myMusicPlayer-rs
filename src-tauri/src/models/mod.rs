@@ -20,6 +20,7 @@ use std::path::PathBuf;
 
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// Library paths to scan for music
     pub library_paths: Vec<PathBuf>,
@@ -29,6 +30,11 @@ pub struct Config {
     pub auto_scan: bool,
     /// Theme preference
     pub theme: String,
+
+    pub output_device_id: Option<String>,
+
+    pub last_track_id: Option<String>,
+    pub last_position_seconds: u64,
 }
 
 impl Default for Config {
@@ -37,7 +43,10 @@ impl Default for Config {
             library_paths: Vec::new(),
             default_volume: 0.7,
             auto_scan: true,
-            theme: "dark".to_string(),
+            theme: "system".to_string(),
+            output_device_id: None,
+            last_track_id: None,
+            last_position_seconds: 0,
         }
     }
 }

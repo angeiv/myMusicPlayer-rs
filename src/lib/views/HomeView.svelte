@@ -81,7 +81,7 @@
 <style>
   .home {
     padding: 32px 48px;
-    color: #e2e8f0;
+    color: var(--app-fg);
     display: flex;
     flex-direction: column;
     gap: 24px;
@@ -90,12 +90,12 @@
   header h2 {
     margin: 0;
     font-size: 1.8rem;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   header p {
     margin: 6px 0 0 0;
-    color: rgba(148, 163, 184, 0.75);
+    color: var(--muted-fg);
   }
 
   .stats {
@@ -105,7 +105,14 @@
   }
 
   .stat-card {
-    background: linear-gradient(140deg, rgba(59, 130, 246, 0.24), rgba(14, 116, 144, 0.18));
+    background:
+      linear-gradient(
+        140deg,
+        color-mix(in srgb, var(--accent) 22%, transparent),
+        color-mix(in srgb, var(--accent) 8%, transparent)
+      ),
+      var(--panel-bg);
+    border: 1px solid var(--panel-border);
     border-radius: 18px;
     padding: 18px;
     display: flex;
@@ -118,17 +125,17 @@
     font-size: 0.75rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: rgba(226, 232, 240, 0.65);
+    color: var(--muted-fg);
   }
 
   .stat-card strong {
     font-size: 2rem;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   .stat-card .meta {
     font-size: 0.78rem;
-    color: rgba(191, 219, 254, 0.75);
+    color: var(--muted-fg);
   }
 
   .panels {
@@ -138,9 +145,9 @@
   }
 
   .panel {
-    background: rgba(15, 23, 42, 0.78);
+    background: var(--panel-bg);
     border-radius: 20px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    border: 1px solid var(--panel-border);
     padding: 20px 24px;
     display: flex;
     flex-direction: column;
@@ -150,7 +157,7 @@
   .panel h3 {
     margin: 0;
     font-size: 1.2rem;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   ul {
@@ -165,16 +172,16 @@
   li .title {
     display: block;
     font-weight: 600;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   li .meta {
     font-size: 0.8rem;
-    color: rgba(148, 163, 184, 0.75);
+    color: var(--muted-fg);
   }
 
   .muted {
-    color: rgba(148, 163, 184, 0.75);
+    color: var(--muted-fg);
   }
 
   @media (max-width: 820px) {

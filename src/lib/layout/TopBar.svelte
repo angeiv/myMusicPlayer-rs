@@ -51,9 +51,9 @@
     justify-content: space-between;
     padding: 0 1.5rem;
     height: 64px;
-    background: linear-gradient(90deg, #1a1f2e, #252b3d);
-    color: #f1f5f9;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--topbar-bg);
+    color: var(--app-fg);
+    border-bottom: 1px solid var(--panel-border);
     -webkit-app-region: drag;
   }
 
@@ -91,7 +91,7 @@
 
   .app-subtitle {
     font-size: 0.75rem;
-    color: rgba(241, 245, 249, 0.7);
+    color: var(--muted-fg);
   }
 
   .search {
@@ -100,9 +100,9 @@
     align-items: center;
     padding: 0.35rem 0.75rem;
     border-radius: 999px;
-    background: rgba(15, 23, 42, 0.65);
+    background: var(--panel-bg);
     backdrop-filter: blur(8px);
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    border: 1px solid var(--panel-border);
   }
 
   .search input {
@@ -110,7 +110,7 @@
     padding: 0.35rem 0.75rem 0.35rem 1.75rem;
     border: none;
     background: transparent;
-    color: #f1f5f9;
+    color: var(--app-fg);
     font-size: 0.95rem;
   }
 
@@ -128,7 +128,7 @@
   .clear {
     border: none;
     background: transparent;
-    color: rgba(241, 245, 249, 0.7);
+    color: var(--muted-fg);
     cursor: pointer;
     font-size: 1rem;
     padding: 0 0.25rem;
@@ -136,7 +136,7 @@
   }
 
   .clear:hover {
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   

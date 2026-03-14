@@ -3,10 +3,12 @@
 use super::play_queue::{PlayMode, PlayQueue};
 use crate::models::{playback_state::PlaybackState, track::Track};
 use anyhow::{Context, Result, anyhow};
+use cpal::traits::{DeviceTrait, HostTrait};
 use crossbeam_channel::{Receiver, Sender, bounded};
 use log::{error, info};
 use parking_lot::Mutex;
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -30,6 +32,16 @@ enum PlayerCommand {
     SetQueue(Vec<Track>),
     AddToQueue(Vec<Track>),
     ClearQueue,
+    GetQueue {
+        response_tx: Sender<Vec<Track>>,
+    },
+    ListOutputDevices {
+        response_tx: Sender<Result<Vec<OutputDeviceInfo>>>,
+    },
+    SetOutputDevice {
+        device_id: Option<String>,
+        response_tx: Sender<Result<()>>,
+    },
 }
 
 /// State information from the player
@@ -41,6 +53,21 @@ pub struct PlayerState {
     pub play_mode: PlayMode,
     pub queue_length: usize,
     pub position: Duration,
+    pub output_device_id: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OutputDeviceInfo {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+#[cfg_attr(test, allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AudioBackend {
+    Os,
+    InMemory,
 }
 
 /// Thread-safe audio player handle
@@ -61,13 +88,19 @@ impl AudioPlayerHandle {
             play_mode: PlayMode::Sequential,
             queue_length: 0,
             position: Duration::ZERO,
+            output_device_id: None,
         }));
 
         let state_clone = Arc::clone(&state);
 
+        #[cfg(test)]
+        let backend = AudioBackend::InMemory;
+        #[cfg(not(test))]
+        let backend = AudioBackend::Os;
+
         // Spawn the audio player thread
         thread::spawn(move || {
-            if let Err(e) = run_player_thread(command_rx, state_clone) {
+            if let Err(e) = run_player_thread(command_rx, state_clone, backend) {
                 error!("Audio player thread error: {}", e);
             }
         });
@@ -170,6 +203,42 @@ impl AudioPlayerHandle {
             .map_err(|e| anyhow!("Failed to send clear queue command: {}", e))
     }
 
+    pub fn get_queue(&self) -> Result<Vec<Track>> {
+        let (response_tx, response_rx) = bounded(1);
+        self.command_tx
+            .send(PlayerCommand::GetQueue { response_tx })
+            .map_err(|e| anyhow!("Failed to send get queue command: {e}"))?;
+
+        response_rx
+            .recv()
+            .map_err(|e| anyhow!("Failed to receive queue response: {e}"))
+    }
+
+    pub fn list_output_devices(&self) -> Result<Vec<OutputDeviceInfo>> {
+        let (response_tx, response_rx) = bounded(1);
+        self.command_tx
+            .send(PlayerCommand::ListOutputDevices { response_tx })
+            .map_err(|e| anyhow!("Failed to send list output devices command: {e}"))?;
+
+        response_rx
+            .recv()
+            .map_err(|e| anyhow!("Failed to receive output device list: {e}"))?
+    }
+
+    pub fn set_output_device(&self, device_id: Option<String>) -> Result<()> {
+        let (response_tx, response_rx) = bounded(1);
+        self.command_tx
+            .send(PlayerCommand::SetOutputDevice {
+                device_id,
+                response_tx,
+            })
+            .map_err(|e| anyhow!("Failed to send set output device command: {e}"))?;
+
+        response_rx
+            .recv()
+            .map_err(|e| anyhow!("Failed to receive set output device result: {e}"))?
+    }
+
     /// Get current state
     pub fn state(&self) -> PlayerState {
         self.state.lock().clone()
@@ -199,18 +268,51 @@ impl AudioPlayerHandle {
     pub fn position(&self) -> Duration {
         self.state.lock().position
     }
+
+    pub fn output_device_id(&self) -> Option<String> {
+        self.state.lock().output_device_id.clone()
+    }
 }
 
 /// Run the audio player in a dedicated thread
 fn run_player_thread(
     command_rx: Receiver<PlayerCommand>,
     state: Arc<Mutex<PlayerState>>,
+    backend: AudioBackend,
 ) -> Result<()> {
-    let mut device_sink = DeviceSinkBuilder::open_default_sink()
-        .map_err(|e| anyhow!("Failed to open default audio output device: {e}"))?;
-    device_sink.log_on_drop(false);
+    let mut device_sink = match backend {
+        AudioBackend::Os => Some(
+            DeviceSinkBuilder::open_default_sink()
+                .map_err(|e| anyhow!("Failed to open default audio output device: {e}"))?,
+        ),
+        AudioBackend::InMemory => None,
+    };
 
-    let player = Player::connect_new(device_sink.mixer());
+    if let Some(sink) = device_sink.as_mut() {
+        sink.log_on_drop(false);
+    }
+    state.lock().output_device_id = None;
+
+    let (mut player, mock_output) = match device_sink.as_ref() {
+        Some(sink) => (Player::connect_new(sink.mixer()), None),
+        None => {
+            let (player, output) = Player::new();
+            (player, Some(output))
+        }
+    };
+
+    let mock_drive_thread = mock_output.map(|mut output| {
+        thread::spawn(move || {
+            loop {
+                for _ in 0..2048 {
+                    if output.next().is_none() {
+                        return;
+                    }
+                }
+                thread::sleep(Duration::from_millis(8));
+            }
+        })
+    });
     let mut queue = PlayQueue::new();
     let mut volume = 1.0f32;
     let mut position_tracker = PositionTracker::new();
@@ -413,6 +515,166 @@ fn run_player_thread(
                     state.lock().queue_length = 0;
                     info!("Queue cleared");
                 }
+                PlayerCommand::GetQueue { response_tx } => {
+                    let _ = response_tx.send(queue.tracks().to_vec());
+                }
+                PlayerCommand::ListOutputDevices { response_tx } => {
+                    if backend == AudioBackend::InMemory {
+                        let _ = response_tx.send(Ok(Vec::new()));
+                        continue;
+                    }
+
+                    let host = cpal::default_host();
+                    let default_id = host
+                        .default_output_device()
+                        .and_then(|d| d.id().ok())
+                        .map(|id| id.to_string());
+
+                    let mut devices = Vec::new();
+                    match host.output_devices() {
+                        Ok(iter) => {
+                            for device in iter {
+                                let Ok(desc) = device.description() else {
+                                    continue;
+                                };
+                                let name = desc.name().trim().to_string();
+                                if name.is_empty() {
+                                    continue;
+                                }
+                                let Ok(device_id) = device.id() else {
+                                    continue;
+                                };
+                                let id_string = device_id.to_string();
+                                let is_default = default_id
+                                    .as_ref()
+                                    .map(|d| d == &id_string)
+                                    .unwrap_or(false);
+
+                                devices.push(OutputDeviceInfo {
+                                    id: id_string,
+                                    name,
+                                    is_default,
+                                });
+                            }
+
+                            devices.sort_by(|a, b| {
+                                b.is_default
+                                    .cmp(&a.is_default)
+                                    .then_with(|| a.name.cmp(&b.name))
+                            });
+                            let _ = response_tx.send(Ok(devices));
+                        }
+                        Err(err) => {
+                            let _ = response_tx
+                                .send(Err(anyhow!("Failed to enumerate output devices: {err}")));
+                        }
+                    }
+                }
+                PlayerCommand::SetOutputDevice {
+                    device_id,
+                    response_tx,
+                } => {
+                    if backend == AudioBackend::InMemory {
+                        let _ = response_tx.send(Ok(()));
+                        continue;
+                    }
+
+                    let next_sink = match device_id.as_deref() {
+                        None => DeviceSinkBuilder::open_default_sink()
+                            .map(|sink| (None, sink))
+                            .map_err(|e| anyhow!("Failed to open default output device: {e}")),
+                        Some(id) if id.eq_ignore_ascii_case("default") => {
+                            DeviceSinkBuilder::open_default_sink()
+                                .map(|sink| (None, sink))
+                                .map_err(|e| anyhow!("Failed to open default output device: {e}"))
+                        }
+                        Some(id) => {
+                            let requested = id.trim();
+                            if requested.is_empty() {
+                                DeviceSinkBuilder::open_default_sink()
+                                    .map(|sink| (None, sink))
+                                    .map_err(|e| {
+                                        anyhow!("Failed to open default output device: {e}")
+                                    })
+                            } else {
+                                let host = cpal::default_host();
+                                let maybe_by_id = cpal::DeviceId::from_str(requested)
+                                    .ok()
+                                    .and_then(|id| host.device_by_id(&id));
+
+                                let device = if let Some(device) = maybe_by_id {
+                                    device
+                                } else {
+                                    let mut devices = host
+                                        .output_devices()
+                                        .context("Failed to enumerate output devices")?;
+                                    devices
+                                        .find(|d| {
+                                            d.description()
+                                                .map(|desc| desc.name() == requested)
+                                                .unwrap_or(false)
+                                        })
+                                        .with_context(|| {
+                                            format!("Output device not found: {requested}")
+                                        })?
+                                };
+
+                                let selected_id = device
+                                    .id()
+                                    .map(|id| id.to_string())
+                                    .unwrap_or_else(|_| requested.to_string());
+
+                                let builder =
+                                    DeviceSinkBuilder::from_device(device).map_err(|e| {
+                                        anyhow!("Failed to open output device '{requested}': {e}")
+                                    })?;
+                                builder
+                                    .open_sink_or_fallback()
+                                    .map(|sink| (Some(selected_id), sink))
+                                    .map_err(|e| {
+                                        anyhow!(
+                                            "Failed to start stream for output device '{requested}': {e}"
+                                        )
+                                    })
+                            }
+                        }
+                    };
+
+                    match next_sink {
+                        Ok((selected_id, mut new_sink)) => {
+                            new_sink.log_on_drop(false);
+                            player.stop();
+                            player.clear();
+                            position_tracker.stop();
+
+                            device_sink = Some(new_sink);
+                            let sink = device_sink
+                                .as_ref()
+                                .context("Missing device sink after switching output")?;
+                            player = Player::connect_new(sink.mixer());
+                            player.set_volume(volume);
+                            state.lock().output_device_id = selected_id.clone();
+
+                            update_state(
+                                &state,
+                                None,
+                                PlaybackState::Stopped,
+                                volume,
+                                &queue,
+                                &position_tracker,
+                            );
+                            info!(
+                                "Switched output device to {}",
+                                selected_id.as_deref().unwrap_or("(system default)")
+                            );
+                            let _ = response_tx.send(Ok(()));
+                        }
+                        Err(err) => {
+                            error!("Failed to switch output device: {err}");
+                            let _ = response_tx.send(Err(err));
+                        }
+                    }
+                }
             },
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                 // Normal timeout, continue loop
@@ -422,6 +684,10 @@ fn run_player_thread(
                 break;
             }
         }
+    }
+
+    if let Some(handle) = mock_drive_thread {
+        let _ = handle.join();
     }
 
     Ok(())
@@ -455,7 +721,15 @@ fn play_track_internal(
 
     let file = File::open(&track.path)
         .with_context(|| format!("Failed to open audio file {}", track.path.display()))?;
-    let decoder = Decoder::new(BufReader::new(file))
+    let byte_len = file
+        .metadata()
+        .map(|m| m.len())
+        .with_context(|| format!("Failed to read metadata for {}", track.path.display()))?;
+    let decoder = Decoder::builder()
+        .with_data(BufReader::new(file))
+        .with_byte_len(byte_len)
+        .with_coarse_seek(true)
+        .build()
         .map_err(|e| anyhow!("Failed to create decoder for {}: {e}", track.path.display()))?;
 
     let duration_secs = decoder
@@ -479,6 +753,13 @@ fn play_track_internal(
     enriched_track.duration = duration_secs.min(u64::from(u32::MAX)) as u32;
     enriched_track.sample_rate = sample_rate;
     enriched_track.channels = channels;
+
+    if queue.is_empty() {
+        queue.set_tracks(vec![enriched_track.clone()]);
+    } else if !queue.select_track_by_id(enriched_track.id) {
+        queue.add_track(enriched_track.clone());
+        let _ = queue.select_track_by_id(enriched_track.id);
+    }
 
     // Update state
     update_state(
@@ -529,9 +810,58 @@ fn handle_seek(
         return Err(anyhow!("No active playback to seek"));
     }
 
-    player
-        .try_seek(target)
-        .map_err(|error| anyhow!("Failed to seek playback: {error}"))?;
+    if player.try_seek(target).is_err() {
+        let track = current
+            .clone()
+            .context("Missing current track while seeking")?;
+        let was_playing = position_tracker.is_playing;
+
+        let file = File::open(&track.path)
+            .with_context(|| format!("Failed to open audio file {}", track.path.display()))?;
+        let byte_len = file
+            .metadata()
+            .map(|m| m.len())
+            .with_context(|| format!("Failed to read metadata for {}", track.path.display()))?;
+
+        let mut decoder = Decoder::builder()
+            .with_data(BufReader::new(file))
+            .with_byte_len(byte_len)
+            .with_coarse_seek(true)
+            .build()
+            .map_err(|e| anyhow!("Failed to create decoder for {}: {e}", track.path.display()))?;
+
+        let decoder = if decoder.try_seek(target).is_ok() {
+            decoder.skip_duration(Duration::ZERO)
+        } else {
+            let file = File::open(&track.path)
+                .with_context(|| format!("Failed to open audio file {}", track.path.display()))?;
+            let byte_len = file
+                .metadata()
+                .map(|m| m.len())
+                .with_context(|| format!("Failed to read metadata for {}", track.path.display()))?;
+            let decoder = Decoder::builder()
+                .with_data(BufReader::new(file))
+                .with_byte_len(byte_len)
+                .with_coarse_seek(true)
+                .build()
+                .map_err(|e| {
+                    anyhow!("Failed to create decoder for {}: {e}", track.path.display())
+                })?;
+            decoder.skip_duration(target)
+        };
+
+        player.stop();
+        player.clear();
+
+        player.set_volume(volume);
+        player.append(decoder);
+        if was_playing {
+            player.play();
+        } else {
+            player.pause();
+        }
+        info!("Fallback seek: rebuilt decoder at {}s", target.as_secs());
+    }
 
     position_tracker.seek(target);
 
@@ -707,6 +1037,7 @@ mod tests {
             play_mode: PlayMode::Sequential,
             queue_length: 0,
             position: Duration::ZERO,
+            output_device_id: None,
         }));
         let queue = PlayQueue::new();
 

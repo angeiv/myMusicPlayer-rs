@@ -59,15 +59,12 @@
         return;
       }
 
-      const trackRequests = playlistData.track_ids.map((trackId) =>
-        invoke<Track | null>('get_track', { id: trackId })
-      );
-      const resolved = await Promise.all(trackRequests);
+      const resolved = await invoke<Track[]>('get_playlist_tracks', { id });
       if (lastRequestedId !== id) {
         return;
       }
 
-      tracks = resolved.filter((track): track is Track => !!track);
+      tracks = resolved ?? [];
     } catch (err) {
       console.error('Failed to load playlist detail:', err);
       if (!isTauri) {
@@ -88,6 +85,7 @@
   async function playTrack(track: Track) {
     if (isTauri) {
       try {
+        await invoke('set_queue', { tracks });
         await invoke('play', { track });
       } catch (err) {
         console.error('Failed to play track:', err);
@@ -322,8 +320,8 @@
   }
 
   .track-body {
-    max-height: calc(100vh - 320px);
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .track-row {

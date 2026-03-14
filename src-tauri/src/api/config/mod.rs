@@ -1,6 +1,7 @@
 use crate::models::Config;
 use crate::utils;
 use log::{error, info};
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
@@ -21,6 +22,26 @@ pub async fn save_config(config: Config) -> Result<(), String> {
         error!("Failed to save config: {e}");
         e
     })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetLastSessionPayload {
+    #[serde(alias = "lastTrackId")]
+    pub last_track_id: Option<String>,
+    #[serde(alias = "lastPositionSeconds")]
+    pub last_position_seconds: u64,
+}
+
+#[tauri::command]
+pub async fn set_last_session(payload: SetLastSessionPayload) -> Result<(), String> {
+    let mut config = load_config()?;
+    config.last_track_id = payload.last_track_id;
+    config.last_position_seconds = if config.last_track_id.is_some() {
+        payload.last_position_seconds
+    } else {
+        0
+    };
+    save_config_to_disk(&config)
 }
 
 #[tauri::command]

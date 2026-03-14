@@ -99,6 +99,7 @@ pub fn run() {
             crate::api::config::get_config,
             crate::api::config::get_library_paths,
             crate::api::config::save_config,
+            crate::api::config::set_last_session,
             crate::api::config::add_library_path,
             crate::api::config::remove_library_path,
             crate::api::config::pick_and_add_library_folder,
@@ -128,6 +129,9 @@ pub fn run() {
             crate::api::audio::add_to_queue,
             crate::api::audio::clear_queue,
             crate::api::audio::get_position,
+            crate::api::audio::get_output_devices,
+            crate::api::audio::set_output_device,
+            crate::api::audio::get_output_device,
             // Library commands
             crate::api::library::scan_directory,
             crate::api::library::get_tracks,

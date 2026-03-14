@@ -155,6 +155,24 @@ impl PlayQueue {
         self.current_index
     }
 
+    pub fn set_current_index(&mut self, index: usize) {
+        if self.tracks.is_empty() {
+            self.current_index = None;
+            return;
+        }
+
+        self.current_index = Some(index.min(self.tracks.len() - 1));
+        self.regenerate_shuffle();
+    }
+
+    pub fn select_track_by_id(&mut self, track_id: Uuid) -> bool {
+        let Some(index) = self.tracks.iter().position(|t| t.id == track_id) else {
+            return false;
+        };
+        self.set_current_index(index);
+        true
+    }
+
     /// Get all tracks in the queue
     #[allow(dead_code)]
     pub fn tracks(&self) -> &[Track] {

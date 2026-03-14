@@ -61,6 +61,7 @@
   async function playTrack(track: Track) {
     if (isTauri) {
       try {
+        await invoke('set_queue', { tracks: sortedTracks });
         await invoke('play', { track });
       } catch (error) {
         console.error('Failed to play track:', error);
@@ -166,7 +167,7 @@
       class="context-menu"
       style={`top:${contextMenuPosition.y}px;left:${contextMenuPosition.x}px;`}
     >
-      <button on:click={() => playTrack(contextMenuTrack!)}>▶ Play</button>
+      <button on:click={() => contextMenuTrack && playTrack(contextMenuTrack)}>▶ Play</button>
       <button disabled title="Coming soon">➕ Add to playlist</button>
       <button disabled title="Coming soon">🗑 Remove from library</button>
     </div>
@@ -176,7 +177,7 @@
 <style>
   .songs-view {
     padding: 32px 48px;
-    color: #e2e8f0;
+    color: var(--app-fg);
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -185,17 +186,17 @@
   .header h2 {
     margin: 0;
     font-size: 1.8rem;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   .header p {
     margin: 4px 0 0 0;
-    color: rgba(148, 163, 184, 0.75);
+    color: var(--muted-fg);
   }
 
   .table {
-    background: rgba(15, 23, 42, 0.75);
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
     border-radius: 16px;
     overflow: hidden;
     backdrop-filter: blur(12px);
@@ -209,12 +210,12 @@
   }
 
   .table-header {
-    background: rgba(30, 41, 59, 0.75);
+    background: var(--panel-bg);
     padding: 12px 20px;
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: rgba(148, 163, 184, 0.85);
+    color: var(--muted-fg);
   }
 
   .table-header button {
@@ -231,8 +232,8 @@
   }
 
   .table-body {
-    max-height: calc(100vh - 260px);
-    overflow-y: overlay;
+    /* Use the main content scroll container to avoid nested scrollbars. */
+    overflow: visible;
   }
 
   .row {

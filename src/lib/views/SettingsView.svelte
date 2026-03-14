@@ -5,7 +5,7 @@
   import { getVersion } from '@tauri-apps/api/app';
   import { isTauri } from '../utils/env';
 
-  type ThemeOption = 'system' | 'light' | 'dark';
+  import type { AppConfig, OutputDeviceInfo, ThemeOption } from '../types';
 
   const dispatch = createEventDispatcher<{
     refreshLibrary: void;
@@ -17,15 +17,88 @@
     : ['~/Music', '/Volumes/Sunset Sessions'];
   let isUpdatingPaths = false;
   let theme: ThemeOption = 'system';
+  let autoScan = true;
+  let defaultVolume = 0.7;
+  let outputDevices: OutputDeviceInfo[] = [];
+  let selectedDeviceId = 'default';
+  let config: AppConfig | null = null;
   let appVersion = isTauri ? '' : 'dev-preview';
 
   onMount(async () => {
     await Promise.all([
       loadLibraryPaths(),
+      loadConfig(),
+      loadOutputDevices(),
       loadAppVersion(),
     ]);
     applyTheme(theme);
   });
+
+  function normalizeTheme(raw: unknown): ThemeOption {
+    if (raw === 'light' || raw === 'dark' || raw === 'system') {
+      return raw;
+    }
+    return 'system';
+  }
+
+  async function loadConfig() {
+    if (!isTauri) {
+      config = {
+        library_paths: libraryPaths,
+        default_volume: defaultVolume,
+        auto_scan: autoScan,
+        theme,
+        output_device_id: selectedDeviceId === 'default' ? null : selectedDeviceId,
+      };
+      return;
+    }
+
+    try {
+      const next = await invoke<AppConfig>('get_config');
+      config = next;
+      theme = normalizeTheme(next?.theme);
+      autoScan = Boolean(next?.auto_scan);
+      defaultVolume = typeof next?.default_volume === 'number' ? next.default_volume : defaultVolume;
+      selectedDeviceId = typeof next?.output_device_id === 'string' ? next.output_device_id : 'default';
+    } catch (error) {
+      console.error('Failed to load config:', error);
+      config = null;
+    }
+  }
+
+  async function saveConfig(overrides: Partial<AppConfig>) {
+    if (!isTauri) {
+      config = {
+        ...(config ?? {
+          library_paths: libraryPaths,
+          default_volume: defaultVolume,
+          auto_scan: autoScan,
+          theme,
+          output_device_id: selectedDeviceId === 'default' ? null : selectedDeviceId,
+        }),
+        ...overrides,
+        library_paths: libraryPaths,
+      };
+      return;
+    }
+
+    try {
+      const base = config ?? (await invoke<AppConfig>('get_config'));
+      const next: AppConfig = {
+        ...base,
+        ...overrides,
+        library_paths: libraryPaths,
+        theme,
+        default_volume: defaultVolume,
+        auto_scan: autoScan,
+        output_device_id: selectedDeviceId === 'default' ? null : selectedDeviceId,
+      };
+      await invoke('save_config', { config: next });
+      config = next;
+    } catch (error) {
+      console.error('Failed to save config:', error);
+    }
+  }
 
   async function loadLibraryPaths() {
     if (!isTauri) {
@@ -38,6 +111,32 @@
     } catch (error) {
       console.error('Failed to load library paths:', error);
       libraryPaths = [];
+    }
+  }
+
+  async function loadOutputDevices() {
+    if (!isTauri) {
+      outputDevices = [
+        { id: 'default', name: 'System default', is_default: true },
+        { id: 'scarlett-2i2', name: 'Scarlett 2i2', is_default: false },
+        { id: 'airpods-pro', name: 'AirPods Pro', is_default: false },
+      ];
+      if (!selectedDeviceId) {
+        selectedDeviceId = outputDevices[0]?.id ?? 'default';
+      }
+      return;
+    }
+
+    try {
+      outputDevices = (await invoke<OutputDeviceInfo[]>('get_output_devices')) ?? [];
+      outputDevices = outputDevices.filter((device) => !device.is_default);
+      if (!selectedDeviceId) {
+        const current = await invoke<string | null>('get_output_device');
+        selectedDeviceId = current ?? 'default';
+      }
+    } catch (error) {
+      console.error('Failed to load output devices:', error);
+      outputDevices = [];
     }
   }
 
@@ -79,6 +178,7 @@
       isUpdatingPaths = true;
       await invoke('pick_and_add_library_folder');
       await loadLibraryPaths();
+      await loadConfig();
       dispatch('refreshLibrary');
     } catch (error) {
       console.error('Failed to add library path:', error);
@@ -101,6 +201,7 @@
       isUpdatingPaths = true;
       await invoke('remove_library_path', { path });
       await loadLibraryPaths();
+      await loadConfig();
     } catch (error) {
       console.error('Failed to remove library path:', error);
       alert('Failed to remove folder.');
@@ -128,7 +229,51 @@
 
   function handleThemeChange(event: Event) {
     const input = event.target as HTMLInputElement;
-    applyTheme(input.value as ThemeOption);
+    const next = normalizeTheme(input.value);
+    applyTheme(next);
+    void saveConfig({ theme: next });
+  }
+
+  function handleAutoScanChange(event: Event) {
+    const input = event.target as HTMLInputElement;
+    autoScan = input.checked;
+    void saveConfig({ auto_scan: autoScan });
+  }
+
+  async function handleDefaultVolumeChange(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const value = Number(input.value) / 100;
+    defaultVolume = Number.isFinite(value) ? Math.min(Math.max(value, 0), 1) : defaultVolume;
+    void saveConfig({ default_volume: defaultVolume });
+
+    if (!isTauri) {
+      return;
+    }
+
+    try {
+      await invoke('set_volume', { volume: defaultVolume });
+    } catch (error) {
+      console.error('Failed to apply default volume:', error);
+    }
+  }
+
+  async function handleOutputDeviceChange(event: Event) {
+    const input = event.target as HTMLSelectElement;
+    selectedDeviceId = input.value;
+    void saveConfig({ output_device_id: selectedDeviceId === 'default' ? null : selectedDeviceId });
+
+    if (!isTauri) {
+      return;
+    }
+
+    try {
+      await invoke('set_output_device', {
+        deviceId: selectedDeviceId && selectedDeviceId !== 'default' ? selectedDeviceId : null,
+      });
+    } catch (error) {
+      console.error('Failed to set output device:', error);
+      alert('Failed to switch output device.');
+    }
   }
 </script>
 
@@ -185,6 +330,21 @@
             <span>Follow System</span>
           </label>
         </div>
+        <label class="toggle">
+          <input type="checkbox" checked={autoScan} on:change={handleAutoScanChange} />
+          <span>Scan library on startup</span>
+        </label>
+        <label class="slider">
+          <span>Default volume</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={Math.round(defaultVolume * 100)}
+            on:input={handleDefaultVolumeChange}
+          />
+          <span class="value">{Math.round(defaultVolume * 100)}%</span>
+        </label>
       </div>
     </section>
 
@@ -196,8 +356,13 @@
       <div class="content">
         <label class="select">
           <span>Output device</span>
-          <select disabled>
-            <option>System default (coming soon)</option>
+          <select on:change={handleOutputDeviceChange} value={selectedDeviceId}>
+            <option value="default">System default</option>
+            {#each outputDevices as device}
+              <option value={device.id}>
+                {device.name}{device.is_default ? ' (default)' : ''}
+              </option>
+            {/each}
           </select>
         </label>
       </div>
@@ -237,7 +402,7 @@
 <style>
   .settings {
     padding: 32px 48px;
-    color: #e2e8f0;
+    color: var(--app-fg);
     display: flex;
     flex-direction: column;
     gap: 24px;
@@ -246,7 +411,7 @@
   h2 {
     margin: 0;
     font-size: 1.8rem;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   .grid {

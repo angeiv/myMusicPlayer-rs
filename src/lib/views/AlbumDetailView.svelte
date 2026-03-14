@@ -74,6 +74,7 @@
   async function playTrack(track: Track) {
     if (isTauri) {
       try {
+        await invoke('set_queue', { tracks });
         await invoke('play', { track });
       } catch (err) {
         console.error('Failed to play track:', err);
@@ -285,8 +286,8 @@
   }
 
   .track-body {
-    max-height: calc(100vh - 320px);
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .track-row {

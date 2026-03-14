@@ -46,7 +46,7 @@
 <style>
   .artists-view {
     padding: 32px 48px;
-    color: #e2e8f0;
+    color: var(--app-fg);
     display: flex;
     flex-direction: column;
     gap: 20px;
@@ -55,20 +55,20 @@
   .header h2 {
     margin: 0;
     font-size: 1.8rem;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   .header p {
     margin: 4px 0 0 0;
-    color: rgba(148, 163, 184, 0.75);
+    color: var(--muted-fg);
   }
 
   .empty {
     padding: 80px 0;
     text-align: center;
     border-radius: 20px;
-    background: rgba(15, 23, 42, 0.65);
-    color: rgba(148, 163, 184, 0.75);
+    background: var(--panel-bg);
+    color: var(--muted-fg);
   }
 
   .grid {
@@ -80,7 +80,7 @@
   .card {
     border: none;
     border-radius: 18px;
-    background: rgba(15, 23, 42, 0.7);
+    background: var(--panel-bg);
     padding: 18px;
     display: flex;
     gap: 16px;
@@ -110,7 +110,7 @@
   .details h3 {
     margin: 0;
     font-size: 1.1rem;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   .details p {
