@@ -278,11 +278,11 @@
   }
 
   li button:hover {
-    background: rgba(59, 130, 246, 0.12);
+    background: var(--hover-bg);
   }
 
   li button.active {
-    background: rgba(59, 130, 246, 0.2);
+    background: var(--active-bg);
   }
 
   .emoji {
@@ -296,11 +296,11 @@
 
   .name {
     font-size: 0.95rem;
-    color: #f8fafc;
+    color: var(--app-fg);
   }
 
   .count {
     font-size: 0.75rem;
-    color: rgba(148, 163, 184, 0.7);
+    color: var(--muted-fg);
   }
 </style>
