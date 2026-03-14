@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { createEventDispatcher } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { playTrack as playTrackCommand, setQueue } from '../api/playback';
   import type { Track } from '../types';
   import { formatDate, formatDuration, formatTrackIndex } from '../utils/format';
-  import { isTauri } from '../utils/env';
 
   export let tracks: Track[] = [];
   export let isLibraryLoading = false;
@@ -59,14 +58,13 @@
   }
 
   async function playTrack(track: Track) {
-    if (isTauri) {
-      try {
-        await invoke('set_queue', { tracks: sortedTracks });
-        await invoke('play', { track });
-      } catch (error) {
-        console.error('Failed to play track:', error);
-      }
+    try {
+      await setQueue(sortedTracks);
+      await playTrackCommand(track);
+    } catch (error) {
+      console.error('Failed to play track:', error);
     }
+
     dispatch('playTrack', { track });
   }
 

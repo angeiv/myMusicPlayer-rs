@@ -1,10 +1,10 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { getAlbum, getTracksByAlbum } from '../api/library';
+  import { playTrack as playTrackCommand, setQueue } from '../api/playback';
   import type { Album, Track } from '../types';
   import { formatDate, formatDuration, formatLongDuration, formatTrackIndex } from '../utils/format';
-  import { isTauri } from '../utils/env';
-  import { getMockAlbumById, getMockTracksByAlbum } from '../mocks/library';
+  import { createStaleRequestTracker, runGuardedRequest } from './stale-request';
 
   export let albumId: string | null = null;
 
@@ -15,6 +15,7 @@
   let loading = false;
   let error = '';
   let lastRequestedId: string | null = null;
+  const requestTracker = createStaleRequestTracker();
 
   $: if (albumId) {
     loadAlbum(albumId);
@@ -32,53 +33,44 @@
     error = '';
     lastRequestedId = id;
 
-    const loadFromMock = () => {
-      album = getMockAlbumById(id);
-      tracks = getMockTracksByAlbum(id);
-    };
-
-    try {
-      if (!isTauri) {
-        loadFromMock();
-        return;
-      }
-
-      const [albumResponse, tracksResponse] = await Promise.all([
-        invoke<Album | null>('get_album', { id }),
-        invoke<Track[]>('get_tracks_by_album', { albumId: id }),
-      ]);
-
-      if (lastRequestedId !== id) {
-        return;
-      }
-
-      album = albumResponse;
-      tracks = tracksResponse ?? [];
-    } catch (err) {
-      console.error('Failed to load album detail:', err);
-      if (!isTauri) {
-        loadFromMock();
+    await runGuardedRequest({
+      id,
+      tracker: requestTracker,
+      onStart: () => {
+        loading = true;
         error = '';
-      } else {
+      },
+      request: async () => {
+        const [albumResponse, tracksResponse] = await Promise.all([
+          getAlbum(id),
+          getTracksByAlbum(id),
+        ]);
+        return { albumResponse, tracksResponse };
+      },
+      onSuccess: ({ albumResponse, tracksResponse }) => {
+        album = albumResponse;
+        tracks = tracksResponse ?? [];
+      },
+      onError: (err) => {
+        console.error('Failed to load album detail:', err);
         album = null;
         tracks = [];
         error = 'Unable to load album information.';
-      }
-    } finally {
-      if (lastRequestedId === id) {
-        loading = false;
-      }
-    }
+      },
+      onFinally: () => {
+        if (lastRequestedId === id) {
+          loading = false;
+        }
+      },
+    });
   }
 
   async function playTrack(track: Track) {
-    if (isTauri) {
-      try {
-        await invoke('set_queue', { tracks });
-        await invoke('play', { track });
-      } catch (err) {
-        console.error('Failed to play track:', err);
-      }
+    try {
+      await setQueue(tracks);
+      await playTrackCommand(track);
+    } catch (err) {
+      console.error('Failed to play track:', err);
     }
 
     dispatch('playTrack', { track });
