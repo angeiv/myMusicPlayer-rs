@@ -1,49 +1,41 @@
-# Windows Build Script for Music Player
-# This script builds the application and creates an installer
+[CmdletBinding()]
+param(
+  [string]$Target = "x86_64-pc-windows-msvc"
+)
 
-# Configuration
-$ProjectRoot = "$PSScriptRoot\..\.."
-$Target = "x86_64-pc-windows-msvc"
-$ReleaseDir = "$ProjectRoot\target\release"
-$OutputDir = "$ProjectRoot\dist"
-$InstallerScript = "$PSScriptRoot\installer.nsi"
+$ErrorActionPreference = "Stop"
 
-# Create output directory if it doesn't exist
-if (-not (Test-Path $OutputDir)) {
-    New-Item -ItemType Directory -Path $OutputDir | Out-Null
+$projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\\..")
+$env:NPM_CONFIG_CACHE = Join-Path $projectRoot ".npm-cache"
+$outputDir = Join-Path $projectRoot "artifacts\\windows"
+
+if (-not (Test-Path $outputDir)) {
+  New-Item -ItemType Directory -Path $outputDir | Out-Null
 }
 
-# Build the application in release mode
-Write-Host "Building Music Player for Windows..." -ForegroundColor Green
-cargo build --release --target $Target
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Build failed with exit code $LASTEXITCODE" -ForegroundColor Red
-    exit $LASTEXITCODE
+Write-Host "Building Tauri bundles for Windows ($Target)..." -ForegroundColor Green
+Push-Location $projectRoot
+try {
+  cargo tauri build --target $Target
+} finally {
+  Pop-Location
 }
 
-# Check if NSIS is installed
-$nsisPath = "C:\Program Files (x86)\NSIS\makensis.exe"
-if (-not (Test-Path $nsisPath)) {
-    Write-Host "NSIS is not installed. Please install NSIS to create the installer." -ForegroundColor Red
-    Write-Host "Download from: https://nsis.sourceforge.io/Download"
-    exit 1
+$bundleDir = Join-Path $projectRoot "src-tauri\\target\\$Target\\release\\bundle"
+if (-not (Test-Path $bundleDir)) {
+  throw "Bundle output directory not found: $bundleDir"
 }
 
-# Create the installer
-Write-Host "Creating installer..." -ForegroundColor Green
-& "$nsisPath" "$InstallerScript"
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to create installer" -ForegroundColor Red
-    exit $LASTEXITCODE
+$artifacts = Get-ChildItem -Path $bundleDir -Recurse -File -Include *.msi, *.exe
+if (-not $artifacts) {
+  Write-Warning "No Windows bundle artifacts found under: $bundleDir"
+  exit 1
 }
 
-# Copy the installer to the dist directory
-$installerName = "MusicPlayer_Setup.exe"
-if (Test-Path $installerName) {
-    Move-Item -Path $installerName -Destination "$OutputDir\$installerName" -Force
+Write-Host "Copying artifacts to $outputDir..." -ForegroundColor Green
+foreach ($artifact in $artifacts) {
+  Copy-Item -Path $artifact.FullName -Destination (Join-Path $outputDir $artifact.Name) -Force
 }
 
 Write-Host "Build and packaging completed successfully!" -ForegroundColor Green
-Write-Host "Installer location: $OutputDir\$installerName"
+Write-Host "Artifacts location: $outputDir"

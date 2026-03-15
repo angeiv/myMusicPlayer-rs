@@ -35,12 +35,18 @@ This directory contains packaging scripts for different platforms to create dist
 
 ### Windows
 
-1. Open a command prompt in the project root
-2. Run the build script:
+1. Open a terminal in the project root
+2. Build and bundle (recommended):
+   ```
+   just package-windows
+   ```
+   Or run the packaging script directly:
    ```
    .\packaging\windows\build.bat
+   # or
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\windows\build.ps1
    ```
-3. The installer will be created in the `dist` directory
+3. Bundles/installers are copied to `artifacts\windows\`
 
 ### macOS
 
@@ -118,6 +124,7 @@ After building the packages, you can distribute them to users:
 - Make sure all dependencies are installed
 - Check the build logs for specific error messages
 - For AppImage issues, ensure `libfuse2` is installed on your system
+- On Windows, MSI bundling requires the WiX Toolset, and EXE bundling requires NSIS (depending on the bundle targets configured in `src-tauri/Tauri.toml`)
 
 ## License
 

@@ -6,7 +6,7 @@ window = { all = true }
 [build]
 # The directory containing the built frontend files
 frontendDist = "../dist"
-devUrl = "http://localhost:1420"
+devUrl = "http://127.0.0.1:1420"
 # Let just dev/dev-tools manage the frontend dev server to avoid double-start.
 # Keep build step for packaging and `cargo tauri build`.
 beforeBuildCommand = "npm run build --prefix ./src"

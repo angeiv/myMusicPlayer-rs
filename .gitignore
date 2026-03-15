@@ -13,9 +13,13 @@
 # Frontend build outputs
 /dist/
 
+# Packaged bundle artifacts (installers)
+/artifacts/
+
 # Tool caches and build info
 *.tsbuildinfo
 .eslintcache
+/.npm-cache/
 .stylelintcache
 .turbo/
 .vercel/
