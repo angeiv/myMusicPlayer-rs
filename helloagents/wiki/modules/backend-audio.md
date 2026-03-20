@@ -33,5 +33,4 @@
 - frontend-player
 
 ## 变更历史
-- 待补充
-
+- [202603201715_local_lyrics](../../history/2026-03/202603201715_local_lyrics/) - 增加同名 `.lrc` 本地歌词读取与当前播放曲目注入

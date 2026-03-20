@@ -39,5 +39,4 @@ sequenceDiagram
 
 | adr_id | title | date | status | affected_modules | details |
 |--------|-------|------|--------|------------------|---------|
-| ADR-20260320-local-lyrics | 本地歌词首版采用同名 `.lrc` 伴生文件，并在切歌时一次性注入当前播放曲目 | 2026-03-20 | ✅已采纳 | backend-audio, frontend-player | 待实现后补充到历史方案链接 |
-
+| ADR-20260320-local-lyrics | 本地歌词首版采用同名 `.lrc` 伴生文件，并在切歌时一次性注入当前播放曲目 | 2026-03-20 | ✅已采纳 | backend-audio, frontend-player | [查看方案](../history/2026-03/202603201715_local_lyrics/how.md#adr-20260320-local-lyrics) |

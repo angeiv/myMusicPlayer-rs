@@ -35,5 +35,4 @@
 - src/lib/stores/playback.ts
 
 ## 变更历史
-- 待补充
-
+- [202603201715_local_lyrics](../../history/2026-03/202603201715_local_lyrics/) - 歌词面板支持本地歌词空态、LRC 时间轴解析与当前行高亮
