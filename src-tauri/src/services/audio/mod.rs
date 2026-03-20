@@ -4,6 +4,7 @@ pub mod analyzer;
 pub mod audio_player;
 pub mod audio_player_thread;
 mod decoder;
+pub mod lyrics;
 pub mod play_queue;
 pub mod player;
 
