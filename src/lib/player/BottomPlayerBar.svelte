@@ -1,13 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
 
+  import { buildLyricsPanelState, type LyricsLine } from './lyrics';
   import { createPlaybackStore } from '../stores/playback';
   import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
-
-  const fallbackLyrics = `Float softly through the midnight air
-Windows glow with silver light
-Every heartbeat keeps the rhythm
-We are satellites tonight.`;
 
   const playback = createPlaybackStore();
 
@@ -31,7 +27,9 @@ We are satellites tonight.`;
   let selectedDeviceId = 'default';
   let isPlaying = false;
   let isMuted = false;
-  let activeLyrics: string[] = [];
+  let lyricsLines: LyricsLine[] = [];
+  let activeLyricIndex = -1;
+  let hasTimedLyrics = false;
   let remainingTime = 0;
   let progressPercent = 0;
   let playingClass = '';
@@ -56,7 +54,10 @@ We are satellites tonight.`;
 
   $: isPlaying = playbackState.state === 'playing';
   $: isMuted = volume <= 0;
-  $: activeLyrics = (currentTrack?.lyrics?.trim() ?? fallbackLyrics).split('\n');
+  $: ({ lines: lyricsLines, activeIndex: activeLyricIndex, hasTimedLyrics } = buildLyricsPanelState(
+    currentTrack?.lyrics,
+    progress
+  ));
   $: remainingTime = duration > 0 ? Math.max(duration - progress, 0) : 0;
   $: progressPercent = duration ? Math.min(Math.max((progress / duration) * 100, 0), 100) : 0;
 
@@ -366,15 +367,28 @@ We are satellites tonight.`;
   <section class="lyrics-panel">
     <div class="lyrics-header">
       <div>
-        <p class="eyebrow">实时歌词</p>
-        <p class="lyrics-title">{currentTrack ? currentTrack.title : 'Lyrics'}</p>
+        <p class="eyebrow">{hasTimedLyrics ? '实时歌词' : '本地歌词'}</p>
+        <p class="lyrics-title">{currentTrack ? currentTrack.title : '歌词'}</p>
       </div>
       <button on:click={toggleLyrics} aria-label="Close lyrics">✕</button>
     </div>
     <div class="lyrics-body">
-      {#each activeLyrics as line}
-        <p>{line}</p>
-      {/each}
+      {#if lyricsLines.length === 0}
+        <div class="lyrics-empty">
+          <p class="lyrics-empty-title">{currentTrack ? '未找到本地歌词' : '播放歌曲后可在这里查看本地歌词'}</p>
+          <p class="lyrics-empty-hint">
+            {#if currentTrack}
+              当前歌曲未找到同名 `.lrc` 文件。
+            {:else}
+              当前面板会显示正在播放歌曲的本地歌词。
+            {/if}
+          </p>
+        </div>
+      {:else}
+        {#each lyricsLines as line, index (line.id)}
+          <p class:active={index === activeLyricIndex}>{line.text}</p>
+        {/each}
+      {/if}
     </div>
   </section>
 {/if}
@@ -881,6 +895,35 @@ We are satellites tonight.`;
     margin: 0;
     font-size: 0.95rem;
     color: rgba(241, 245, 249, 0.9);
+    transition: color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+    opacity: 0.62;
+  }
+
+  .lyrics-body p.active {
+    color: #ffffff;
+    opacity: 1;
+    transform: translateX(4px);
+  }
+
+  .lyrics-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 4px;
+  }
+
+  .lyrics-empty-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: rgba(248, 250, 252, 0.96);
+  }
+
+  .lyrics-empty-hint {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: rgba(148, 163, 184, 0.92);
   }
 
   @media (max-width: 1100px) {

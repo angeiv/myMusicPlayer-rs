@@ -52,6 +52,7 @@ async function importPlaybackAdapter(isTauri: boolean) {
     pickAndPlayFile: vi.fn(),
     playNextTrack: vi.fn(),
     playPreviousTrack: vi.fn(),
+    togglePlayPause: vi.fn(),
   };
 
   vi.doMock('../lib/utils/env', () => ({ isTauri }));
