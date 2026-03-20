@@ -2655,6 +2655,7 @@ dependencies = [
  "cpal",
  "crossbeam-channel",
  "dirs",
+ "encoding_rs",
  "env_logger",
  "futures",
  "lofty",
