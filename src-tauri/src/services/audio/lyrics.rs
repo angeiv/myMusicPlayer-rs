@@ -3,8 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
 use encoding_rs::{Encoding, UTF_8};
+use log::warn;
 
 fn companion_lyrics_path(audio_path: &Path) -> PathBuf {
     audio_path.with_extension("lrc")
@@ -32,15 +32,25 @@ fn decode_lrc(bytes: &[u8]) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
-pub fn load_local_lyrics(audio_path: &Path) -> Result<Option<String>> {
+pub fn load_local_lyrics(audio_path: &Path) -> Option<String> {
     let lyrics_path = companion_lyrics_path(audio_path);
     if !lyrics_path.is_file() {
-        return Ok(None);
+        return None;
     }
 
-    let bytes = fs::read(&lyrics_path)
-        .with_context(|| format!("Failed to read local lyrics file {}", lyrics_path.display()))?;
-    Ok(decode_lrc(&bytes))
+    let bytes = match fs::read(&lyrics_path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(
+                "Failed to read local lyrics file {}: {}",
+                lyrics_path.display(),
+                err
+            );
+            return None;
+        }
+    };
+
+    decode_lrc(&bytes)
 }
 
 #[cfg(test)]
@@ -54,7 +64,7 @@ mod tests {
         let audio_path = dir.path().join("demo.mp3");
         fs::write(&audio_path, b"audio").unwrap();
 
-        let lyrics = load_local_lyrics(&audio_path).unwrap();
+        let lyrics = load_local_lyrics(&audio_path);
 
         assert_eq!(lyrics, None);
     }
@@ -71,7 +81,7 @@ mod tests {
         )
         .unwrap();
 
-        let lyrics = load_local_lyrics(&audio_path).unwrap();
+        let lyrics = load_local_lyrics(&audio_path);
 
         assert_eq!(lyrics.as_deref(), Some("[00:01.00]你好"));
     }
@@ -88,7 +98,7 @@ mod tests {
         assert!(!had_errors);
         fs::write(&lyrics_path, encoded.as_ref()).unwrap();
 
-        let lyrics = load_local_lyrics(&audio_path).unwrap();
+        let lyrics = load_local_lyrics(&audio_path);
 
         assert_eq!(lyrics.as_deref(), Some("[00:02.00]你好"));
     }
@@ -101,7 +111,20 @@ mod tests {
         fs::write(&audio_path, b"audio").unwrap();
         fs::write(&lyrics_path, b"\n \r\n\t").unwrap();
 
-        let lyrics = load_local_lyrics(&audio_path).unwrap();
+        let lyrics = load_local_lyrics(&audio_path);
+
+        assert_eq!(lyrics, None);
+    }
+
+    #[test]
+    fn returns_none_for_unparsable_lrc_content() {
+        let dir = tempdir().unwrap();
+        let audio_path = dir.path().join("demo.aac");
+        let lyrics_path = dir.path().join("demo.lrc");
+        fs::write(&audio_path, b"audio").unwrap();
+        fs::write(&lyrics_path, [0x81, 0x30, 0x81]).unwrap();
+
+        let lyrics = load_local_lyrics(&audio_path);
 
         assert_eq!(lyrics, None);
     }

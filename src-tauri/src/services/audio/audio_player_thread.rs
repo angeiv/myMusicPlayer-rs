@@ -8,7 +8,7 @@ use crate::models::{playback_state::PlaybackState, track::Track};
 use anyhow::{Context, Result, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait};
 use crossbeam_channel::{Receiver, Sender, bounded};
-use log::{error, info, warn};
+use log::{error, info};
 use parking_lot::Mutex;
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
 use std::str::FromStr;
@@ -790,17 +790,7 @@ fn prepare_track_for_playback(
     enriched_track.duration = duration_secs.min(u64::from(u32::MAX)) as u32;
     enriched_track.sample_rate = sample_rate;
     enriched_track.channels = channels;
-    enriched_track.lyrics = match load_local_lyrics(&enriched_track.path) {
-        Ok(lyrics) => lyrics,
-        Err(err) => {
-            warn!(
-                "Failed to load local lyrics for {}: {}",
-                enriched_track.path.display(),
-                err
-            );
-            None
-        }
-    };
+    enriched_track.lyrics = load_local_lyrics(&enriched_track.path);
     enriched_track
 }
 
