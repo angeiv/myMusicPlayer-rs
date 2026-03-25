@@ -521,16 +521,17 @@ Expected:
 - mock `../lib/api/playlist`
 - 如需要，mock `window.alert`
 
-至少覆盖以下 9 个场景：
+至少覆盖以下 10 个场景：
 1. 单击 + Cmd/Ctrl + 单击 + Shift + 单击后，批量操作条显示正确数量
 2. 右键未选中行时，菜单针对该单行
 3. 右键已选中行时，菜单保留整组选择
 4. 无歌单时，“加入歌单”按钮/菜单项禁用并显示提示
 5. 双击未选中行时，用完整 `visibleTracks` 替换队列并从双击行起播，而不是只播放当前选择子集
 6. 双击已选中行时，保留多选集合，只更新 active/anchor 并从双击行起播
-7. `Enter` / `Space` 仍能播放当前获得焦点的行
+7. 行获得 DOM focus 时，`activeTrackId` 会同步到该行；随后 `Enter` / `Space` 播放同一行
 8. 当前播放行会呈现高亮状态，且 paused/stopped 时不再显示为 playing
 9. `selected`、`active`、`playing` 三种状态使用不同 class 或 data-attribute，测试需分别断言它们可区分
+10. 使用 fake timers 或显式刷新 helper，让播放高亮轮询测试具备确定性
 
 示例断言：
 
@@ -639,11 +640,13 @@ export let sortDirection: SongsSortDirection = 'asc';
 - `toggleSort`: `{ key: SongsSortKey }`
 - `rowClick`: `{ track: Track; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }`
 - `rowDoubleClick`: `{ track: Track }`
+- `rowFocus`: `{ track: Track }`
 - `rowKeydown`: `{ track: Track; key: string }`
 - `rowContextMenu`: `{ track: Track; x: number; y: number; focusTarget?: HTMLElement | null }`
 
 样式/语义约束：
 - 当前行 DOM 至少要能输出 `data-selected`, `data-active`, `data-playing` 或等价的独立 class，供集成测试分别断言三种状态可区分
+- 行获得 DOM focus 时必须派发 `rowFocus`，让父组件把 `activeTrackId` 同步到同一行
 
 - [ ] **Step 5: 不单独补组件测试，直接准备让 Task 7 的集成测试驱动这些组件接线**
 
@@ -718,6 +721,7 @@ let selection = createSelectionState();
 - Shift：范围选择
 - 双击未选中行：先单选该行，再调用 `playVisibleTrack(visibleTracks, clickedTrack, deps)`
 - 双击已选中行：保留集合，仅更新 active/anchor，再调用 `playVisibleTrack(...)`
+- `rowFocus` 事件要把 `activeTrackId` 同步到获得焦点的可见行
 - Enter / Space：继续播放当前获得键盘焦点的可见行
 - 右键选中某行后，要显式把该行 DOM focus 与 `activeTrackId` 同步，避免视觉 active 行与键盘目标漂移
 
