@@ -148,7 +148,8 @@ The songs list will use desktop-style selection rules.
 - preserve other selected rows
 
 #### Shift + click
-- if an anchor exists, select the inclusive visible range between anchor and clicked row
+- if an anchor exists, replace the current selection with the inclusive visible range between anchor and clicked row
+- this phase does not union the range with older disjoint `Cmd`/`Ctrl` selections
 - set the clicked row as the active row
 - preserve desktop-style predictable range semantics based on the current visible ordering
 - if no anchor exists, fall back to selecting only the clicked row
@@ -162,24 +163,24 @@ The songs list will use desktop-style selection rules.
 
 Right-click must follow desktop music-player expectations:
 
-- if the user right-clicks an unselected row, selection becomes that single row, then the menu opens
-- if the user right-clicks a row already in the selected set, keep the full selection unchanged, then open the menu
+- if the user right-clicks an unselected row, selection becomes that single row, the clicked row becomes the active row and selection anchor, then the menu opens
+- if the user right-clicks a row already in the selected set, keep the full selection unchanged, update the active row and selection anchor to the clicked row, then open the menu
 
 This allows single-item and multi-item context actions without surprising selection changes.
 
 ### Batch action bar
 
-When one or more rows are selected, show a batch action bar above the songs table.
+When one or more visible rows are selected, show a batch action bar above the songs table.
 
 The bar will display:
 
-- selected count
+- count of the currently visible and actionable selection
 - play selected
 - add to queue
 - add to playlist
 - clear selection
 
-This provides a visible action surface so users do not depend entirely on right-click menus.
+Hidden selections retained across filtering do not contribute to the displayed count or to actions launched from this page state. This keeps the UI aligned with what the user can currently see and act on.
 
 ### Play selected semantics
 
@@ -206,6 +207,7 @@ When the user invokes **Add to queue**:
 When the user invokes **Add to playlist**:
 
 - show a lightweight playlist chooser populated from existing playlists
+- render that chooser as a page-owned popover anchored from the batch action bar or context menu, not as a full modal in this phase
 - allow the action to apply to the full selected set
 - insert tracks in visible order
 - keep the current selection after the operation
@@ -281,6 +283,15 @@ Responsibilities:
 - show actions relevant to the current selection
 - emit action events
 - close when requested by the parent
+
+#### `src/lib/components/songs/SongsPlaylistPicker.svelte`
+Presentational playlist chooser popover.
+
+Responsibilities:
+- render available playlists for add-to-playlist actions
+- anchor from the batch action bar or context menu trigger
+- emit the chosen playlist target back to the parent
+- remain free of playlist mutation logic
 
 ### State ownership
 
