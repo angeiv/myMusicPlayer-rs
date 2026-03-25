@@ -521,14 +521,16 @@ Expected:
 - mock `../lib/api/playlist`
 - 如需要，mock `window.alert`
 
-至少覆盖以下 7 个场景：
+至少覆盖以下 9 个场景：
 1. 单击 + Cmd/Ctrl + 单击 + Shift + 单击后，批量操作条显示正确数量
 2. 右键未选中行时，菜单针对该单行
 3. 右键已选中行时，菜单保留整组选择
 4. 无歌单时，“加入歌单”按钮/菜单项禁用并显示提示
 5. 双击未选中行时，用完整 `visibleTracks` 替换队列并从双击行起播，而不是只播放当前选择子集
-6. `Enter` / `Space` 仍能播放当前获得焦点的行
-7. 当前播放行会呈现高亮状态
+6. 双击已选中行时，保留多选集合，只更新 active/anchor 并从双击行起播
+7. `Enter` / `Space` 仍能播放当前获得焦点的行
+8. 当前播放行会呈现高亮状态，且 paused/stopped 时不再显示为 playing
+9. `selected`、`active`、`playing` 三种状态使用不同 class 或 data-attribute，测试需分别断言它们可区分
 
 示例断言：
 
@@ -640,6 +642,9 @@ export let sortDirection: SongsSortDirection = 'asc';
 - `rowKeydown`: `{ track: Track; key: string }`
 - `rowContextMenu`: `{ track: Track; x: number; y: number; focusTarget?: HTMLElement | null }`
 
+样式/语义约束：
+- 当前行 DOM 至少要能输出 `data-selected`, `data-active`, `data-playing` 或等价的独立 class，供集成测试分别断言三种状态可区分
+
 - [ ] **Step 5: 不单独补组件测试，直接准备让 Task 7 的集成测试驱动这些组件接线**
 
 检查：
@@ -742,16 +747,20 @@ $: {
 不要引入新的全局状态系统；在 `SongsView` 内复用既有 playback API：
 
 ```ts
-import { getCurrentTrack } from '../api/playback';
+import { getCurrentTrack, getPlaybackState } from '../api/playback';
 
 let playingTrackId: string | null = null;
 ```
 
 最小实现策略：
-- `onMount` 时拉一次 `getCurrentTrack()`
-- 建一个 1000ms interval 轮询当前曲目
+- `onMount` 时同时拉取 `getCurrentTrack()` 和 `getPlaybackState()`
+- 建一个 1000ms interval 轮询这两个值
 - `onDestroy` 时清理 interval
 - 本页内触发播放动作成功后，也主动刷新一次 `playingTrackId`
+
+判定规则：
+- 只有当 `getPlaybackState()` 返回 `state === 'playing'` 且 `getCurrentTrack()` 有值时，才把该 track id 赋给 `playingTrackId`
+- `paused` / `stopped` / `error` 都必须把 `playingTrackId` 视为 `null`
 
 - [ ] **Step 4: 接入批量动作条、右键菜单和歌单选择器**
 
@@ -823,7 +832,7 @@ npm --prefix ./src run test -- --run tests/songs-view.test.ts
 
 Expected:
 - PASS
-- 至少覆盖：批量操作条显示、右键菜单语义、无歌单禁用态、`Enter` / `Space` 播放、当前播放行高亮
+- 至少覆盖：批量操作条显示、右键菜单语义、无歌单禁用态、双击语义、`Enter` / `Space` 播放、当前播放行高亮，以及 `selected` / `active` / `playing` 三态可区分
 
 - [ ] **Step 7: 补一次边界测试与类型检查**
 
@@ -902,7 +911,9 @@ Expected:
 - 批量操作条数量与当前可见选中一致
 - 无歌单时“加入歌单”禁用
 - 右键菜单只有三项核心动作
-- 当前播放行可视化高亮
+- 当前播放行仅在真实 playing 状态下高亮
+- `selected` / `active` / `playing` 三种状态视觉可区分
+- loading 状态和“无搜索结果”空状态未回归
 
 - [ ] **Step 6: 提交最终验证结果**
 
