@@ -1,490 +1,519 @@
-# Songs List Enhancement Design
+# 歌曲列表增强设计
 
-Date: 2026-03-25
-Status: Draft for review
-Scope: First-phase enhancement of the library songs list in the desktop player
+日期：2026-03-25
+状态：待评审
+范围：桌面音乐播放器中“歌曲列表”第一阶段增强
 
-## Summary
+## 摘要
 
-This spec defines the first phase of the songs list upgrade so the library view behaves like a desktop music player rather than a static table. The focus is narrow and intentional: add desktop-style multi-selection, batch actions, and queue-aware playback semantics without expanding into destructive file management, general-purpose data grids, or unrelated application refactors.
+本 spec 定义歌曲列表升级的第一阶段目标：让曲库中的歌曲列表从“静态表格”提升为更接近桌面音乐播放器的交互体验。第一阶段聚焦且刻意收敛，只做以下核心能力：桌面式多选、批量操作、与播放队列一致的播放语义；不扩展到删除本地文件、通用数据表格框架或与本任务无关的大范围重构。
 
-The implementation will target the songs list only. It will introduce a reusable songs-list feature layer so the interaction model can be reused later in album, artist, and playlist detail views, but those views are explicitly out of scope for this phase.
+本次实现只覆盖歌曲列表页，但会引入一层可复用的 songs-list feature 层，为后续在专辑详情、艺术家详情、歌单详情等页面复用相同交互模型打基础；这些页面本身明确不在本阶段范围内。
 
-## User-Approved Product Decisions
+## 已确认的产品决策
 
-These choices were confirmed during design:
+以下内容已经在设计过程中确认：
 
-- The first subproject is **songs list functionality**, not the entire player.
-- The first priority is **batch management**.
-- First-phase actions must include:
-  - **Add to playlist**
-  - **Add to playback queue**
-  - **Play selected**
-- Multi-selection must use **desktop-style selection**:
-  - single click to select
-  - `Shift` range select
-  - `Cmd`/`Ctrl` toggle select
-  - double click to play
-- **Play selected** means:
-  - replace the current playback queue with the selected songs
-  - preserve the current visible ordering from the songs list
-  - start playback from the current active row when that row is part of the selection
-  - otherwise fall back to the first selected track in visible order
+- 第一个子项目是**歌曲列表功能**，不是一次性完成整个播放器。
+- 第一优先级是**批量管理**。
+- 第一阶段必须包含以下操作：
+  - **加入歌单**
+  - **加入播放队列**
+  - **播放选中项**
+- 多选方式采用**桌面播放器式交互**：
+  - 单击选中
+  - `Shift` 连选
+  - `Cmd`/`Ctrl` 切换多选
+  - 双击播放
+- **播放选中项**的语义为：
+  - 用当前选中的歌曲替换现有播放队列
+  - 保持当前歌曲列表“可见顺序”
+  - 若当前 active 行属于选中集合，则从 active 行对应歌曲开始播放
+  - 否则回退为从当前可见顺序中的第一首选中歌曲开始播放
 
-## Current State
+## 当前现状
 
-The existing `SongsView` already supports:
+现有 `SongsView` 已经具备以下基础能力：
 
-- rendering the songs library table
-- text filtering through the shell search term
-- client-side sorting by title, album, artist, duration, and added date
-- double-click playback
-- a minimal right-click menu shell
+- 渲染曲库歌曲表格
+- 通过全局搜索词进行文本过滤
+- 按标题、专辑、歌手、时长、添加时间进行前端排序
+- 双击歌曲直接播放
+- 一个非常简化的右键菜单壳子
 
-The existing backend and bridges already provide the APIs needed for first-phase actions:
+现有后端与前端 bridge 也已经具备本阶段所需的大部分基础 API：
 
-- playback queue replacement
-- playback of a specific track
-- queue append
-- playlist creation and playlist track insertion
-- playlist retrieval for UI menus
+- 替换播放队列
+- 播放指定歌曲
+- 向队列追加歌曲
+- 创建歌单并向歌单插入歌曲
+- 获取歌单列表供 UI 选择
 
-The main gap is not backend capability. The missing pieces are songs-list interaction state, batch-action semantics, and UI affordances.
+因此当前主要缺口不在后端能力，而在于：歌曲列表交互状态、多选/批量操作语义，以及与之对应的 UI 表达。
 
-## Goals
+## 目标
 
-1. Make the songs list feel like a desktop music player.
-2. Support batch operations on one or more songs.
-3. Preserve predictable playback semantics based on the visible list order.
-4. Keep the first phase limited enough to be implemented and tested safely.
-5. Improve code structure by extracting songs-list logic from the large Svelte view.
+1. 让歌曲列表具备桌面音乐播放器的基本交互体验。
+2. 支持对一首或多首歌曲执行批量操作。
+3. 基于当前可见列表顺序提供可预测的播放语义。
+4. 将第一阶段控制在可以安全实现、测试和验证的范围内。
+5. 通过从大 Svelte 视图中抽离 songs-list 逻辑改善代码结构。
 
-## Non-Goals
+## 非目标
 
-The following are explicitly out of scope for this phase:
+以下内容明确不在本阶段范围内：
 
-- deleting local files
-- removing files from disk or moving them to trash
-- removing tracks from the library database
-- drag-and-drop reordering in the songs list
-- configurable columns
-- virtualized rendering for extremely large lists
-- full file-manager-grade keyboard navigation
-- reuse of the new interaction model in album/artist/playlist detail views during this phase
-- redesign of theme settings, playlists pages, or playback modes outside what is required for songs-list actions
+- 删除本地文件
+- 将文件移到回收站/废纸篓
+- 从媒体库数据库中移除歌曲
+- 歌曲列表拖拽排序
+- 自定义列配置
+- 超大曲库下的虚拟滚动
+- 完整文件管理器级别的键盘导航
+- 在本阶段把新交互模型复用到专辑/艺术家/歌单详情页
+- 重做主题设置、歌单页或与本任务无关的播放模式功能
 
-## Approaches Considered
+## 备选方案
 
-### Option 1: Extend `SongsView.svelte` in place
+### 方案 1：直接在 `SongsView.svelte` 中继续扩展
 
-Add all selection state, menus, and batch logic directly inside `src/lib/views/SongsView.svelte`.
+把所有选择状态、菜单逻辑和批量动作全部直接写在 `src/lib/views/SongsView.svelte` 中。
 
-**Pros**
-- smallest initial diff
-- fastest path to a visible feature
+**优点**
+- 改动最少
+- 最快看到可运行结果
 
-**Cons**
-- grows an already busy component
-- makes testing selection logic harder
-- discourages reuse in other track-list surfaces
+**缺点**
+- 会继续放大单文件复杂度
+- 选择逻辑更难测试
+- 不利于后续在其他歌曲列表界面复用
 
-### Option 2: Add a songs-list feature layer and keep `SongsView` as the page shell
+### 方案 2：增加 songs-list feature 层，保留 `SongsView` 作为页面壳（推荐）
 
-Extract selection logic, actions, and smaller UI components while keeping `SongsView` responsible for page composition.
+将选择逻辑、动作逻辑和局部 UI 组件抽离出去，而 `SongsView` 只负责页面组装。
 
-**Pros**
-- clear boundaries between interaction rules, business actions, and UI
-- easier unit testing for the most error-prone behavior
-- supports future reuse without building a heavy generic grid now
+**优点**
+- 交互规则、业务动作、展示组件边界清晰
+- 最容易对高风险逻辑做单元测试
+- 可以为未来复用做准备，但又不会过早建设重量级抽象
 
-**Cons**
-- slightly more up-front structure than patching the view directly
+**缺点**
+- 比方案 1 需要多做一些结构设计
 
-### Option 3: Build a generic reusable data-grid framework
+### 方案 3：直接抽象成通用数据表格框架
 
-Create a fully generic list/grid abstraction for songs, albums, playlists, and other tabular screens.
+构建一个可服务于歌曲、专辑、歌单等多种列表的通用 grid/data-table 框架。
 
-**Pros**
-- strongest long-term abstraction
+**优点**
+- 长期复用潜力最大
 
-**Cons**
-- over-scoped for the current need
-- higher risk of design churn
-- delays delivery of the actual songs-list upgrade
+**缺点**
+- 对当前问题来说明显过度设计
+- 设计和实现风险更高
+- 会推迟真正的歌曲列表功能交付
 
-## Chosen Approach
+## 选定方案
 
-Use **Option 2**.
+采用**方案 2**。
 
-This keeps the first phase focused on the songs list while still improving maintainability. It avoids both extremes: continuing to overload one view file and prematurely building a generic grid framework.
+这样既不会继续把复杂逻辑塞回单个大组件，也不会把第一阶段问题扩张为“搭建一套通用表格系统”。它最符合当前项目的规模、演进方向和交付节奏。
 
-## Functional Design
+## 功能设计
 
-### Songs list interaction model
+### 歌曲列表的行状态模型
 
-Each visible row may have independent state flags:
+每一行可见歌曲可同时具备以下状态：
 
-- **playing**: the row represents the currently playing track
-- **selected**: the row belongs to the current multi-selection set
-- **active**: the row is the current focus anchor for actions and range selection
-- **hovered**: the row is currently under the cursor
+- **playing**：该行对应当前正在播放的歌曲
+- **selected**：该行属于当前选中集合
+- **active**：该行是当前的操作焦点，也是范围选择与“播放选中项”的锚点
+- **hovered**：鼠标当前悬停在该行上
 
-These states do not replace one another. A row may be both `playing` and `selected`.
+这些状态彼此独立，不互相覆盖。也就是说，一首歌可以同时处于 `playing` 和 `selected` 状态。
 
-### Selection behavior
+### 选择行为
 
-The songs list will use desktop-style selection rules.
+歌曲列表采用桌面式多选规则。
 
-#### Single click
-- clear previous selection
-- select only the clicked row
-- set that row as the active row
-- set that row as the selection anchor
+#### 单击
+- 清空原有选择
+- 只选中当前点击行
+- 将当前行设为 active 行
+- 将当前行设为 anchor 行
 
-#### Cmd/Ctrl + click
-- toggle the clicked row in the selected set
-- set that row as the active row
-- set that row as the selection anchor
-- preserve other selected rows
+#### Cmd/Ctrl + 单击
+- 切换当前点击行的选中状态
+- 将当前行设为 active 行
+- 将当前行设为 anchor 行
+- 保留其他已选中的行
 
-#### Shift + click
-- if an anchor exists, replace the current selection with the inclusive visible range between anchor and clicked row
-- this phase does not union the range with older disjoint `Cmd`/`Ctrl` selections
-- set the clicked row as the active row
-- preserve desktop-style predictable range semantics based on the current visible ordering
-- if no anchor exists, fall back to selecting only the clicked row
+#### Shift + 单击
+- 若存在 anchor，则用 anchor 到当前点击行之间的**可见连续区间**替换当前选择
+- 本阶段不把该区间与历史上离散的 `Cmd`/`Ctrl` 多选集合做 union
+- 将当前点击行设为 active 行
+- 选择范围必须基于当前可见顺序，保证结果可预测
+- 若不存在 anchor，则回退为只选中当前点击行
 
-#### Double click
-- preserve the current direct-play behavior
-- replace the playback queue with the current visible songs order
-- start playback from the double-clicked track
+#### 双击
+- 保持当前“直接播放”的语义
+- 用**当前歌曲列表的可见顺序**替换播放队列
+- 从被双击的歌曲开始播放
 
-### Right-click behavior
+#### Enter / Space
+- 作为现有键盘播放行为的回归约束，`Enter` 和 `Space` 继续保持“播放当前行”的现有语义
+- 在本阶段重构中，不得无意移除此行为
 
-Right-click must follow desktop music-player expectations:
+### 右键行为
 
-- if the user right-clicks an unselected row, selection becomes that single row, the clicked row becomes the active row and selection anchor, then the menu opens
-- if the user right-clicks a row already in the selected set, keep the full selection unchanged, update the active row and selection anchor to the clicked row, then open the menu
+右键操作必须符合桌面播放器直觉：
 
-This allows single-item and multi-item context actions without surprising selection changes.
+- 若用户右键点击的是**未选中**的行，则先把选择切换为“仅当前这一行”，同时把该行设为 active 行和 anchor 行，再打开右键菜单
+- 若用户右键点击的是**已选中集合内**的行，则保持整个多选集合不变，同时把该行更新为 active 行和 anchor 行，再打开右键菜单
 
-### Batch action bar
+这样可以同时支持：
+- 针对单首歌曲的右键操作
+- 针对一组已选中歌曲的批量右键操作
 
-When one or more visible rows are selected, show a batch action bar above the songs table.
+并且不会产生令人意外的“右键后选中集合被打乱”的问题。
 
-The bar will display:
+### 批量操作条
 
-- count of the currently visible and actionable selection
-- play selected
-- add to queue
-- add to playlist
-- clear selection
+当存在一首或多首**当前可见且可操作**的选中歌曲时，在歌曲表格上方显示批量操作条。
 
-Hidden selections retained across filtering do not contribute to the displayed count or to actions launched from this page state. This keeps the UI aligned with what the user can currently see and act on.
+操作条包含：
 
-### Play selected semantics
+- 当前可见且可操作的选中数量
+- 播放选中
+- 加入队列
+- 加入歌单
+- 清除选择
 
-When the user invokes **Play selected**:
+因过滤条件而暂时隐藏的历史选择：
+- 不计入当前展示的选中数量
+- 不参与当前页面发起的批量动作
 
-1. derive the selected tracks from the current visible songs list
-2. preserve the visible order after current filtering and sorting
-3. replace the playback queue with exactly those selected tracks
-4. start playback from the active track if it is part of the selected set
-5. otherwise start from the first selected track in visible order
+这样可以保证 UI 所展示的数量与用户当前“看得见、操作得到”的内容一致。
 
-This behavior is deterministic and matches the user-approved requirement.
+#### 清除选择
+- “清除选择”会清空 `SongsView` 当前持有的全部选择状态
+- 这包括当前可见选择，以及因过滤而暂时隐藏但仍保留在本地状态中的选择
 
-### Add to queue semantics
+### 播放选中项的语义
 
-When the user invokes **Add to queue**:
+当用户触发**播放选中项**时：
 
-- derive selected tracks from the current visible songs list
-- preserve visible order
-- append them to the playback queue through the existing playback API
+1. 从当前 `visibleTracks` 中提取被选中的歌曲
+2. 保持其在当前过滤/排序结果中的可见顺序
+3. 用这些歌曲**完整替换**当前播放队列
+4. 若 active 行对应歌曲属于选中集合，则从该歌曲开始播放
+5. 否则从当前可见顺序中的第一首选中歌曲开始播放
 
-### Add to playlist semantics
+这个行为是确定性的，也完全符合已确认的产品决策。
 
-When the user invokes **Add to playlist**:
+### 加入队列的语义
 
-- show a lightweight playlist chooser populated from existing playlists
-- render that chooser as a page-owned popover anchored from the batch action bar or context menu, not as a full modal in this phase
-- allow the action to apply to the full selected set
-- insert tracks in visible order
-- keep the current selection after the operation
+当用户触发**加入队列**时：
 
-This phase assumes the destination playlist already exists or is created elsewhere via existing playlist flows.
+- 从当前 `visibleTracks` 中提取被选中的歌曲
+- 保持当前可见顺序
+- 通过既有 playback API 将它们追加到播放队列
 
-## State and Architecture
+### 加入歌单的语义
 
-### High-level structure
+当用户触发**加入歌单**时：
 
-`SongsView` remains the page shell, but songs-list interaction rules move into a dedicated feature layer.
+- 展示一个由现有歌单数据驱动的轻量级歌单选择器
+- 该选择器在本阶段使用页面内 popover 形式，从批量操作条或右键菜单触发点附近展开，而不是全屏模态框
+- 所选操作目标是当前整组已选歌曲
+- 插入顺序保持当前可见顺序
+- 操作完成后保留当前选择状态，便于后续继续执行其他批量动作
 
-### Proposed module boundaries
+本阶段默认目标歌单已经存在；新建歌单仍复用现有歌单创建流程，不在本 spec 内重新设计。
+
+## 状态与架构设计
+
+### 高层结构
+
+`SongsView` 仍然是页面壳，但歌曲列表交互规则迁移到独立 feature 层。
+
+### 建议的模块边界
 
 #### `src/lib/views/SongsView.svelte`
-Page composition only.
+仅承担页面组装职责。
 
-Responsibilities:
-- receive tracks, loading state, and search term
-- derive visible tracks through the extracted sort/filter logic
-- hold local UI state for menus and selection
-- wire UI events to actions
-- render child components
+职责包括：
+- 接收 `tracks`、loading 状态和 `searchTerm`
+- 通过抽离后的排序/过滤逻辑生成 `visibleTracks`
+- 持有局部 UI 状态与选择状态
+- 将界面事件连接到 action 层
+- 组装子组件并渲染页面
 
 #### `src/lib/features/songs-list/selection.ts`
-Pure selection behavior.
+纯选择行为模块。
 
-Responsibilities:
-- represent selection state
-- apply single-click, modifier-click, shift-range, and right-click transitions
-- clear selection
-- reconcile selection state when the visible dataset changes
+职责包括：
+- 表达选择状态
+- 处理单击、带修饰键点击、Shift 连选、右键选择逻辑
+- 清除选择
+- 在可见数据变化时对选择状态做 reconcile
 
-This module should be implemented as pure functions over an explicit state object so it can be tested independently.
+该模块应尽量采用“纯函数 + 明确状态对象”的形式，以便独立单元测试。
 
 #### `src/lib/features/songs-list/sort-filter.ts`
-Visible-list derivation.
+可见列表派生模块。
 
-Responsibilities:
-- filter tracks by search term
-- sort tracks by the supported columns and direction
-- return the visible order used by both UI rendering and batch-action semantics
+职责包括：
+- 基于搜索词过滤歌曲
+- 基于排序字段与方向排序
+- 输出 UI 渲染和批量动作都要依赖的 `visibleTracks`
 
 #### `src/lib/features/songs-list/actions.ts`
-Songs-list business actions.
+歌曲列表动作编排模块。
 
-Responsibilities:
-- transform selection state plus visible tracks into concrete action payloads
-- execute play selected, add to queue, and add to playlist actions through existing APIs
-- return structured success/failure summaries so the view can present feedback
+职责包括：
+- 将“选择状态 + 可见歌曲列表”转换为具体 action payload
+- 执行“播放选中”“加入队列”“加入歌单”等动作
+- 通过现有 API 返回结构化的成功/失败结果，供页面层展示反馈
 
 #### `src/lib/components/songs/SongsTable.svelte`
-Presentational songs table.
+纯展示型歌曲表格组件。
 
-Responsibilities:
-- render table header and rows
-- show playing, selected, and active row states
-- emit interaction events for click, double click, key handling, and context menu
-- remain API-agnostic
+职责包括：
+- 渲染表头和每一行歌曲
+- 展示 playing / selected / active 等视觉状态
+- 对外派发 click、double click、keydown、contextmenu 等交互事件
+- 不直接调用业务 API
 
 #### `src/lib/components/songs/SongsBulkActionBar.svelte`
-Presentational batch action surface.
+纯展示型批量操作条组件。
 
-Responsibilities:
-- show selected count
-- emit action events
-- stay free of business logic
+职责包括：
+- 展示选中数量
+- 派发“播放选中”“加入队列”“加入歌单”“清除选择”等事件
+- 不承载业务逻辑
 
 #### `src/lib/components/songs/SongsContextMenu.svelte`
-Presentational context menu.
+纯展示型右键菜单组件。
 
-Responsibilities:
-- show actions relevant to the current selection
-- emit action events
-- close when requested by the parent
+职责包括：
+- 渲染与当前选择相关的菜单项
+- 派发动作事件
+- 由父组件控制打开/关闭
 
 #### `src/lib/components/songs/SongsPlaylistPicker.svelte`
-Presentational playlist chooser popover.
+纯展示型歌单选择器 popover。
 
-Responsibilities:
-- render available playlists for add-to-playlist actions
-- anchor from the batch action bar or context menu trigger
-- emit the chosen playlist target back to the parent
-- remain free of playlist mutation logic
+职责包括：
+- 渲染当前可用歌单列表
+- 从批量操作条或右键菜单触发位置锚定展开
+- 将选中的目标歌单回传给父组件
+- 不直接执行歌单写入逻辑
 
-### State ownership
+### 状态归属
 
-Keep songs-list interaction state local to `SongsView`.
+歌曲列表交互状态保持在 `SongsView` 本地，不提升为新的全局 store。
 
-Local page state includes:
+页面本地状态包括：
 - `sortKey`
 - `sortDirection`
 - `selectedIds`
 - `activeTrackId`
 - `anchorTrackId`
-- context-menu open/position state
-- playlist-picker open/anchor state
-- transient action feedback state
+- 右键菜单位置与开关状态
+- 歌单选择器的开关与锚点状态
+- 临时操作反馈状态
 
-Global application state remains where it already belongs:
-- library tracks in the app-shell store
-- playlists in the app-shell store
-- playback and queue state in the playback store / existing playback APIs
+全局状态继续复用现有 store / API：
+- 曲库歌曲：app-shell store
+- 歌单列表：app-shell store
+- 当前播放、当前队列：playback store 与既有 playback API
 
-This keeps the first phase focused and avoids inventing a new global store for page-local interaction state.
+这样可以保证：
+- 选择态是歌曲列表页的局部问题
+- 播放器、歌单、曲库数据仍然留在现有全局结构中
 
-## Data Flow
+## 数据流
 
-### Visible list derivation
+### 可见列表派生
 
-`SongsView` will derive `visibleTracks` from the incoming library tracks and current search/sort state through `sort-filter.ts`. All row rendering and batch actions must consume this same `visibleTracks` list so behavior stays consistent.
+`SongsView` 通过 `sort-filter.ts`，根据输入歌曲、搜索词、排序字段和排序方向生成 `visibleTracks`。之后：
 
-### Selection reconciliation
+- 表格渲染基于同一个 `visibleTracks`
+- 批量动作也基于同一个 `visibleTracks`
 
-Whenever `visibleTracks` or the underlying tracks dataset changes, `selection.ts` must reconcile state by:
+从而保证“用户看到的顺序”与“实际操作使用的顺序”一致。
 
-- removing selected IDs that no longer exist in the current dataset
-- clearing `activeTrackId` if that track no longer exists
-- clearing `anchorTrackId` if that track no longer exists
+### 选择状态 reconcile
 
-Selected IDs that still exist but are merely hidden by current filtering may remain in state, but actions in the songs list page operate only on the subset that is currently visible. This preserves consistency with user expectations in a filtered view.
+当 `visibleTracks` 或底层歌曲数据变化时，`selection.ts` 需要执行状态校正：
 
-### Action execution
+- 移除那些在当前数据集中已经不存在的 `selectedIds`
+- 若 `activeTrackId` 对应歌曲已不存在，则清空它
+- 若 `anchorTrackId` 对应歌曲已不存在，则清空它
 
-#### Play selected
-- compute ordered selected tracks from `visibleTracks`
-- call playback queue replacement with those tracks
-- call play-track for the chosen starting track
+对于“仍然存在但因过滤而暂时不可见”的歌曲：
+- 其 id 可以继续保留在页面本地选择状态中
+- 但歌曲列表页发起的动作只作用于当前**可见且被选中**的子集
 
-#### Add to queue
-- compute ordered selected tracks from `visibleTracks`
-- call queue append with the full ordered selection
+这样既保证内部状态连续性，又保证用户操作结果符合过滤视图下的直觉。
 
-#### Add to playlist
-- compute ordered selected tracks from `visibleTracks`
-- call playlist insertion for each selected track in order
-- report whether the result was complete success, partial success, or total failure
+### 动作执行流程
 
-## Error Handling
+#### 播放选中项
+- 从 `visibleTracks` 中计算出按当前顺序排列的选中歌曲
+- 调用替换队列 API
+- 再调用播放目标歌曲 API
 
-### General principles
+#### 加入队列
+- 从 `visibleTracks` 中计算出按当前顺序排列的选中歌曲
+- 调用队列追加 API
 
-- never silently drop a failed batch action
-- do not clear selection automatically on failure
-- close transient menus after action completion, but preserve selection so the user can retry or run another action
+#### 加入歌单
+- 从 `visibleTracks` 中计算出按当前顺序排列的选中歌曲
+- 按顺序逐首插入到目标歌单
+- 返回“全部成功 / 部分成功 / 全部失败”的结构化结果
 
-### Add to playlist
+## 错误处理
 
-This action may fail per-track.
+### 通用原则
 
-Required behavior:
-- if all inserts succeed, report success
-- if some inserts fail, report partial success with completed count and total count
-- if all inserts fail, report failure
+- 失败不能静默吞掉
+- 操作失败时不自动清空选择
+- 成功或失败后可以关闭发起动作的临时菜单，但保留选择状态，方便用户重试或执行下一步操作
 
-### Add to queue
+### 加入歌单
 
-Required behavior:
-- if queue append fails, report failure and preserve selection
+该动作可能出现“部分歌曲添加失败”。
 
-### Play selected
+要求：
+- 全部成功时，返回成功结果
+- 部分成功时，返回“已完成 X/Y 首”的部分成功结果
+- 全部失败时，返回失败结果
 
-Required behavior:
-- if queue replacement fails, stop and report failure
-- if queue replacement succeeds but play-track fails, report failure and preserve selection
+### 加入队列
 
-### Menu behavior
+要求：
+- 若追加队列失败，返回失败结果并保留当前选择
 
-- clicking outside the context menu closes it
-- `Escape` closes the context menu or playlist picker if open
-- successful actions close the menu/picker that launched them
-- selection remains until the user clears it or changes it
+### 播放选中项
 
-## Visual and UX Requirements
+要求：
+- 若替换队列失败，则停止后续流程并返回失败
+- 若替换队列成功但播放目标歌曲失败，则返回失败并保留当前选择
 
-### Row styling
+### 菜单行为
 
-The songs table must visually distinguish:
+- 点击菜单外部区域关闭右键菜单
+- `Escape` 关闭右键菜单或歌单选择器
+- 成功动作会关闭触发该动作的菜单/选择器
+- 选择状态持续保留，直到用户主动清除或改变它
 
-- selected rows
-- active row
-- currently playing row
-- hover state
+## 视觉与交互要求
 
-`playing` must remain visible even when the row is selected.
+### 行样式
 
-### Batch action visibility
+歌曲表格必须能清晰区分：
 
-The batch action bar appears only when at least one visible row is selected.
+- selected 行
+- active 行
+- 当前正在播放的行
+- hover 状态
 
-### Empty states
+即使某一行已被选中，也必须仍然能看出它是否正在播放。
 
-The page must continue to show:
-- loading state while the library is refreshing
-- empty-search state when no visible songs match the current search term
+### 批量操作条显示条件
 
-## Testing Strategy
+只有在存在至少一首**当前可见选中歌曲**时，才显示批量操作条。
 
-The first phase should prioritize tests for logic that is easy to regress.
+### 空状态
 
-### `selection.ts` tests
+页面仍需保留以下空状态表达：
 
-Cover:
-- single-click single selection
-- Cmd/Ctrl toggle selection
-- Shift range selection
-- Shift behavior without an anchor
-- right-click on unselected rows
-- right-click on already selected rows
-- selection reconciliation after dataset change
+- 曲库刷新中的 loading 状态
+- 搜索条件下无匹配歌曲时的空列表状态
 
-### `sort-filter.ts` tests
+## 测试策略
 
-Cover:
-- title / artist / album filtering
-- supported sort keys
-- ascending and descending order
-- stable, predictable visible ordering
+第一阶段优先对最容易回归、最容易出错的逻辑做测试。
 
-### `actions.ts` tests
+### `selection.ts` 测试
 
-Cover:
-- play selected uses visible order
-- active track is preferred as playback start when selected
-- fallback to first selected visible track when active track is absent or unselected
-- add to queue preserves visible order
-- add to playlist reports success / partial success / failure correctly
+覆盖以下场景：
+- 单击后只选中当前行
+- Cmd/Ctrl 单击切换选择
+- Shift 连选区间正确
+- 没有 anchor 时 Shift 行为的回退逻辑
+- 右键未选中行的选择变化
+- 右键已选中行时保持多选集合
+- 数据变化后的选择状态 reconcile
 
-### Songs view integration tests
+### `sort-filter.ts` 测试
 
-Cover:
-- batch action bar visibility
-- right-click menu visibility and targeting behavior
-- component wiring from UI events to action calls
-- selected count updates
-- playing row styling hook-up
+覆盖以下场景：
+- title / artist / album 的过滤
+- 支持的排序字段
+- 升序与降序
+- 可见顺序稳定且可预测
 
-## Implementation Plan Boundaries
+### `actions.ts` 测试
 
-The implementation plan that follows this spec should remain within these boundaries:
+覆盖以下场景：
+- 播放选中项严格使用当前可见顺序
+- 若 active 行属于选中集合，则优先从 active 行开始播放
+- 若 active 行不存在或不在选中集合中，则回退到第一首选中歌曲
+- 加入队列保持当前可见顺序
+- 加入歌单能正确报告：全部成功 / 部分成功 / 全部失败
 
-1. extract and test pure songs-list logic first
-2. add action orchestration second
-3. split presentational UI components third
-4. integrate into `SongsView` without changing unrelated application surfaces
-5. run frontend tests, frontend checks, and backend regression tests before completion
+### Songs view 集成测试
 
-## Acceptance Criteria
+覆盖以下场景：
+- 批量操作条的显示与隐藏
+- 右键菜单的显示与目标选择逻辑
+- UI 事件是否正确连到 action 调用
+- 选中数量更新是否正确
+- 当前播放行样式是否正确联动
+- `Enter` / `Space` 仍能触发行播放语义
 
-This first phase is complete when all of the following are true:
+## 实施计划边界
 
-- the songs list supports desktop-style multi-selection
-- the songs list can batch add selected songs to a playlist
-- the songs list can batch append selected songs to the playback queue
-- the songs list can replace the queue with selected songs and start from the active selected row
-- right-click behavior matches the approved desktop semantics
-- selected, active, and playing states are visually distinguishable
-- the first-phase logic is covered by automated frontend tests
-- existing backend regression tests still pass
+后续 implementation plan 必须保持在以下边界内：
 
-## Risks and Mitigations
+1. 先抽离并测试纯 songs-list 逻辑
+2. 再补动作编排层
+3. 再拆分展示组件
+4. 再将其接回 `SongsView`
+5. 完成前必须运行前端测试、前端检查和后端回归测试
 
-### Risk: selection rules become inconsistent across filtering and sorting
-Mitigation: centralize selection transitions in a pure module and centralize visible-order derivation in `sort-filter.ts`.
+## 验收标准
 
-### Risk: `SongsView` remains too large even after extraction
-Mitigation: keep `SongsView` as orchestration only and push interaction rules plus UI fragments into dedicated modules/components.
+当以下条件全部满足时，可视为歌曲列表第一阶段完成：
 
-### Risk: partial playlist failures create confusing UX
-Mitigation: return structured results from actions and show explicit completed/failed counts.
+- 歌曲列表支持桌面式多选
+- 歌曲列表支持批量加入歌单
+- 歌曲列表支持批量加入播放队列
+- 歌曲列表支持“用选中歌曲替换播放队列，并从 active 选中歌曲开始播放”
+- 右键行为符合已确认的桌面语义
+- selected / active / playing 状态在视觉上可区分
+- 第一阶段核心逻辑有自动化前端测试覆盖
+- 现有后端回归测试仍然通过
 
-## Follow-on Opportunities
+## 风险与缓解
 
-These are intentionally deferred, not part of the first-phase implementation plan:
+### 风险：过滤与排序后，选择逻辑变得不一致
+缓解：将选择状态迁移规则集中到纯函数模块中，并将可见顺序统一由 `sort-filter.ts` 派生。
 
-- reuse the same songs-list behavior in album, artist, and playlist detail screens
-- add keyboard shortcut expansion beyond click-based desktop semantics
-- support destructive library actions with explicit confirmation and platform-safe behavior
-- introduce list virtualization if large-library performance requires it
-- evolve the songs list extraction into a broader reusable track-list framework if repeated patterns justify it
+### 风险：即使抽离之后，`SongsView` 仍然过大
+缓解：强制 `SongsView` 只承担编排职责，把交互规则与 UI 片段都拆到独立模块/组件中。
+
+### 风险：加入歌单的部分失败会带来混乱体验
+缓解：action 层返回结构化结果，并明确显示完成数量与总数量。
+
+## 后续机会
+
+以下内容是有价值但明确延后的后续方向，不属于本阶段 implementation plan：
+
+- 在专辑详情、艺术家详情、歌单详情页复用同一套 songs-list 交互模型
+- 扩展比当前更丰富的键盘快捷操作
+- 增加带确认的破坏性媒体库操作
+- 若大曲库性能成为问题，再引入虚拟滚动
+- 当复用模式足够稳定后，再决定是否进一步演进为更通用的 track-list 框架
