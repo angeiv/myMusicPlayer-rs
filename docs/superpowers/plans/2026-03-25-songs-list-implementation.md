@@ -246,6 +246,7 @@ describe('songs-list selection', () => {
 - 右键已选中行保持多选
 - `reconcileSelection` 清理不存在的 active/anchor
 - `clearSelection` 清空全部隐藏/可见选择
+- `isSelectionStateEqual` 在“状态未变化”时返回 `true`
 
 - [ ] **Step 2: 运行测试，确认失败**
 
@@ -281,6 +282,7 @@ export function createSelectionState(): SongsListSelectionState {
 - `clearSelection()`
 - `reconcileSelection(state, existingIds, visibleIds)`
 - `getVisibleSelectedIds(state, visibleIds)`
+- `isSelectionStateEqual(left, right)`
 
 关键语义：
 - `selectRange` 必须用当前可见顺序计算区间
@@ -519,13 +521,14 @@ Expected:
 - mock `../lib/api/playlist`
 - 如需要，mock `window.alert`
 
-至少覆盖以下 6 个场景：
+至少覆盖以下 7 个场景：
 1. 单击 + Cmd/Ctrl + 单击 + Shift + 单击后，批量操作条显示正确数量
 2. 右键未选中行时，菜单针对该单行
 3. 右键已选中行时，菜单保留整组选择
 4. 无歌单时，“加入歌单”按钮/菜单项禁用并显示提示
 5. 双击未选中行时，用完整 `visibleTracks` 替换队列并从双击行起播，而不是只播放当前选择子集
 6. `Enter` / `Space` 仍能播放当前获得焦点的行
+7. 当前播放行会呈现高亮状态
 
 示例断言：
 
@@ -577,8 +580,10 @@ export let addToPlaylistHint = '';
 事件：
 - `playSelected`
 - `addToQueue`
-- `addToPlaylist`
+- `addToPlaylist`: `{ anchor: DOMRect }`
 - `clearSelection`
+
+实现方式：点击“加入歌单”按钮时，在组件内部读取触发按钮的 `getBoundingClientRect()`，并把它作为 `anchor` 事件 detail 回传给父组件，供 `SongsPlaylistPicker` 定位。
 
 - [ ] **Step 2: 搭 `SongsContextMenu.svelte`**
 
@@ -602,13 +607,16 @@ export let addToPlaylistHint = '';
 
 ```ts
 export let playlists: Playlist[] = [];
-export let x = 0;
-export let y = 0;
+export let anchor: DOMRect | null = null;
 ```
 
 事件：
 - `selectPlaylist`
 - `close`
+
+定位规则：
+- 组件不直接计算业务逻辑，但根据 `anchor` 计算自身的 `top/left`
+- 若 `anchor` 为 `null`，父组件不得打开该 picker
 
 - [ ] **Step 4: 搭 `SongsTable.svelte`**
 
@@ -630,7 +638,7 @@ export let sortDirection: SongsSortDirection = 'asc';
 - `rowClick`: `{ track: Track; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }`
 - `rowDoubleClick`: `{ track: Track }`
 - `rowKeydown`: `{ track: Track; key: string }`
-- `rowContextMenu`: `{ track: Track; x: number; y: number }`
+- `rowContextMenu`: `{ track: Track; x: number; y: number; focusTarget?: HTMLElement | null }`
 
 - [ ] **Step 5: 不单独补组件测试，直接准备让 Task 7 的集成测试驱动这些组件接线**
 
@@ -706,15 +714,22 @@ let selection = createSelectionState();
 - 双击未选中行：先单选该行，再调用 `playVisibleTrack(visibleTracks, clickedTrack, deps)`
 - 双击已选中行：保留集合，仅更新 active/anchor，再调用 `playVisibleTrack(...)`
 - Enter / Space：继续播放当前获得键盘焦点的可见行
+- 右键选中某行后，要显式把该行 DOM focus 与 `activeTrackId` 同步，避免视觉 active 行与键盘目标漂移
 
-补一条显式 reactive reconcile：
+补一条显式 reactive reconcile，但必须带等值保护，避免 Svelte 反复赋值触发循环：
 
 ```ts
-$: selection = reconcileSelection(
-  selection,
-  tracks.map((track) => track.id),
-  visibleTracks.map((track) => track.id),
-);
+$: {
+  const nextSelection = reconcileSelection(
+    selection,
+    tracks.map((track) => track.id),
+    visibleTracks.map((track) => track.id),
+  );
+
+  if (!isSelectionStateEqual(selection, nextSelection)) {
+    selection = nextSelection;
+  }
+}
 ```
 
 要求：
@@ -746,7 +761,7 @@ let playingTrackId: string | null = null;
 let contextMenuOpen = false;
 let contextMenuPosition = { x: 0, y: 0 };
 let playlistPickerOpen = false;
-let playlistPickerPosition = { x: 0, y: 0 };
+let playlistPickerAnchor: DOMRect | null = null;
 let feedback = '';
 ```
 
@@ -755,7 +770,8 @@ let feedback = '';
 - 右键菜单固定三项：播放选中 / 加入队列 / 加入歌单
 - 以 `playlists.length > 0` 作为第一阶段“可加入歌单”的最小可操作条件
 - 没有歌单或歌单加载失败时，“加入歌单”入口禁用并显示“请先创建歌单”
-- 从右键菜单触发“加入歌单”时，立即关闭右键菜单，再打开 `SongsPlaylistPicker`
+- 从批量操作条触发“加入歌单”时，使用按钮回传的 `anchor: DOMRect` 打开 `SongsPlaylistPicker`
+- 从右键菜单触发“加入歌单”时，立即关闭右键菜单，再用当前菜单触发位置或行元素 rect 构造 `playlistPickerAnchor` 打开 `SongsPlaylistPicker`
 - 点击菜单外部区域关闭右键菜单 / 歌单选择器
 - `Escape` 关闭当前打开的右键菜单或歌单选择器
 - 反馈先用 `SongsView` 内联状态文字，不引入全局 toast 系统
