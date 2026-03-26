@@ -280,7 +280,7 @@
 
   <div class="extras">
     <div class="popover-group">
-      <button on:click={toggleQueuePopover} aria-expanded={showQueue}>
+      <button class="utility-trigger" on:click={toggleQueuePopover} aria-expanded={showQueue}>
         📃 队列
       </button>
       {#if showQueue}
@@ -308,14 +308,16 @@
       {/if}
     </div>
 
-  <div class="volume-wrap">
+  <div class="volume-wrap popover-group">
       <button
+        class="utility-trigger volume-trigger"
         class:active={isMuted}
         on:click={() => void toggleMute()}
+        aria-label={isMuted ? '取消静音' : '静音'}
         aria-pressed={isMuted}
-        title={isMuted ? 'Unmute' : 'Mute'}
       >
-        {volumePercentage() === 0 ? '🔇' : volumePercentage() < 50 ? '🔈' : '🔊'}
+        <span class="volume-icon">{volumePercentage() === 0 ? '🔇' : volumePercentage() < 50 ? '🔈' : '🔊'}</span>
+        <span class="volume-trigger-value">{Math.round(volumePercentUi)}%</span>
       </button>
       <div class="popover volume-popover" role="group" aria-label="Volume">
         <div class="volume-header">
@@ -327,7 +329,7 @@
     </div>
 
     <div class="popover-group">
-      <button on:click={toggleDevicePopover} aria-expanded={showDevicePicker}>🎧 设备</button>
+      <button class="utility-trigger" on:click={toggleDevicePopover} aria-expanded={showDevicePicker}>🎧 设备</button>
       {#if showDevicePicker}
         <div class="popover device-popover">
           <p class="heading">输出设备</p>
@@ -359,7 +361,7 @@
       {/if}
     </div>
 
-    <button class:active={showLyricsPanel} on:click={toggleLyrics} aria-pressed={showLyricsPanel}>📝 歌词</button>
+    <button class="utility-trigger" class:active={showLyricsPanel} on:click={toggleLyrics} aria-pressed={showLyricsPanel}>📝 歌词</button>
   </div>
 </div>
 
@@ -645,25 +647,55 @@
     gap: 12px;
   }
 
-  .extras > button,
-  .popover-group > button {
-    border: none;
+  .utility-trigger {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid rgba(96, 165, 250, 0.16);
     border-radius: 999px;
     padding: 8px 14px;
     background: rgba(30, 58, 138, 0.35);
     color: #bfdbfe;
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease,
+      transform 0.16s ease;
   }
 
-  .extras > button.active,
-  .popover-group > button[aria-expanded='true'] {
+  .utility-trigger.active,
+  .utility-trigger[aria-expanded='true'] {
     background: rgba(59, 130, 246, 0.3);
+    border-color: rgba(96, 165, 250, 0.34);
   }
 
-  .extras > button:hover,
-  .popover-group > button:hover {
+  .utility-trigger:hover,
+  .utility-trigger:focus-visible {
     background: rgba(59, 130, 246, 0.25);
+    border-color: rgba(96, 165, 250, 0.28);
+    transform: translateY(-1px);
+    outline: none;
+  }
+
+  .volume-trigger {
+    min-width: 96px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .volume-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+  }
+
+  .volume-trigger-value {
+    min-width: 3ch;
+    text-align: right;
+    font-size: 0.85rem;
+    letter-spacing: 0.02em;
   }
 
   .popover-group {
