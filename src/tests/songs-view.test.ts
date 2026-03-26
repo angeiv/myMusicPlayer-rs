@@ -155,13 +155,21 @@ function queuePlaybackSnapshot(state: PlaybackStateInfo, track: Track | null): v
 }
 
 function getHintText(element: HTMLElement): string {
-  return (
-    element.getAttribute('title')
-    ?? element.getAttribute('aria-description')
-    ?? element.getAttribute('aria-label')
-    ?? document.body.textContent
-    ?? ''
-  );
+  const controlSurface = element.closest('[role="menu"], [role="toolbar"], [role="group"]')
+    ?? (element.parentElement instanceof HTMLBodyElement ? null : element.parentElement);
+  const describedByIds = element.getAttribute('aria-describedby')?.split(/\s+/).filter(Boolean) ?? [];
+  const hintCandidates = [
+    element.getAttribute('title'),
+    element.getAttribute('aria-description'),
+    element.getAttribute('aria-label'),
+    ...describedByIds.map((id) => document.getElementById(id)?.textContent),
+    controlSurface?.textContent,
+  ];
+
+  return hintCandidates
+    .map((text) => text?.trim() ?? '')
+    .filter((text) => text.length > 0)
+    .join(' ');
 }
 
 function expectDisabledActionWithHint(action: HTMLElement, hintPattern: RegExp): void {
