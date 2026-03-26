@@ -98,17 +98,17 @@
     <div class="index" role="columnheader">#</div>
 
     {#each sortableColumns as column}
-      <button
-        type="button"
-        class={column.className}
-        role="columnheader"
-        aria-label={column.ariaLabel}
-        aria-sort={getAriaSort(column.key)}
-        on:click={() => dispatch('toggleSort', { key: column.key })}
-      >
-        <span>{column.label}</span>
-        <span class="sort-indicator" aria-hidden="true">{getSortArrow(column.key)}</span>
-      </button>
+      <div class={column.className} role="columnheader" aria-sort={getAriaSort(column.key)}>
+        <button
+          type="button"
+          class="column-sort-button"
+          aria-label={column.ariaLabel}
+          on:click={() => dispatch('toggleSort', { key: column.key })}
+        >
+          <span>{column.label}</span>
+          <span class="sort-indicator" aria-hidden="true">{getSortArrow(column.key)}</span>
+        </button>
+      </div>
     {/each}
   </div>
 
@@ -169,8 +169,16 @@
     color: var(--muted-fg);
   }
 
-  .table-header button,
-  .table-header .index {
+  .table-header .index,
+  .table-header [role='columnheader'] {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .table-header .column-sort-button {
+    width: 100%;
     min-width: 0;
     display: flex;
     align-items: center;
@@ -181,14 +189,11 @@
     color: inherit;
     font: inherit;
     text-align: left;
-  }
-
-  .table-header button {
     cursor: pointer;
   }
 
-  .table-header button:hover,
-  .table-header button:focus-visible {
+  .table-header .column-sort-button:hover,
+  .table-header .column-sort-button:focus-visible {
     color: #eff6ff;
     outline: none;
   }
