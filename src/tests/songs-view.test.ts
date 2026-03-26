@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import type { Component, ComponentProps } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -114,6 +114,27 @@ function getRow(title: string): HTMLElement {
   return row;
 }
 
+function getContextMenu(): HTMLElement {
+  const menu = screen.queryByRole('menu') ?? document.querySelector('.context-menu');
+
+  if (!(menu instanceof HTMLElement)) {
+    throw new Error('Could not find songs context menu');
+  }
+
+  return menu;
+}
+
+function getContextMenuAction(name: string): HTMLElement {
+  const queries = within(getContextMenu());
+  const action = queries.queryByRole('menuitem', { name }) ?? queries.queryByRole('button', { name });
+
+  if (!(action instanceof HTMLElement)) {
+    throw new Error(`Could not find context menu action ${name}`);
+  }
+
+  return action;
+}
+
 function hasStateMarker(row: HTMLElement, state: 'selected' | 'active' | 'playing'): boolean {
   const dataValue = row.getAttribute(`data-${state}`);
 
@@ -133,6 +154,26 @@ function queuePlaybackSnapshot(state: PlaybackStateInfo, track: Track | null): v
   playbackApiMock.getCurrentTrack.mockResolvedValue(track);
 }
 
+function getHintText(element: HTMLElement): string {
+  return (
+    element.getAttribute('title')
+    ?? element.getAttribute('aria-description')
+    ?? element.getAttribute('aria-label')
+    ?? document.body.textContent
+    ?? ''
+  );
+}
+
+function expectDisabledActionWithHint(action: HTMLElement, hintPattern: RegExp): void {
+  if (action instanceof HTMLButtonElement) {
+    expect(action.disabled).toBe(true);
+  } else {
+    expect(action.getAttribute('aria-disabled')).toBe('true');
+  }
+
+  expect(getHintText(action)).toMatch(hintPattern);
+}
+
 describe('SongsView integration harness', () => {
   beforeEach(() => {
     playbackApiMock.addToQueue.mockReset().mockResolvedValue(undefined);
@@ -150,18 +191,24 @@ describe('SongsView integration harness', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows the bulk action bar with the visible selected count after click, meta-click, and shift-click', async () => {
-    renderSongsView();
+  it.each([
+    ['meta-click', { metaKey: true }],
+    ['ctrl-click', { ctrlKey: true }],
+  ] as const)(
+    'shows the bulk action bar with the visible selected count after click, %s, and shift-click',
+    async (_modifierLabel, modifier) => {
+      renderSongsView();
 
-    await fireEvent.click(getRow(alphaTrack.title));
-    await fireEvent.click(getRow(betaTrack.title), { metaKey: true });
-    await fireEvent.click(getRow(deltaTrack.title), { shiftKey: true });
+      await fireEvent.click(getRow(alphaTrack.title));
+      await fireEvent.click(getRow(betaTrack.title), modifier);
+      await fireEvent.click(getRow(deltaTrack.title), { shiftKey: true });
 
-    expect(screen.queryByText('播放选中')).not.toBeNull();
-    expect(screen.queryByText('加入队列')).not.toBeNull();
-    expect(screen.queryByText('清除选择')).not.toBeNull();
-    expect(screen.queryByText(/3\s*首/)).not.toBeNull();
-  });
+      expect(screen.queryByText('播放选中')).not.toBeNull();
+      expect(screen.queryByText('加入队列')).not.toBeNull();
+      expect(screen.queryByText('清除选择')).not.toBeNull();
+      expect(screen.queryByText(/3\s*首/)).not.toBeNull();
+    },
+  );
 
   it('targets the single right-clicked row when opening the context menu from an unselected row', async () => {
     renderSongsView();
@@ -169,7 +216,7 @@ describe('SongsView integration harness', () => {
     await fireEvent.click(getRow(alphaTrack.title));
     await fireEvent.click(getRow(betaTrack.title), { metaKey: true });
     await fireEvent.contextMenu(getRow(deltaTrack.title), { clientX: 120, clientY: 140 });
-    await fireEvent.click(screen.getByText('播放选中'));
+    await fireEvent.click(getContextMenuAction('播放选中'));
 
     expect(playbackApiMock.setQueue).toHaveBeenCalledWith([deltaTrack]);
     expect(playbackApiMock.playTrack).toHaveBeenCalledWith(deltaTrack);
@@ -181,26 +228,24 @@ describe('SongsView integration harness', () => {
     await fireEvent.click(getRow(alphaTrack.title));
     await fireEvent.click(getRow(betaTrack.title), { metaKey: true });
     await fireEvent.contextMenu(getRow(betaTrack.title), { clientX: 120, clientY: 140 });
-    await fireEvent.click(screen.getByText('加入队列'));
+    await fireEvent.click(getContextMenuAction('加入队列'));
 
     expect(playbackApiMock.addToQueue).toHaveBeenCalledWith([alphaTrack, betaTrack]);
   });
 
-  it('disables the add-to-playlist action and surfaces a hint when no playlists are available', async () => {
+  it('disables the add-to-playlist action and surfaces a hint when no playlists are available from both the bulk bar and context-menu paths', async () => {
     const noPlaylists: Playlist[] = [];
     renderSongsView({ playlists: noPlaylists });
 
     await fireEvent.click(getRow(alphaTrack.title));
 
     const addToPlaylistButton = screen.getByRole('button', { name: '加入歌单' });
-    const hintText =
-      addToPlaylistButton.getAttribute('title')
-      ?? addToPlaylistButton.getAttribute('aria-description')
-      ?? document.body.textContent
-      ?? '';
+    expectDisabledActionWithHint(addToPlaylistButton, /请先创建歌单/);
 
-    expect((addToPlaylistButton as HTMLButtonElement).disabled).toBe(true);
-    expect(hintText).toMatch(/请先创建歌单/);
+    await fireEvent.contextMenu(getRow(alphaTrack.title), { clientX: 120, clientY: 140 });
+
+    const contextMenuAddToPlaylistAction = getContextMenuAction('加入歌单');
+    expectDisabledActionWithHint(contextMenuAddToPlaylistAction, /请先创建歌单/);
   });
 
   it('double-clicking an unselected row replaces the queue with all visible tracks and resets the selection to that row', async () => {
@@ -300,12 +345,22 @@ describe('SongsView integration harness', () => {
     await flushPromises();
 
     expect(hasStateMarker(getRow(deltaTrack.title), 'playing')).toBe(false);
+    expect(hasStateMarker(getRow(betaTrack.title), 'playing')).toBe(false);
 
     queuePlaybackSnapshot({ state: 'playing', position: 0, duration: deltaTrack.duration }, deltaTrack);
+    expect(hasStateMarker(getRow(deltaTrack.title), 'playing')).toBe(false);
+
     await advancePlaybackPoll();
 
-    expect(playbackApiMock.getPlaybackState).toHaveBeenCalledTimes(2);
-    expect(playbackApiMock.getCurrentTrack).toHaveBeenCalledTimes(2);
     expect(hasStateMarker(getRow(deltaTrack.title), 'playing')).toBe(true);
+    expect(hasStateMarker(getRow(betaTrack.title), 'playing')).toBe(false);
+
+    queuePlaybackSnapshot({ state: 'playing', position: 24, duration: betaTrack.duration }, betaTrack);
+    expect(hasStateMarker(getRow(betaTrack.title), 'playing')).toBe(false);
+
+    await advancePlaybackPoll();
+
+    expect(hasStateMarker(getRow(deltaTrack.title), 'playing')).toBe(false);
+    expect(hasStateMarker(getRow(betaTrack.title), 'playing')).toBe(true);
   });
 });
