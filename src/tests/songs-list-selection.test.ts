@@ -61,6 +61,22 @@ describe('songs-list selection', () => {
     expect(next.anchorTrackId).toBe('d');
   });
 
+  it('shift click falls back to single select when anchor is null', () => {
+    const seeded = {
+      selectedIds: ['a', 'b'],
+      activeTrackId: 'b',
+      anchorTrackId: null,
+    };
+
+    const next = selectRange(seeded, visibleIds, 'c');
+
+    expect(next).toEqual({
+      selectedIds: ['c'],
+      activeTrackId: 'c',
+      anchorTrackId: 'c',
+    });
+  });
+
   it('shift click falls back to single select when anchor is not visible', () => {
     const seeded = {
       selectedIds: ['z'],
