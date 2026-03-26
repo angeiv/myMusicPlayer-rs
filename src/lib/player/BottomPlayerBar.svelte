@@ -256,23 +256,68 @@
 
     <div class="controls">
       <button
+        type="button"
         class:active={shuffleEnabled}
         on:click={toggleShuffle}
-        title="Toggle shuffle"
+        aria-label="切换随机播放"
+        aria-pressed={shuffleEnabled}
       >
-        🔀
+        <span class="transport-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M4 7h3l4.25 5 4.25 5H20" />
+            <path d="M17 5.5 20 7l-3 1.5" />
+            <path d="M4 17h3l2.5-3" />
+            <path d="M15.5 12 20 17" />
+            <path d="M17 15.5 20 17l-3 1.5" />
+          </svg>
+        </span>
       </button>
-      <button class="ghost" on:click={handlePrevious} title="Previous track">⏮</button>
-      <button class={`play ${playingClass}`} on:click={togglePlayPause} aria-label="Play or pause">
-        {isPlaying ? '⏸' : '▶'}
+      <button type="button" class="ghost" on:click={handlePrevious} aria-label="上一首">
+        <span class="transport-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M6.5 6.5v11" />
+            <path d="M17.5 7 10 12l7.5 5V7Z" />
+          </svg>
+        </span>
       </button>
-      <button class="ghost" on:click={handleNext} title="Next track">⏭</button>
+      <button class={`play ${playingClass}`} type="button" on:click={togglePlayPause} aria-label="播放或暂停">
+        <span class={`transport-icon transport-play-icon ${isPlaying ? 'pause-glyph' : 'play-glyph'}`} aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            {#if isPlaying}
+              <path d="M9.25 7.5v9" />
+              <path d="M14.75 7.5v9" />
+            {:else}
+              <path d="M9 7.25 16.5 12 9 16.75V7.25Z" fill="currentColor" stroke="none" />
+            {/if}
+          </svg>
+        </span>
+      </button>
+      <button type="button" class="ghost" on:click={handleNext} aria-label="下一首">
+        <span class="transport-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M17.5 6.5v11" />
+            <path d="M6.5 7 14 12l-7.5 5V7Z" />
+          </svg>
+        </span>
+      </button>
       <button
+        type="button"
         class:active={repeatMode !== 'off'}
         on:click={nextRepeatMode}
-        title={`Repeat: ${repeatMode}`}
+        aria-label="切换重复模式"
+        aria-pressed={repeatMode !== 'off'}
       >
-        {repeatMode === 'one' ? '🔂' : '🔁'}
+        <span class="transport-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M7.5 7.5h9.5l2.5 2.5" />
+            <path d="M7.5 16.5H17l2.5-2.5" />
+            <path d="M17 5.5 19.5 10 15 10" />
+            <path d="M7 18.5 4.5 14H9" />
+          </svg>
+        </span>
+        {#if repeatMode === 'one'}
+          <span class="transport-badge" aria-hidden="true">1</span>
+        {/if}
       </button>
       <button class="pill" on:click={promptAndPlayFile}>打开文件</button>
     </div>
@@ -280,8 +325,21 @@
 
   <div class="extras">
     <div class="popover-group">
-      <button class="utility-trigger" on:click={toggleQueuePopover} aria-expanded={showQueue}>
-        📃 队列
+      <button
+        type="button"
+        class="utility-trigger utility-icon-button"
+        on:click={toggleQueuePopover}
+        aria-expanded={showQueue}
+        aria-label="队列"
+      >
+        <span class="utility-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M7 6.75h11.25M7 12h11.25M7 17.25h8.25" />
+            <circle cx="4.25" cy="6.75" r="1" fill="currentColor" stroke="none" />
+            <circle cx="4.25" cy="12" r="1" fill="currentColor" stroke="none" />
+            <circle cx="4.25" cy="17.25" r="1" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
       </button>
       {#if showQueue}
         <div class="popover queue-popover">
@@ -310,16 +368,29 @@
 
   <div class="volume-wrap popover-group">
       <button
-        class="utility-trigger volume-trigger"
+        type="button"
+        class="utility-trigger utility-icon-button volume-trigger"
         class:active={isMuted}
         on:click={() => void toggleMute()}
         aria-label={isMuted ? '取消静音' : '静音'}
         aria-pressed={isMuted}
       >
-        <span class="volume-icon">{volumePercentage() === 0 ? '🔇' : volumePercentage() < 50 ? '🔈' : '🔊'}</span>
-        <span class="volume-trigger-value">{Math.round(volumePercentUi)}%</span>
+        <span class="utility-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M5.5 9.5v5h3.25l4 3V6.5l-4 3H5.5Z" />
+            {#if isMuted}
+              <path d="M16 9.5 19.5 14.5" />
+              <path d="M19.5 9.5 16 14.5" />
+            {:else if volumePercentage() < 50}
+              <path d="M16 10.25c.9.55 1.35 1.14 1.35 1.75s-.45 1.2-1.35 1.75" />
+            {:else}
+              <path d="M15.75 8.5c1.4 1 2.1 2.17 2.1 3.5s-.7 2.5-2.1 3.5" />
+              <path d="M18.5 6.5c2.1 1.6 3.15 3.43 3.15 5.5s-1.05 3.9-3.15 5.5" />
+            {/if}
+          </svg>
+        </span>
       </button>
-      <div class="popover volume-popover" role="group" aria-label="Volume">
+      <div class="popover volume-popover" role="group" aria-label="音量">
         <div class="volume-header">
           <span class="volume-title">音量</span>
           <span class="volume-value">{Math.round(volumePercentUi)}%</span>
@@ -329,7 +400,20 @@
     </div>
 
     <div class="popover-group">
-      <button class="utility-trigger" on:click={toggleDevicePopover} aria-expanded={showDevicePicker}>🎧 设备</button>
+      <button
+        type="button"
+        class="utility-trigger utility-icon-button"
+        on:click={toggleDevicePopover}
+        aria-expanded={showDevicePicker}
+        aria-label="输出设备"
+      >
+        <span class="utility-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M5.5 9.5v5h3.25l4 3V6.5l-4 3H5.5Z" />
+            <path d="M15.75 8.5c1.4 1 2.1 2.17 2.1 3.5s-.7 2.5-2.1 3.5" />
+          </svg>
+        </span>
+      </button>
       {#if showDevicePicker}
         <div class="popover device-popover">
           <p class="heading">输出设备</p>
@@ -361,7 +445,20 @@
       {/if}
     </div>
 
-    <button class="utility-trigger" class:active={showLyricsPanel} on:click={toggleLyrics} aria-pressed={showLyricsPanel}>📝 歌词</button>
+    <button
+      type="button"
+      class="utility-trigger utility-icon-button"
+      class:active={showLyricsPanel}
+      on:click={toggleLyrics}
+      aria-label="歌词"
+      aria-pressed={showLyricsPanel}
+    >
+      <span class="utility-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M5.75 7h12.5M5.75 11h12.5M5.75 15h8.5M5.75 19h6.5" />
+        </svg>
+      </span>
+    </button>
   </div>
 </div>
 
@@ -591,21 +688,29 @@
   }
 
   .controls button {
+    position: relative;
     border: none;
     background: transparent;
-    color: inherit;
-    font-size: 1rem;
+    color: rgba(226, 232, 240, 0.88);
     width: 40px;
     height: 40px;
     display: grid;
     place-items: center;
     border-radius: 999px;
     cursor: pointer;
-    transition: background 0.2s ease, transform 0.2s ease;
+    transition:
+      background 0.2s ease,
+      color 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.16s ease;
   }
 
-  .controls button:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  .controls button:hover:not(:disabled),
+  .controls button:focus-visible {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: #f8fbff;
+    transform: translateY(-1px);
+    outline: none;
   }
 
   .controls button:disabled {
@@ -613,23 +718,72 @@
     cursor: not-allowed;
   }
 
-  .controls button.active {
-    background: rgba(59, 130, 246, 0.25);
-    color: #bfdbfe;
+  .controls button.active,
+  .controls button[aria-pressed='true'] {
+    background: rgba(37, 99, 235, 0.24);
+    color: #eff6ff;
+    box-shadow:
+      inset 0 0 0 1px rgba(147, 197, 253, 0.18),
+      0 8px 20px rgba(37, 99, 235, 0.18);
+  }
+
+  .transport-icon {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .transport-icon svg {
+    width: 100%;
+    height: 100%;
+    stroke: currentColor;
+    stroke-width: 1.85;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    overflow: visible;
+  }
+
+  .transport-play-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .transport-play-icon.play-glyph {
+    transform: translateX(1px);
   }
 
   .controls .play {
     width: 52px;
     height: 52px;
-    font-size: 1.35rem;
     background: rgba(59, 130, 246, 0.3);
-    color: #e0f2fe;
-    box-shadow: 0 10px 25px rgba(59, 130, 246, 0.25);
+    color: #f8fbff;
+    box-shadow: 0 12px 28px rgba(59, 130, 246, 0.28);
   }
 
   .controls .play.playing {
-    background: rgba(16, 185, 129, 0.3);
-    box-shadow: 0 10px 25px rgba(16, 185, 129, 0.25);
+    background: rgba(16, 185, 129, 0.34);
+    box-shadow: 0 12px 28px rgba(16, 185, 129, 0.28);
+  }
+
+  .transport-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(59, 130, 246, 0.95);
+    color: #eff6ff;
+    font-size: 0.58rem;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.28);
   }
 
   .controls .pill {
@@ -648,54 +802,70 @@
   }
 
   .utility-trigger {
-    min-height: 40px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    border: 1px solid rgba(96, 165, 250, 0.16);
-    border-radius: 999px;
-    padding: 8px 14px;
-    background: rgba(30, 58, 138, 0.35);
-    color: #bfdbfe;
+    border: 1px solid rgba(96, 165, 250, 0.14);
+    background: rgba(15, 23, 42, 0.72);
+    color: rgba(226, 232, 240, 0.92);
     cursor: pointer;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 10px 24px rgba(2, 6, 23, 0.18);
     transition:
       background 0.2s ease,
       border-color 0.2s ease,
+      color 0.2s ease,
       transform 0.16s ease;
   }
 
   .utility-trigger.active,
-  .utility-trigger[aria-expanded='true'] {
-    background: rgba(59, 130, 246, 0.3);
-    border-color: rgba(96, 165, 250, 0.34);
+  .utility-trigger[aria-expanded='true'],
+  .utility-trigger[aria-pressed='true'] {
+    background: rgba(37, 99, 235, 0.32);
+    border-color: rgba(96, 165, 250, 0.36);
+    color: #eff6ff;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 12px 28px rgba(37, 99, 235, 0.22);
   }
 
   .utility-trigger:hover,
   .utility-trigger:focus-visible {
-    background: rgba(59, 130, 246, 0.25);
+    background: rgba(37, 99, 235, 0.22);
     border-color: rgba(96, 165, 250, 0.28);
+    color: #eff6ff;
     transform: translateY(-1px);
     outline: none;
   }
 
-  .volume-trigger {
-    min-width: 96px;
-    font-variant-numeric: tabular-nums;
+  .utility-icon-button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 16px;
   }
 
-  .volume-icon {
+  .utility-icon {
+    width: 20px;
+    height: 20px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.1rem;
   }
 
-  .volume-trigger-value {
-    min-width: 3ch;
-    text-align: right;
-    font-size: 0.85rem;
-    letter-spacing: 0.02em;
+  .utility-icon svg {
+    width: 100%;
+    height: 100%;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    overflow: visible;
+  }
+
+  .volume-trigger .utility-icon {
+    transform: translateX(0.5px);
   }
 
   .popover-group {

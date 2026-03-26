@@ -12,14 +12,43 @@ async function readPlayerBar(): Promise<string> {
 }
 
 describe('player utility controls styling', () => {
-  it('uses a dedicated utility-trigger style for the volume trigger and neighboring utility buttons', async () => {
+  it('renders queue, volume, device, and lyrics as unified icon buttons without emoji labels', async () => {
     const source = await readPlayerBar();
 
-    expect(source).toMatch(/class=\"utility-trigger volume-trigger\"/);
-    expect(source).toMatch(/class=\"utility-trigger\"[^>]*>\s*📃 队列\s*</);
-    expect(source).toMatch(/class=\"utility-trigger\"[^>]*>\s*🎧 设备\s*</);
-    expect(source).toMatch(/class=\"utility-trigger\"[^>]*>\s*📝 歌词\s*</);
-    expect(source).toMatch(/\.utility-trigger\s*\{[\s\S]*border-radius:\s*999px;/);
-    expect(source).toMatch(/\.utility-trigger\s*\{[\s\S]*min-height:\s*40px;/);
+    expect(source).toMatch(/class=\"utility-trigger utility-icon-button\"[^>]*aria-label=\"队列\"/);
+    expect(source).toMatch(/class=\"utility-trigger utility-icon-button volume-trigger\"/);
+    expect(source).toMatch(/class=\"utility-trigger utility-icon-button\"[^>]*aria-label=\"输出设备\"/);
+    expect(source).toMatch(/class=\"utility-trigger utility-icon-button\"[^>]*aria-label=\"歌词\"/);
+    expect(source).not.toContain('📃');
+    expect(source).not.toContain('🎧');
+    expect(source).not.toContain('📝');
+    expect(source).not.toContain('🔇');
+    expect(source).not.toContain('🔈');
+    expect(source).not.toContain('🔊');
+    expect(source).not.toMatch(/volume-trigger-value/);
+    expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*width:\s*44px;/);
+    expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*height:\s*44px;/);
+    expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*padding:\s*0;/);
+    expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*border-radius:\s*16px;/);
+  });
+
+  it('renders the shuffle, previous, play-pause, next, and repeat controls as svg icons', async () => {
+    const source = await readPlayerBar();
+
+    expect(source).toMatch(/class=\"transport-icon\"/);
+    expect(source).toMatch(/aria-label=\"切换随机播放\"/);
+    expect(source).toMatch(/aria-label=\"上一首\"/);
+    expect(source).toMatch(/aria-label=\"播放或暂停\"/);
+    expect(source).toMatch(/aria-label=\"下一首\"/);
+    expect(source).toMatch(/aria-label=\"切换重复模式\"/);
+    expect(source).not.toContain('🔀');
+    expect(source).not.toContain('⏮');
+    expect(source).not.toContain('▶');
+    expect(source).not.toContain('⏸');
+    expect(source).not.toContain('⏭');
+    expect(source).not.toContain('🔂');
+    expect(source).not.toContain('🔁');
+    expect(source).toMatch(/\.transport-icon\s*\{[\s\S]*width:\s*20px;/);
+    expect(source).toMatch(/\.transport-icon\s*\{[\s\S]*height:\s*20px;/);
   });
 });
