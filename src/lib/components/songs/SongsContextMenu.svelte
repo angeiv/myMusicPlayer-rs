@@ -6,25 +6,42 @@
   export let canAddToPlaylist = true;
   export let addToPlaylistHint = '';
 
+  const addToPlaylistHintId = 'songs-context-menu-add-to-playlist-hint';
+
   const dispatch = createEventDispatcher<{
     playSelected: void;
     addToQueue: void;
     addToPlaylist: void;
   }>();
+
+  $: disabledAddToPlaylistHint = !canAddToPlaylist ? addToPlaylistHint.trim() : '';
+  $: addToPlaylistDescription = disabledAddToPlaylistHint.length > 0 ? addToPlaylistHintId : undefined;
 </script>
 
-<div class="context-menu" role="menu" aria-label="歌曲操作菜单" style={`top:${y}px;left:${x}px;`}>
+<div
+  class="context-menu"
+  role="menu"
+  aria-label="歌曲操作菜单"
+  aria-describedby={addToPlaylistDescription}
+  style={`top:${y}px;left:${x}px;`}
+>
   <button type="button" role="menuitem" on:click={() => dispatch('playSelected')}>播放选中</button>
   <button type="button" role="menuitem" on:click={() => dispatch('addToQueue')}>加入队列</button>
   <button
     type="button"
     role="menuitem"
     disabled={!canAddToPlaylist}
-    title={canAddToPlaylist ? undefined : addToPlaylistHint}
+    aria-describedby={addToPlaylistDescription}
     on:click={() => dispatch('addToPlaylist')}
   >
     加入歌单
   </button>
+
+  {#if disabledAddToPlaylistHint}
+    <p id={addToPlaylistHintId} class="disabled-hint" aria-live="polite" aria-atomic="true">
+      {disabledAddToPlaylistHint}
+    </p>
+  {/if}
 </div>
 
 <style>
@@ -63,5 +80,12 @@
   button:disabled {
     cursor: not-allowed;
     color: rgba(148, 163, 184, 0.6);
+  }
+
+  .disabled-hint {
+    margin: 4px 4px 0;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: rgba(191, 219, 254, 0.78);
   }
 </style>

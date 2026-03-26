@@ -6,13 +6,73 @@
   export let playlists: Playlist[] = [];
   export let anchor: DOMRect | null = null;
 
+  const viewportPadding = 12;
+  const anchorGap = 8;
+  const maxPickerWidth = 320;
+  const maxPickerHeight = 420;
+  const minPickerHeight = 180;
+  const estimatedChromeHeight = 88;
+
   const dispatch = createEventDispatcher<{
     selectPlaylist: { playlistId: string };
     close: void;
   }>();
 
-  $: top = anchor === null ? 0 : anchor.bottom + 8;
-  $: left = anchor === null ? 0 : anchor.left;
+  function clamp(value: number, min: number, max: number): number {
+    if (max <= min) {
+      return min;
+    }
+
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function getViewportSize(): { width: number; height: number } {
+    if (typeof window === 'undefined') {
+      return {
+        width: maxPickerWidth + viewportPadding * 2,
+        height: maxPickerHeight + viewportPadding * 2,
+      };
+    }
+
+    return {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  }
+
+  let top = 0;
+  let left = 0;
+  let listMaxHeight = 0;
+  let pickerMaxHeight = maxPickerHeight;
+
+  $: viewport = getViewportSize();
+  $: pickerWidth = Math.min(maxPickerWidth, Math.max(0, viewport.width - viewportPadding * 2));
+  $: viewportMaxHeight = Math.max(0, Math.min(maxPickerHeight, viewport.height - viewportPadding * 2));
+  $: minimumUsableHeight = Math.min(minPickerHeight, viewportMaxHeight);
+  $: if (anchor === null) {
+    top = 0;
+    left = 0;
+    pickerMaxHeight = viewportMaxHeight;
+    listMaxHeight = Math.max(0, pickerMaxHeight - estimatedChromeHeight);
+  } else {
+    const availableBelow = viewport.height - anchor.bottom - anchorGap - viewportPadding;
+    const availableAbove = anchor.top - anchorGap - viewportPadding;
+    const placeBelow = availableBelow >= minimumUsableHeight || availableBelow >= availableAbove;
+    const preferredSpace = placeBelow ? availableBelow : availableAbove;
+
+    pickerMaxHeight = Math.min(viewportMaxHeight, Math.max(minimumUsableHeight, preferredSpace));
+
+    const maxTop = Math.max(viewportPadding, viewport.height - pickerMaxHeight - viewportPadding);
+    const preferredTop = placeBelow
+      ? anchor.bottom + anchorGap
+      : anchor.top - anchorGap - pickerMaxHeight;
+
+    top = clamp(preferredTop, viewportPadding, maxTop);
+
+    const maxLeft = Math.max(viewportPadding, viewport.width - pickerWidth - viewportPadding);
+    left = clamp(anchor.left, viewportPadding, maxLeft);
+    listMaxHeight = Math.max(0, pickerMaxHeight - estimatedChromeHeight);
+  }
 </script>
 
 {#if anchor !== null}
@@ -21,7 +81,7 @@
     role="dialog"
     aria-label="选择歌单"
     aria-modal="false"
-    style={`top:${top}px;left:${left}px;`}
+    style={`top:${top}px;left:${left}px;max-height:${pickerMaxHeight}px;`}
   >
     <div class="header">
       <div>
@@ -36,7 +96,7 @@
     {#if playlists.length === 0}
       <p class="empty">暂无可用歌单</p>
     {:else}
-      <div class="playlist-list" role="list">
+      <div class="playlist-list" role="list" style={`max-height:${listMaxHeight}px;`}>
         {#each playlists as playlist}
           <div role="listitem">
             <button
@@ -67,6 +127,7 @@
     border: 1px solid rgba(96, 165, 250, 0.22);
     background: rgba(15, 23, 42, 0.98);
     box-shadow: 0 24px 48px rgba(2, 6, 23, 0.4);
+    overflow: hidden;
   }
 
   .header {
@@ -111,12 +172,16 @@
   }
 
   .playlist-list {
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    overflow-y: auto;
+    padding-right: 4px;
   }
 
   .playlist-option {
+    width: 100%;
     border: none;
     border-radius: 14px;
     padding: 12px 14px;
@@ -128,6 +193,7 @@
     color: #e2e8f0;
     background: rgba(30, 41, 59, 0.72);
     cursor: pointer;
+    text-align: left;
     transition:
       background 0.16s ease,
       transform 0.16s ease;

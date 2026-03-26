@@ -5,12 +5,17 @@
   export let canAddToPlaylist = true;
   export let addToPlaylistHint = '';
 
+  const addToPlaylistHintId = 'songs-bulk-action-add-to-playlist-hint';
+
   const dispatch = createEventDispatcher<{
     playSelected: void;
     addToQueue: void;
     addToPlaylist: { anchor: DOMRect };
     clearSelection: void;
   }>();
+
+  $: disabledAddToPlaylistHint = !canAddToPlaylist ? addToPlaylistHint.trim() : '';
+  $: addToPlaylistDescription = disabledAddToPlaylistHint.length > 0 ? addToPlaylistHintId : undefined;
 
   function handleAddToPlaylist(event: MouseEvent): void {
     const trigger = event.currentTarget;
@@ -25,24 +30,37 @@
   }
 </script>
 
-<div class="bulk-action-bar" role="toolbar" aria-label="歌曲批量操作">
+<div
+  class="bulk-action-bar"
+  role="toolbar"
+  aria-label="歌曲批量操作"
+  aria-describedby={addToPlaylistDescription}
+>
   <div class="summary">
     <span class="count">已选 {selectedCount} 首</span>
     <span class="hint">批量操作当前可见选择</span>
   </div>
 
-  <div class="actions">
-    <button type="button" on:click={() => dispatch('playSelected')}>播放选中</button>
-    <button type="button" on:click={() => dispatch('addToQueue')}>加入队列</button>
-    <button
-      type="button"
-      disabled={!canAddToPlaylist}
-      title={canAddToPlaylist ? undefined : addToPlaylistHint}
-      on:click={handleAddToPlaylist}
-    >
-      加入歌单
-    </button>
-    <button type="button" class="ghost" on:click={() => dispatch('clearSelection')}>清除选择</button>
+  <div class="controls">
+    <div class="actions">
+      <button type="button" on:click={() => dispatch('playSelected')}>播放选中</button>
+      <button type="button" on:click={() => dispatch('addToQueue')}>加入队列</button>
+      <button
+        type="button"
+        disabled={!canAddToPlaylist}
+        aria-describedby={addToPlaylistDescription}
+        on:click={handleAddToPlaylist}
+      >
+        加入歌单
+      </button>
+      <button type="button" class="ghost" on:click={() => dispatch('clearSelection')}>清除选择</button>
+    </div>
+
+    {#if disabledAddToPlaylistHint}
+      <p id={addToPlaylistHintId} class="disabled-hint" aria-live="polite" aria-atomic="true">
+        {disabledAddToPlaylistHint}
+      </p>
+    {/if}
   </div>
 </div>
 
@@ -76,11 +94,25 @@
     color: rgba(191, 219, 254, 0.72);
   }
 
+  .controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
   .actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 10px;
+  }
+
+  .disabled-hint {
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: rgba(191, 219, 254, 0.82);
   }
 
   button {
@@ -124,6 +156,11 @@
     .bulk-action-bar {
       align-items: flex-start;
       flex-direction: column;
+    }
+
+    .controls {
+      align-items: flex-start;
+      width: 100%;
     }
 
     .actions {
