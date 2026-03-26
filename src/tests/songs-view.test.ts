@@ -223,6 +223,20 @@ describe('SongsView integration harness', () => {
     vi.unstubAllGlobals();
   });
 
+  it('keeps a bulk action slot mounted before selection so first click does not shift the table layout', async () => {
+    renderSongsView();
+
+    const bulkActionSlot = document.querySelector('[data-bulk-action-slot]');
+
+    expect(bulkActionSlot).not.toBeNull();
+    expect(screen.queryByText('播放选中')).toBeNull();
+
+    await fireEvent.click(getRow(alphaTrack.title));
+
+    expect(document.querySelector('[data-bulk-action-slot]')).not.toBeNull();
+    expect(screen.queryByText('播放选中')).not.toBeNull();
+  });
+
   it.each([
     ['meta-click', { metaKey: true }],
     ['ctrl-click', { ctrlKey: true }],
@@ -295,7 +309,7 @@ describe('SongsView integration harness', () => {
     expectDisabledActionWithHint(contextMenuAddToPlaylistAction, /请先创建歌单/);
   });
 
-  it('double-clicking an unselected row replaces the queue with all visible tracks and resets the selection to that row', async () => {
+  it('double-clicking an unselected row replaces the queue with all visible tracks and resets the selection to that row without rendering a play-success banner above the list', async () => {
     renderSongsView();
 
     await fireEvent.click(getRow(alphaTrack.title));
@@ -305,11 +319,12 @@ describe('SongsView integration harness', () => {
     expect(playbackApiMock.setQueue).toHaveBeenCalledWith(visibleTracks);
     expect(playbackApiMock.playTrack).toHaveBeenCalledWith(deltaTrack);
     expect(screen.queryByText(/1\s*首/)).not.toBeNull();
+    expect(screen.queryByText('已开始播放当前歌曲')).toBeNull();
     expect(hasStateMarker(getRow(deltaTrack.title), 'selected')).toBe(true);
     expect(hasStateMarker(getRow(alphaTrack.title), 'selected')).toBe(false);
   });
 
-  it('double-clicking an already selected row preserves the multi-selection even when the second click arrives after 500ms, updates active focus, and starts from that row', async () => {
+  it('double-clicking an already selected row preserves the multi-selection even when the second click arrives after 500ms, updates active focus, starts from that row, and does not render a play-success banner above the list', async () => {
     vi.useFakeTimers();
     renderSongsView();
 
@@ -320,6 +335,7 @@ describe('SongsView integration harness', () => {
     expect(playbackApiMock.setQueue).toHaveBeenCalledWith(visibleTracks);
     expect(playbackApiMock.playTrack).toHaveBeenCalledWith(betaTrack);
     expect(screen.queryByText(/2\s*首/)).not.toBeNull();
+    expect(screen.queryByText('已开始播放当前歌曲')).toBeNull();
     expect(hasStateMarker(getRow(alphaTrack.title), 'selected')).toBe(true);
     expect(hasStateMarker(getRow(betaTrack.title), 'selected')).toBe(true);
     expect(hasStateMarker(getRow(betaTrack.title), 'active')).toBe(true);

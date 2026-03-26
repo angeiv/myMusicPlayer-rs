@@ -218,6 +218,10 @@
     }
   }
 
+  function setPlayActionFeedback(result: { status: 'success' | 'error'; message: string }): void {
+    feedback = result.status === 'error' ? result.message : '';
+  }
+
   function handleRowClick(
     event: CustomEvent<{
       track: Track;
@@ -276,7 +280,7 @@
       deps: actionDeps,
     });
 
-    feedback = result.message;
+    setPlayActionFeedback(result);
     closeTransientOverlays();
     await syncPlayingTrackIdFromAction(result);
   }
@@ -312,7 +316,7 @@
       deps: actionDeps,
     });
 
-    feedback = result.message;
+    setPlayActionFeedback(result);
     closeTransientOverlays();
     await syncPlayingTrackIdFromAction(result);
   }
@@ -344,7 +348,7 @@
       deps: actionDeps,
     });
 
-    feedback = result.message;
+    setPlayActionFeedback(result);
     closeTransientOverlays();
     await syncPlayingTrackIdFromAction(result);
   }
@@ -475,17 +479,19 @@
     <p class="feedback" role="status" aria-live="polite">{feedback}</p>
   {/if}
 
-  {#if visibleSelectionCount > 0}
-    <SongsBulkActionBar
-      selectedCount={visibleSelectionCount}
-      {canAddToPlaylist}
-      {addToPlaylistHint}
-      on:playSelected={handlePlaySelected}
-      on:addToQueue={handleAddSelectedToQueue}
-      on:addToPlaylist={handleBulkAddToPlaylist}
-      on:clearSelection={handleClearSelection}
-    />
-  {/if}
+  <div class="bulk-action-slot" data-bulk-action-slot data-empty={visibleSelectionCount === 0 ? 'true' : 'false'}>
+    {#if visibleSelectionCount > 0}
+      <SongsBulkActionBar
+        selectedCount={visibleSelectionCount}
+        {canAddToPlaylist}
+        {addToPlaylistHint}
+        on:playSelected={handlePlaySelected}
+        on:addToQueue={handleAddSelectedToQueue}
+        on:addToPlaylist={handleBulkAddToPlaylist}
+        on:clearSelection={handleClearSelection}
+      />
+    {/if}
+  </div>
 
   {#if isLibraryLoading}
     <div class="empty">
@@ -552,6 +558,14 @@
   .header p {
     margin: 4px 0 0 0;
     color: var(--muted-fg);
+  }
+
+  .bulk-action-slot {
+    min-height: 122px;
+  }
+
+  .bulk-action-slot[data-empty='true'] {
+    pointer-events: none;
   }
 
   .feedback {

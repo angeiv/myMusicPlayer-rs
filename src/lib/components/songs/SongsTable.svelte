@@ -228,6 +228,13 @@
       background 0.2s ease,
       box-shadow 0.2s ease;
     cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .row * {
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .row:hover {
