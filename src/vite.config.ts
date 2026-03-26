@@ -1,13 +1,12 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { svelteTesting } from '@testing-library/svelte/vite';
 import { resolve } from 'path';
 
 export default defineConfig({
   // Ensure built assets use relative paths so Tauri can load them
   // from the app's bundled resources instead of absolute '/'.
   base: './',
-  plugins: [svelte(), svelteTesting()],
+  plugins: [svelte()],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),

@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PlaybackStateInfo, Track } from '../lib/types';
+import type { PlaybackStateInfo, Playlist, Track } from '../lib/types';
 
 const playbackApiMock = vi.hoisted(() => ({
   addToQueue: vi.fn(),
@@ -52,7 +52,7 @@ function createTrack(overrides: Pick<Track, 'id' | 'title'> & Partial<Track>): T
   };
 }
 
-const tracks: Track[] = [
+const tracks: [Track, Track, Track, Track] = [
   createTrack({ id: 'track-1', title: 'Alpha', artist_name: 'Artist A', album_title: 'Album A' }),
   createTrack({ id: 'track-2', title: 'Beta', artist_name: 'Artist B', album_title: 'Album A' }),
   createTrack({ id: 'track-3', title: 'Gamma', artist_name: 'Artist C', album_title: 'Album B' }),
@@ -72,15 +72,32 @@ async function advancePlaybackPoll(): Promise<void> {
   await flushPromises();
 }
 
-function renderSongsView(props: Partial<{ tracks: Track[]; isLibraryLoading: boolean; searchTerm: string }> = {}) {
-  return render(SongsView, {
-    props: {
-      tracks,
-      isLibraryLoading: false,
-      searchTerm: '',
-      ...props,
-    },
-  });
+type RenderSongsViewOptions = Partial<{
+  tracks: Track[];
+  isLibraryLoading: boolean;
+  searchTerm: string;
+}> & {
+  availablePlaylists?: Playlist[];
+};
+
+function renderSongsView({
+  availablePlaylists,
+  tracks: tracksProp = tracks,
+  isLibraryLoading = false,
+  searchTerm = '',
+}: RenderSongsViewOptions = {}) {
+  return {
+    // Harness-only scenario metadata so baseline tests can make playlist
+    // availability explicit before SongsView owns that prop.
+    availablePlaylists,
+    ...render(SongsView, {
+      props: {
+        tracks: tracksProp,
+        isLibraryLoading,
+        searchTerm,
+      },
+    }),
+  };
 }
 
 function getRow(title: string): HTMLElement {
@@ -167,7 +184,10 @@ describe('SongsView integration harness', () => {
   });
 
   it('disables the add-to-playlist action and surfaces a hint when no playlists are available', async () => {
-    renderSongsView();
+    const noPlaylists: Playlist[] = [];
+    const { availablePlaylists } = renderSongsView({ availablePlaylists: noPlaylists });
+
+    expect(availablePlaylists).toEqual([]);
 
     await fireEvent.click(getRow(alphaTrack.title));
 
