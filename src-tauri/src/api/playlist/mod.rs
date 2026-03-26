@@ -1,11 +1,19 @@
 //! Playlist-related Tauri commands for the music player
 
 use log::{error, info};
+use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::models::{Playlist, Track};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AddTracksToPlaylistResult {
+    pub added: usize,
+    pub total: usize,
+    pub failed_track_ids: Vec<String>,
+}
 
 /// Create a new playlist
 #[tauri::command]
@@ -83,6 +91,79 @@ pub async fn add_to_playlist(
             error!("Failed to add track to playlist: {}", e);
             e
         })
+}
+
+/// Add multiple tracks to a playlist, preserving order and reporting partial failures.
+#[tauri::command]
+pub async fn add_tracks_to_playlist(
+    playlist_id: String,
+    track_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<AddTracksToPlaylistResult, String> {
+    let playlist_uuid =
+        Uuid::parse_str(&playlist_id).map_err(|e| format!("Invalid playlist ID: {}", e))?;
+
+    info!(
+        "Adding {} tracks to playlist: {}",
+        track_ids.len(),
+        playlist_id
+    );
+
+    let mut valid_track_ids = Vec::with_capacity(track_ids.len());
+    let mut failed_track_ids = Vec::new();
+
+    {
+        let library = state.library.lock().map_err(|e| {
+            error!("Failed to acquire library lock: {}", e);
+            "Failed to access library service".to_string()
+        })?;
+
+        for track_id in &track_ids {
+            let track_uuid = match Uuid::parse_str(track_id) {
+                Ok(uuid) => uuid,
+                Err(_) => {
+                    failed_track_ids.push(track_id.clone());
+                    continue;
+                }
+            };
+
+            let exists = library
+                .get_track(track_uuid)
+                .map_err(|e| {
+                    error!("Failed to load track {}: {}", track_id, e);
+                    e.to_string()
+                })?
+                .is_some();
+
+            if exists {
+                valid_track_ids.push(track_uuid);
+            } else {
+                failed_track_ids.push(track_id.clone());
+            }
+        }
+    }
+
+    let added = if valid_track_ids.is_empty() {
+        0
+    } else {
+        let mut playlists = state.playlists.lock().map_err(|e| {
+            error!("Failed to acquire playlists lock: {}", e);
+            "Failed to access playlists service".to_string()
+        })?;
+
+        playlists
+            .add_tracks_to_playlist(&playlist_uuid, &valid_track_ids)
+            .map_err(|e| {
+                error!("Failed to add tracks to playlist: {}", e);
+                e
+            })?
+    };
+
+    Ok(AddTracksToPlaylistResult {
+        added,
+        total: track_ids.len(),
+        failed_track_ids,
+    })
 }
 
 /// Remove a track from a playlist

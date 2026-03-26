@@ -5,7 +5,10 @@ export type SongsListActionDeps = {
   setQueue: (tracks: Track[]) => Promise<void>;
   addToQueue: (tracks: Track[]) => Promise<void>;
   playTrack: (track: Track) => Promise<void>;
-  addToPlaylist: (playlistId: string, trackId: string) => Promise<void>;
+  addTracksToPlaylist: (
+    playlistId: string,
+    trackIds: string[],
+  ) => Promise<SongsListPlaylistActionResult>;
 };
 
 export type SongsListActionResult = {
@@ -112,51 +115,20 @@ export async function addSelectedTracksToPlaylist({
   deps,
 }: SongsListPlaylistActionInput): Promise<SongsListPlaylistActionResult> {
   const selectedTracks = getSelectedVisibleTracks(visibleTracks, selection.selectedIds);
-  const failedTrackIds: string[] = [];
-  let added = 0;
 
   if (selectedTracks.length === 0) {
     return {
       status: 'error',
-      added,
+      added: 0,
       total: 0,
-      failedTrackIds,
+      failedTrackIds: [],
     };
   }
 
-  for (const track of selectedTracks) {
-    try {
-      await deps.addToPlaylist(playlistId, track.id);
-      added += 1;
-    } catch {
-      failedTrackIds.push(track.id);
-    }
-  }
-
-  if (added === selectedTracks.length) {
-    return {
-      status: 'success',
-      added,
-      total: selectedTracks.length,
-      failedTrackIds,
-    };
-  }
-
-  if (added === 0) {
-    return {
-      status: 'error',
-      added,
-      total: selectedTracks.length,
-      failedTrackIds,
-    };
-  }
-
-  return {
-    status: 'partial',
-    added,
-    total: selectedTracks.length,
-    failedTrackIds,
-  };
+  return deps.addTracksToPlaylist(
+    playlistId,
+    selectedTracks.map((track) => track.id),
+  );
 }
 
 export async function playVisibleTrack({

@@ -8,6 +8,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 import {
   addToPlaylist,
+  addTracksToPlaylist,
   createPlaylist,
   getPlaylists,
   removeFromPlaylist,
@@ -33,6 +34,24 @@ describe('tauri playlist bridge', () => {
     expect(invokeMock).toHaveBeenCalledWith('add_to_playlist', {
       playlistId: 'playlist-1',
       trackId: 'track-9',
+    });
+  });
+
+  it('invokes add_tracks_to_playlist and normalizes failedTrackIds', async () => {
+    invokeMock.mockResolvedValueOnce({
+      added: 2,
+      total: 3,
+      failed_track_ids: ['track-9'],
+    });
+
+    await expect(addTracksToPlaylist('playlist-1', ['track-1', 'track-2', 'track-9'])).resolves.toEqual({
+      added: 2,
+      total: 3,
+      failedTrackIds: ['track-9'],
+    });
+    expect(invokeMock).toHaveBeenCalledWith('add_tracks_to_playlist', {
+      playlistId: 'playlist-1',
+      trackIds: ['track-1', 'track-2', 'track-9'],
     });
   });
 

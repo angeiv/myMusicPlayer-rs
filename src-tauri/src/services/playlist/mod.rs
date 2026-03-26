@@ -64,6 +64,27 @@ impl PlaylistService {
         }
     }
 
+    /// Add multiple tracks to a playlist in order
+    pub fn add_tracks_to_playlist(
+        &mut self,
+        playlist_id: &Uuid,
+        track_ids: &[Uuid],
+    ) -> Result<usize, String> {
+        if let Some(playlist) = self.playlists.get_mut(playlist_id) {
+            for track_id in track_ids {
+                playlist.add_track(*track_id);
+            }
+            info!(
+                "Added {} tracks to playlist '{}'",
+                track_ids.len(),
+                playlist.name
+            );
+            Ok(track_ids.len())
+        } else {
+            Err("Playlist not found".to_string())
+        }
+    }
+
     /// Remove a track from a playlist
     pub fn remove_from_playlist(
         &mut self,
@@ -195,6 +216,19 @@ mod tests {
         let result = service.remove_from_playlist(&playlist_id, 0);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_add_multiple_tracks() {
+        let mut service = PlaylistService::default();
+        let playlist_id = service.create_playlist("Batch Test").unwrap();
+        let track_ids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+
+        let added = service.add_tracks_to_playlist(&playlist_id, &track_ids).unwrap();
+
+        assert_eq!(added, 3);
+        let playlist = service.get_playlist(&playlist_id).unwrap();
+        assert_eq!(playlist.track_ids, track_ids);
     }
 
     #[test]

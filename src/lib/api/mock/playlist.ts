@@ -9,6 +9,12 @@ import {
   renameMockPlaylist,
 } from '../../mocks/library';
 
+export type AddTracksToPlaylistResult = {
+  added: number;
+  total: number;
+  failedTrackIds: string[];
+};
+
 export async function createPlaylist(name: string): Promise<string> {
   const playlist = addMockPlaylist(name);
   return playlist.id;
@@ -28,6 +34,31 @@ export async function getPlaylistTracks(id: string): Promise<Track[]> {
 
 export async function addToPlaylist(playlistId: string, trackId: string): Promise<void> {
   appendMockTrackToPlaylist(playlistId, trackId);
+}
+
+export async function addTracksToPlaylist(
+  playlistId: string,
+  trackIds: string[]
+): Promise<AddTracksToPlaylistResult> {
+  const playlist = getMockPlaylistById(playlistId);
+
+  if (!playlist) {
+    return {
+      added: 0,
+      total: trackIds.length,
+      failedTrackIds: [...trackIds],
+    };
+  }
+
+  for (const trackId of trackIds) {
+    appendMockTrackToPlaylist(playlistId, trackId);
+  }
+
+  return {
+    added: trackIds.length,
+    total: trackIds.length,
+    failedTrackIds: [],
+  };
 }
 
 export async function removeFromPlaylist(playlistId: string, trackIndex: number): Promise<Track | null> {

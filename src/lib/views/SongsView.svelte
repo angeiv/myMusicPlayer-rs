@@ -1,7 +1,7 @@
 <script lang="ts">
   import { flushSync, onDestroy, onMount } from 'svelte';
 
-  import { addToPlaylist } from '../api/playlist';
+  import { addTracksToPlaylist } from '../api/playlist';
   import {
     addToQueue,
     getCurrentTrack,
@@ -60,11 +60,39 @@
     selection: ReturnType<typeof createSelectionState>;
   } | null = null;
 
+  function normalizePlaylistBatchResult(result: {
+    added: number;
+    total: number;
+    failedTrackIds: string[];
+  }) {
+    if (result.added === result.total) {
+      return {
+        status: 'success' as const,
+        ...result,
+      };
+    }
+
+    if (result.added === 0) {
+      return {
+        status: 'error' as const,
+        ...result,
+      };
+    }
+
+    return {
+      status: 'partial' as const,
+      ...result,
+    };
+  }
+
   const actionDeps = {
     setQueue,
     playTrack,
     addToQueue,
-    addToPlaylist,
+    addTracksToPlaylist: async (playlistId: string, trackIds: string[]) => {
+      const result = await addTracksToPlaylist(playlistId, trackIds);
+      return normalizePlaylistBatchResult(result);
+    },
   };
 
   $: visibleTracks = getVisibleTracks(tracks, searchTerm, {

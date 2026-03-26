@@ -34,7 +34,14 @@ function createDeps(overrides: Partial<SongsListActionDeps> = {}): SongsListActi
     setQueue: vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined),
     addToQueue: vi.fn<SongsListActionDeps['addToQueue']>().mockResolvedValue(undefined),
     playTrack: vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined),
-    addToPlaylist: vi.fn<SongsListActionDeps['addToPlaylist']>().mockResolvedValue(undefined),
+    addTracksToPlaylist: vi
+      .fn<SongsListActionDeps['addTracksToPlaylist']>()
+      .mockResolvedValue({
+        status: 'success',
+        added: 0,
+        total: 0,
+        failedTrackIds: [],
+      }),
     ...overrides,
   };
 }
@@ -176,9 +183,14 @@ describe('songs-list actions', () => {
   });
 
   it('addSelectedTracksToPlaylist returns error when there are no visible selected tracks', async () => {
-    const addToPlaylist = vi
-      .fn<SongsListActionDeps['addToPlaylist']>()
-      .mockResolvedValue(undefined);
+    const addTracksToPlaylist = vi
+      .fn<SongsListActionDeps['addTracksToPlaylist']>()
+      .mockResolvedValue({
+        status: 'success',
+        added: 0,
+        total: 0,
+        failedTrackIds: [],
+      });
 
     const result = await addSelectedTracksToPlaylist({
       playlistId: 'playlist-1',
@@ -189,11 +201,11 @@ describe('songs-list actions', () => {
         anchorTrackId: 'hidden-track',
       },
       deps: createDeps({
-        addToPlaylist,
+        addTracksToPlaylist,
       }),
     });
 
-    expect(addToPlaylist).not.toHaveBeenCalled();
+    expect(addTracksToPlaylist).not.toHaveBeenCalled();
     expect(result).toEqual({
       status: 'error',
       added: 0,
@@ -202,10 +214,15 @@ describe('songs-list actions', () => {
     });
   });
 
-  it('addSelectedTracksToPlaylist returns success when every selected track is added', async () => {
-    const addToPlaylist = vi
-      .fn<SongsListActionDeps['addToPlaylist']>()
-      .mockResolvedValue(undefined);
+  it('addSelectedTracksToPlaylist passes the visible selected track ids in order', async () => {
+    const addTracksToPlaylist = vi
+      .fn<SongsListActionDeps['addTracksToPlaylist']>()
+      .mockResolvedValue({
+        status: 'success',
+        added: 2,
+        total: 2,
+        failedTrackIds: [],
+      });
 
     const result = await addSelectedTracksToPlaylist({
       playlistId: 'playlist-1',
@@ -216,12 +233,11 @@ describe('songs-list actions', () => {
         anchorTrackId: 'track-3',
       },
       deps: createDeps({
-        addToPlaylist,
+        addTracksToPlaylist,
       }),
     });
 
-    expect(addToPlaylist).toHaveBeenNthCalledWith(1, 'playlist-1', 'track-1');
-    expect(addToPlaylist).toHaveBeenNthCalledWith(2, 'playlist-1', 'track-3');
+    expect(addTracksToPlaylist).toHaveBeenCalledWith('playlist-1', ['track-1', 'track-3']);
     expect(result).toEqual({
       status: 'success',
       added: 2,
@@ -230,12 +246,15 @@ describe('songs-list actions', () => {
     });
   });
 
-  it('addSelectedTracksToPlaylist returns partial when some selected tracks fail', async () => {
-    const addToPlaylist = vi
-      .fn<SongsListActionDeps['addToPlaylist']>()
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error('failed track-3'));
+  it('addSelectedTracksToPlaylist returns partial when the backend reports partial success', async () => {
+    const addTracksToPlaylist = vi
+      .fn<SongsListActionDeps['addTracksToPlaylist']>()
+      .mockResolvedValue({
+        status: 'partial',
+        added: 2,
+        total: 3,
+        failedTrackIds: ['track-3'],
+      });
 
     const result = await addSelectedTracksToPlaylist({
       playlistId: 'playlist-1',
@@ -246,10 +265,11 @@ describe('songs-list actions', () => {
         anchorTrackId: 'track-2',
       },
       deps: createDeps({
-        addToPlaylist,
+        addTracksToPlaylist,
       }),
     });
 
+    expect(addTracksToPlaylist).toHaveBeenCalledWith('playlist-1', ['track-1', 'track-2', 'track-3']);
     expect(result).toEqual({
       status: 'partial',
       added: 2,
@@ -258,10 +278,15 @@ describe('songs-list actions', () => {
     });
   });
 
-  it('addSelectedTracksToPlaylist returns error when every selected track fails', async () => {
-    const addToPlaylist = vi
-      .fn<SongsListActionDeps['addToPlaylist']>()
-      .mockRejectedValue(new Error('boom'));
+  it('addSelectedTracksToPlaylist returns error when the backend reports full failure', async () => {
+    const addTracksToPlaylist = vi
+      .fn<SongsListActionDeps['addTracksToPlaylist']>()
+      .mockResolvedValue({
+        status: 'error',
+        added: 0,
+        total: 2,
+        failedTrackIds: ['track-1', 'track-3'],
+      });
 
     const result = await addSelectedTracksToPlaylist({
       playlistId: 'playlist-1',
@@ -272,10 +297,11 @@ describe('songs-list actions', () => {
         anchorTrackId: 'track-3',
       },
       deps: createDeps({
-        addToPlaylist,
+        addTracksToPlaylist,
       }),
     });
 
+    expect(addTracksToPlaylist).toHaveBeenCalledWith('playlist-1', ['track-1', 'track-3']);
     expect(result).toEqual({
       status: 'error',
       added: 0,

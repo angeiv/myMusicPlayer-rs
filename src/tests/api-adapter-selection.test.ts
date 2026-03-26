@@ -106,8 +106,11 @@ async function importPlaylistAdapter(isTauri: boolean) {
   const mockGetPlaylists = vi.fn(async () => ['mock-playlist']);
   const tauriAddToPlaylist = vi.fn(async () => undefined);
   const mockAddToPlaylist = vi.fn(async () => undefined);
+  const tauriAddTracksToPlaylist = vi.fn(async () => ({ added: 2, total: 2, failedTrackIds: [] }));
+  const mockAddTracksToPlaylist = vi.fn(async () => ({ added: 1, total: 2, failedTrackIds: ['track-2'] }));
   const playlistStub = {
     addToPlaylist: vi.fn(),
+    addTracksToPlaylist: vi.fn(),
     createPlaylist: vi.fn(),
     getPlaylists: vi.fn(),
     getPlaylist: vi.fn(),
@@ -120,16 +123,26 @@ async function importPlaylistAdapter(isTauri: boolean) {
   vi.doMock('../lib/api/tauri/playlist', () => ({
     ...playlistStub,
     addToPlaylist: tauriAddToPlaylist,
+    addTracksToPlaylist: tauriAddTracksToPlaylist,
     getPlaylists: tauriGetPlaylists,
   }));
   vi.doMock('../lib/api/mock/playlist', () => ({
     ...playlistStub,
     addToPlaylist: mockAddToPlaylist,
+    addTracksToPlaylist: mockAddTracksToPlaylist,
     getPlaylists: mockGetPlaylists,
   }));
 
   const adapter = await import('../lib/api/playlist');
-  return { adapter, tauriAddToPlaylist, mockAddToPlaylist, tauriGetPlaylists, mockGetPlaylists };
+  return {
+    adapter,
+    tauriAddToPlaylist,
+    mockAddToPlaylist,
+    tauriAddTracksToPlaylist,
+    mockAddTracksToPlaylist,
+    tauriGetPlaylists,
+    mockGetPlaylists,
+  };
 }
 
 describe('feature adapter entry modules', () => {
@@ -188,23 +201,53 @@ describe('feature adapter entry modules', () => {
   });
 
   it('playlist adapter resolves to tauri implementation in tauri mode', async () => {
-    const { adapter, tauriAddToPlaylist, mockAddToPlaylist, tauriGetPlaylists, mockGetPlaylists } = await importPlaylistAdapter(true);
+    const {
+      adapter,
+      tauriAddToPlaylist,
+      mockAddToPlaylist,
+      tauriAddTracksToPlaylist,
+      mockAddTracksToPlaylist,
+      tauriGetPlaylists,
+      mockGetPlaylists,
+    } = await importPlaylistAdapter(true);
 
     await expect(adapter.addToPlaylist('playlist-1', 'track-1')).resolves.toBeUndefined();
+    await expect(adapter.addTracksToPlaylist('playlist-1', ['track-1', 'track-2'])).resolves.toEqual({
+      added: 2,
+      total: 2,
+      failedTrackIds: [],
+    });
     await expect(adapter.getPlaylists()).resolves.toEqual(['tauri-playlist']);
     expect(tauriAddToPlaylist).toHaveBeenCalledTimes(1);
     expect(mockAddToPlaylist).not.toHaveBeenCalled();
+    expect(tauriAddTracksToPlaylist).toHaveBeenCalledTimes(1);
+    expect(mockAddTracksToPlaylist).not.toHaveBeenCalled();
     expect(tauriGetPlaylists).toHaveBeenCalledTimes(1);
     expect(mockGetPlaylists).not.toHaveBeenCalled();
   });
 
   it('playlist adapter resolves to mock implementation in web mode', async () => {
-    const { adapter, tauriAddToPlaylist, mockAddToPlaylist, tauriGetPlaylists, mockGetPlaylists } = await importPlaylistAdapter(false);
+    const {
+      adapter,
+      tauriAddToPlaylist,
+      mockAddToPlaylist,
+      tauriAddTracksToPlaylist,
+      mockAddTracksToPlaylist,
+      tauriGetPlaylists,
+      mockGetPlaylists,
+    } = await importPlaylistAdapter(false);
 
     await expect(adapter.addToPlaylist('playlist-1', 'track-1')).resolves.toBeUndefined();
+    await expect(adapter.addTracksToPlaylist('playlist-1', ['track-1', 'track-2'])).resolves.toEqual({
+      added: 1,
+      total: 2,
+      failedTrackIds: ['track-2'],
+    });
     await expect(adapter.getPlaylists()).resolves.toEqual(['mock-playlist']);
     expect(mockAddToPlaylist).toHaveBeenCalledTimes(1);
     expect(tauriAddToPlaylist).not.toHaveBeenCalled();
+    expect(mockAddTracksToPlaylist).toHaveBeenCalledTimes(1);
+    expect(tauriAddTracksToPlaylist).not.toHaveBeenCalled();
     expect(mockGetPlaylists).toHaveBeenCalledTimes(1);
     expect(tauriGetPlaylists).not.toHaveBeenCalled();
   });

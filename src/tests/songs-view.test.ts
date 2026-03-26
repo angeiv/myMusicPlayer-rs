@@ -15,7 +15,7 @@ const playbackApiMock = vi.hoisted(() => ({
 }));
 
 const playlistApiMock = vi.hoisted(() => ({
-  addToPlaylist: vi.fn(),
+  addTracksToPlaylist: vi.fn(),
 }));
 
 vi.mock('../lib/api/playback', () => ({
@@ -27,7 +27,7 @@ vi.mock('../lib/api/playback', () => ({
 }));
 
 vi.mock('../lib/api/playlist', () => ({
-  addToPlaylist: playlistApiMock.addToPlaylist,
+  addTracksToPlaylist: playlistApiMock.addTracksToPlaylist,
 }));
 
 import SongsView from '../lib/views/SongsView.svelte';
@@ -208,7 +208,12 @@ describe('SongsView integration harness', () => {
     playbackApiMock.getPlaybackState.mockReset().mockResolvedValue({ state: 'stopped' });
     playbackApiMock.playTrack.mockReset().mockResolvedValue(undefined);
     playbackApiMock.setQueue.mockReset().mockResolvedValue(undefined);
-    playlistApiMock.addToPlaylist.mockReset().mockResolvedValue(undefined);
+    playlistApiMock.addTracksToPlaylist.mockReset().mockResolvedValue({
+      status: 'success',
+      added: 0,
+      total: 0,
+      failedTrackIds: [],
+    });
     vi.stubGlobal('alert', vi.fn());
   });
 
