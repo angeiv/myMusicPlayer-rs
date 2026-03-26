@@ -55,6 +55,13 @@
   let playlistPickerAnchor: DOMRect | null = null;
   let feedback = '';
   let playbackPollTimer: number | null = null;
+  let pendingDoubleClickSelection: {
+    trackId: string;
+    selection: ReturnType<typeof createSelectionState>;
+  } | null = null;
+  let pendingDoubleClickClearTimer: number | null = null;
+
+  const DOUBLE_CLICK_RESTORE_WINDOW_MS = 500;
 
   const actionDeps = {
     setQueue,
@@ -98,6 +105,35 @@
 
   function clearFeedback(): void {
     feedback = '';
+  }
+
+  function cloneSelectionState(selectionState: ReturnType<typeof createSelectionState>): ReturnType<typeof createSelectionState> {
+    return {
+      selectedIds: [...selectionState.selectedIds],
+      activeTrackId: selectionState.activeTrackId,
+      anchorTrackId: selectionState.anchorTrackId,
+    };
+  }
+
+  function clearPendingDoubleClickSelection(): void {
+    if (pendingDoubleClickClearTimer !== null) {
+      window.clearTimeout(pendingDoubleClickClearTimer);
+      pendingDoubleClickClearTimer = null;
+    }
+
+    pendingDoubleClickSelection = null;
+  }
+
+  function rememberPendingDoubleClickSelection(trackId: string): void {
+    clearPendingDoubleClickSelection();
+    pendingDoubleClickSelection = {
+      trackId,
+      selection: cloneSelectionState(selection),
+    };
+    pendingDoubleClickClearTimer = window.setTimeout(() => {
+      pendingDoubleClickSelection = null;
+      pendingDoubleClickClearTimer = null;
+    }, DOUBLE_CLICK_RESTORE_WINDOW_MS);
   }
 
   function closeContextMenu(): void {
@@ -176,6 +212,17 @@
     }>,
   ): void {
     const { track, metaKey, ctrlKey, shiftKey } = event.detail;
+    const isPlainClick = !metaKey && !ctrlKey && !shiftKey;
+    const shouldRememberSelectionForDoubleClick =
+      isPlainClick
+      && selection.selectedIds.length > 1
+      && selection.selectedIds.includes(track.id);
+
+    if (shouldRememberSelectionForDoubleClick) {
+      rememberPendingDoubleClickSelection(track.id);
+    } else if (!(isPlainClick && pendingDoubleClickSelection?.trackId === track.id)) {
+      clearPendingDoubleClickSelection();
+    }
 
     if (shiftKey) {
       selection = selectRange(selection, visibleTrackIds, track.id);
@@ -191,11 +238,16 @@
 
   async function handleRowDoubleClick(event: CustomEvent<{ track: Track }>): Promise<void> {
     const { track } = event.detail;
-    const isAlreadySelected = selection.selectedIds.includes(track.id);
+    const selectionBeforeDoubleClick =
+      pendingDoubleClickSelection?.trackId === track.id
+        ? pendingDoubleClickSelection.selection
+        : selection;
+    const isAlreadySelected = selectionBeforeDoubleClick.selectedIds.includes(track.id);
 
+    clearPendingDoubleClickSelection();
     selection = isAlreadySelected
-      ? selectFromContextMenu(selection, track.id)
-      : selectSingle(selection, track.id);
+      ? selectFromContextMenu(selectionBeforeDoubleClick, track.id)
+      : selectSingle(selectionBeforeDoubleClick, track.id);
 
     const result = await playVisibleTrack({
       visibleTracks,
@@ -254,6 +306,7 @@
   ): void {
     const { track, x, y, focusTarget } = event.detail;
 
+    clearPendingDoubleClickSelection();
     selection = selectFromContextMenu(selection, track.id);
     contextMenuPosition = { x, y };
     contextMenuAnchor = focusTarget?.getBoundingClientRect() ?? getFallbackAnchor(x, y);
@@ -325,6 +378,7 @@
   }
 
   function handleClearSelection(): void {
+    clearPendingDoubleClickSelection();
     selection = clearSongsSelection();
     clearFeedback();
     closeTransientOverlays();
@@ -378,6 +432,8 @@
   });
 
   onDestroy(() => {
+    clearPendingDoubleClickSelection();
+
     if (playbackPollTimer !== null) {
       window.clearInterval(playbackPollTimer);
       playbackPollTimer = null;

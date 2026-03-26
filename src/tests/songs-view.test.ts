@@ -73,6 +73,13 @@ async function advancePlaybackPoll(): Promise<void> {
   await flushPromises();
 }
 
+async function fireRealDoubleClick(target: HTMLElement): Promise<void> {
+  await fireEvent.click(target);
+  await fireEvent.click(target, { detail: 2 });
+  await fireEvent.dblClick(target, { detail: 2 });
+  await flushPromises();
+}
+
 type RenderSongsViewOptions = Partial<{
   tracks: Track[];
   isLibraryLoading: boolean;
@@ -276,7 +283,7 @@ describe('SongsView integration harness', () => {
 
     await fireEvent.click(getRow(alphaTrack.title));
     await fireEvent.click(getRow(betaTrack.title), { metaKey: true });
-    await fireEvent.dblClick(getRow(deltaTrack.title));
+    await fireRealDoubleClick(getRow(deltaTrack.title));
 
     expect(playbackApiMock.setQueue).toHaveBeenCalledWith(visibleTracks);
     expect(playbackApiMock.playTrack).toHaveBeenCalledWith(deltaTrack);
@@ -290,7 +297,7 @@ describe('SongsView integration harness', () => {
 
     await fireEvent.click(getRow(alphaTrack.title));
     await fireEvent.click(getRow(betaTrack.title), { metaKey: true });
-    await fireEvent.dblClick(getRow(betaTrack.title));
+    await fireRealDoubleClick(getRow(betaTrack.title));
 
     expect(playbackApiMock.setQueue).toHaveBeenCalledWith(visibleTracks);
     expect(playbackApiMock.playTrack).toHaveBeenCalledWith(betaTrack);
