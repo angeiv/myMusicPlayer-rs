@@ -78,17 +78,17 @@ type RenderSongsViewOptions = Partial<{
   isLibraryLoading: boolean;
   searchTerm: string;
 }> & {
-  availablePlaylists?: Playlist[];
+  playlists?: Playlist[];
 };
 
 type SongsViewHarnessProps = ComponentProps<typeof SongsView> & {
-  availablePlaylists?: Playlist[];
+  playlists?: Playlist[];
 };
 
 const SongsViewHarness = SongsView as unknown as Component<SongsViewHarnessProps>;
 
 function renderSongsView({
-  availablePlaylists,
+  playlists,
   tracks: tracksProp = tracks,
   isLibraryLoading = false,
   searchTerm = '',
@@ -97,7 +97,7 @@ function renderSongsView({
     tracks: tracksProp,
     isLibraryLoading,
     searchTerm,
-    ...(availablePlaylists === undefined ? {} : { availablePlaylists }),
+    ...(playlists === undefined ? {} : { playlists }),
   } satisfies SongsViewHarnessProps;
 
   return render(SongsViewHarness, { props });
@@ -188,7 +188,7 @@ describe('SongsView integration harness', () => {
 
   it('disables the add-to-playlist action and surfaces a hint when no playlists are available', async () => {
     const noPlaylists: Playlist[] = [];
-    renderSongsView({ availablePlaylists: noPlaylists });
+    renderSongsView({ playlists: noPlaylists });
 
     await fireEvent.click(getRow(alphaTrack.title));
 
