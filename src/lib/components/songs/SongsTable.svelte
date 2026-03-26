@@ -14,7 +14,13 @@
 
   type SongsTableEvents = {
     toggleSort: { key: SongsSortKey };
-    rowClick: { track: Track; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean };
+    rowClick: {
+      track: Track;
+      metaKey: boolean;
+      ctrlKey: boolean;
+      shiftKey: boolean;
+      clickCount: number;
+    };
     rowDoubleClick: { track: Track };
     rowFocus: { track: Track };
     rowKeydown: { track: Track; key: string };
@@ -59,6 +65,7 @@
       metaKey: event.metaKey,
       ctrlKey: event.ctrlKey,
       shiftKey: event.shiftKey,
+      clickCount: event.detail,
     });
   }
 
@@ -71,6 +78,10 @@
   }
 
   function handleRowKeydown(event: KeyboardEvent, track: Track): void {
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Space') {
+      event.preventDefault();
+    }
+
     dispatch('rowKeydown', {
       track,
       key: event.key,

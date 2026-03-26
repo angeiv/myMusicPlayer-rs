@@ -59,9 +59,6 @@
     trackId: string;
     selection: ReturnType<typeof createSelectionState>;
   } | null = null;
-  let pendingDoubleClickClearTimer: number | null = null;
-
-  const DOUBLE_CLICK_RESTORE_WINDOW_MS = 500;
 
   const actionDeps = {
     setQueue,
@@ -116,24 +113,14 @@
   }
 
   function clearPendingDoubleClickSelection(): void {
-    if (pendingDoubleClickClearTimer !== null) {
-      window.clearTimeout(pendingDoubleClickClearTimer);
-      pendingDoubleClickClearTimer = null;
-    }
-
     pendingDoubleClickSelection = null;
   }
 
   function rememberPendingDoubleClickSelection(trackId: string): void {
-    clearPendingDoubleClickSelection();
     pendingDoubleClickSelection = {
       trackId,
       selection: cloneSelectionState(selection),
     };
-    pendingDoubleClickClearTimer = window.setTimeout(() => {
-      pendingDoubleClickSelection = null;
-      pendingDoubleClickClearTimer = null;
-    }, DOUBLE_CLICK_RESTORE_WINDOW_MS);
   }
 
   function closeContextMenu(): void {
@@ -209,18 +196,24 @@
       metaKey: boolean;
       ctrlKey: boolean;
       shiftKey: boolean;
+      clickCount: number;
     }>,
   ): void {
-    const { track, metaKey, ctrlKey, shiftKey } = event.detail;
+    const { track, metaKey, ctrlKey, shiftKey, clickCount } = event.detail;
     const isPlainClick = !metaKey && !ctrlKey && !shiftKey;
     const shouldRememberSelectionForDoubleClick =
       isPlainClick
+      && clickCount === 1
       && selection.selectedIds.length > 1
       && selection.selectedIds.includes(track.id);
+    const shouldPreservePendingSelectionForDoubleClick =
+      isPlainClick
+      && clickCount > 1
+      && pendingDoubleClickSelection?.trackId === track.id;
 
     if (shouldRememberSelectionForDoubleClick) {
       rememberPendingDoubleClickSelection(track.id);
-    } else if (!(isPlainClick && pendingDoubleClickSelection?.trackId === track.id)) {
+    } else if (!shouldPreservePendingSelectionForDoubleClick) {
       clearPendingDoubleClickSelection();
     }
 

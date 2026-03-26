@@ -73,10 +73,22 @@ async function advancePlaybackPoll(): Promise<void> {
   await flushPromises();
 }
 
-async function fireRealDoubleClick(target: HTMLElement): Promise<void> {
-  await fireEvent.click(target);
-  await fireEvent.click(target, { detail: 2 });
-  await fireEvent.dblClick(target, { detail: 2 });
+async function fireRealDoubleClick(
+  target: HTMLElement,
+  options: { delayBeforeSecondClickMs?: number } = {},
+): Promise<void> {
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+  await flushPromises();
+
+  if (options.delayBeforeSecondClickMs) {
+    await vi.advanceTimersByTimeAsync(options.delayBeforeSecondClickMs);
+    await flushPromises();
+  }
+
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
+  await flushPromises();
+
+  target.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, detail: 2 }));
   await flushPromises();
 }
 
@@ -292,12 +304,13 @@ describe('SongsView integration harness', () => {
     expect(hasStateMarker(getRow(alphaTrack.title), 'selected')).toBe(false);
   });
 
-  it('double-clicking an already selected row preserves the multi-selection, updates active focus, and starts from that row', async () => {
+  it('double-clicking an already selected row preserves the multi-selection even when the second click arrives after 500ms, updates active focus, and starts from that row', async () => {
+    vi.useFakeTimers();
     renderSongsView();
 
     await fireEvent.click(getRow(alphaTrack.title));
     await fireEvent.click(getRow(betaTrack.title), { metaKey: true });
-    await fireRealDoubleClick(getRow(betaTrack.title));
+    await fireRealDoubleClick(getRow(betaTrack.title), { delayBeforeSecondClickMs: 650 });
 
     expect(playbackApiMock.setQueue).toHaveBeenCalledWith(visibleTracks);
     expect(playbackApiMock.playTrack).toHaveBeenCalledWith(betaTrack);
@@ -307,7 +320,7 @@ describe('SongsView integration harness', () => {
     expect(hasStateMarker(getRow(betaTrack.title), 'active')).toBe(true);
   });
 
-  it('syncs activeTrackId from DOM focus and plays the same row on Enter and Space', async () => {
+  it('syncs activeTrackId from DOM focus, prevents default keyboard behavior, and plays the same row on Enter and Space', async () => {
     renderSongsView();
 
     const betaRow = getRow(betaTrack.title);
@@ -315,9 +328,24 @@ describe('SongsView integration harness', () => {
     await fireEvent.focus(betaRow);
     expect(hasStateMarker(betaRow, 'active')).toBe(true);
 
-    await fireEvent.keyDown(betaRow, { key: 'Enter' });
-    await fireEvent.keyDown(betaRow, { key: ' ' });
+    const enterEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    });
+    betaRow.dispatchEvent(enterEvent);
+    await flushPromises();
 
+    const spaceEvent = new KeyboardEvent('keydown', {
+      key: ' ',
+      bubbles: true,
+      cancelable: true,
+    });
+    betaRow.dispatchEvent(spaceEvent);
+    await flushPromises();
+
+    expect(enterEvent.defaultPrevented).toBe(true);
+    expect(spaceEvent.defaultPrevented).toBe(true);
     expect(playbackApiMock.playTrack).toHaveBeenNthCalledWith(1, betaTrack);
     expect(playbackApiMock.playTrack).toHaveBeenNthCalledWith(2, betaTrack);
   });
