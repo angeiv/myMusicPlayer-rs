@@ -203,7 +203,7 @@ describe('SongsView integration harness', () => {
     ['meta-click', { metaKey: true }],
     ['ctrl-click', { ctrlKey: true }],
   ] as const)(
-    'shows the bulk action bar with the visible selected count after click, %s, and shift-click',
+    'shows the bulk action bar with the range anchored from the toggled row after click, %s, and shift-click',
     async (_modifierLabel, modifier) => {
       renderSongsView();
 
@@ -214,7 +214,10 @@ describe('SongsView integration harness', () => {
       expect(screen.queryByText('播放选中')).not.toBeNull();
       expect(screen.queryByText('加入队列')).not.toBeNull();
       expect(screen.queryByText('清除选择')).not.toBeNull();
-      expect(screen.queryByText(/3\s*首/)).not.toBeNull();
+      expect(screen.queryByText(/2\s*首/)).not.toBeNull();
+      expect(hasStateMarker(getRow(alphaTrack.title), 'selected')).toBe(false);
+      expect(hasStateMarker(getRow(betaTrack.title), 'selected')).toBe(true);
+      expect(hasStateMarker(getRow(deltaTrack.title), 'selected')).toBe(true);
     },
   );
 

@@ -25,18 +25,18 @@ describe('songs-list selection', () => {
     });
   });
 
-  it('cmd/ctrl toggle adds a row, updates active, and preserves the original range anchor', () => {
+  it('cmd/ctrl toggle adds a row, updates active, and moves the range anchor to the clicked row', () => {
     const seeded = selectSingle(createSelectionState(), 'b');
     const next = toggleSelection(seeded, 'd');
 
     expect(next).toEqual({
       selectedIds: ['b', 'd'],
       activeTrackId: 'd',
-      anchorTrackId: 'b',
+      anchorTrackId: 'd',
     });
   });
 
-  it('cmd/ctrl toggle removes a row and keeps the existing range anchor', () => {
+  it('cmd/ctrl toggle removes a row, preserves other selections, and moves the range anchor to the clicked row', () => {
     const seeded = {
       selectedIds: ['b', 'd'],
       activeTrackId: 'd',
@@ -48,7 +48,7 @@ describe('songs-list selection', () => {
     expect(next).toEqual({
       selectedIds: ['b'],
       activeTrackId: 'd',
-      anchorTrackId: 'b',
+      anchorTrackId: 'd',
     });
   });
 
