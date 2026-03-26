@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import type { Component, ComponentProps } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PlaybackStateInfo, Playlist, Track } from '../lib/types';
@@ -80,24 +81,26 @@ type RenderSongsViewOptions = Partial<{
   availablePlaylists?: Playlist[];
 };
 
+type SongsViewHarnessProps = ComponentProps<typeof SongsView> & {
+  availablePlaylists?: Playlist[];
+};
+
+const SongsViewHarness = SongsView as unknown as Component<SongsViewHarnessProps>;
+
 function renderSongsView({
   availablePlaylists,
   tracks: tracksProp = tracks,
   isLibraryLoading = false,
   searchTerm = '',
 }: RenderSongsViewOptions = {}) {
-  return {
-    // Harness-only scenario metadata so baseline tests can make playlist
-    // availability explicit before SongsView owns that prop.
-    availablePlaylists,
-    ...render(SongsView, {
-      props: {
-        tracks: tracksProp,
-        isLibraryLoading,
-        searchTerm,
-      },
-    }),
-  };
+  const props = {
+    tracks: tracksProp,
+    isLibraryLoading,
+    searchTerm,
+    ...(availablePlaylists === undefined ? {} : { availablePlaylists }),
+  } satisfies SongsViewHarnessProps;
+
+  return render(SongsViewHarness, { props });
 }
 
 function getRow(title: string): HTMLElement {
@@ -185,9 +188,7 @@ describe('SongsView integration harness', () => {
 
   it('disables the add-to-playlist action and surfaces a hint when no playlists are available', async () => {
     const noPlaylists: Playlist[] = [];
-    const { availablePlaylists } = renderSongsView({ availablePlaylists: noPlaylists });
-
-    expect(availablePlaylists).toEqual([]);
+    renderSongsView({ availablePlaylists: noPlaylists });
 
     await fireEvent.click(getRow(alphaTrack.title));
 
