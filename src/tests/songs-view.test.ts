@@ -218,6 +218,18 @@ describe('SongsView integration harness', () => {
     },
   );
 
+  it('clears the entire selection when the bulk action bar clear button is pressed', async () => {
+    renderSongsView();
+
+    await fireEvent.click(getRow(alphaTrack.title));
+    await fireEvent.click(getRow(betaTrack.title), { metaKey: true });
+    await fireEvent.click(screen.getByRole('button', { name: '清除选择' }));
+
+    expect(screen.queryByText('播放选中')).toBeNull();
+    expect(hasStateMarker(getRow(alphaTrack.title), 'selected')).toBe(false);
+    expect(hasStateMarker(getRow(betaTrack.title), 'selected')).toBe(false);
+  });
+
   it('targets the single right-clicked row when opening the context menu from an unselected row', async () => {
     renderSongsView();
 

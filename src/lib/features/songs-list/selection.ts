@@ -30,7 +30,7 @@ export function toggleSelection(
       ? state.selectedIds.filter((id) => id !== trackId)
       : [...state.selectedIds, trackId],
     activeTrackId: trackId,
-    anchorTrackId: trackId,
+    anchorTrackId: state.anchorTrackId ?? trackId,
   };
 }
 

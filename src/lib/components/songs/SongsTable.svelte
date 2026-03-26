@@ -37,10 +37,6 @@
     { key: 'date_added', label: 'Added', className: 'added', ariaLabel: 'Sort by added date' },
   ];
 
-  function isSelected(trackId: string): boolean {
-    return selectedIds.includes(trackId);
-  }
-
   function getSortArrow(key: SongsSortKey): string {
     if (sortKey !== key) {
       return '';
@@ -114,16 +110,19 @@
 
   <div class="table-body" role="rowgroup">
     {#each tracks as track, index}
+      {@const selected = selectedIds.includes(track.id)}
+      {@const active = activeTrackId === track.id}
+      {@const playing = playingTrackId === track.id}
       <div
         class="row"
-        class:is-selected={isSelected(track.id)}
-        class:is-active={activeTrackId === track.id}
-        class:is-playing={playingTrackId === track.id}
+        class:is-selected={selected}
+        class:is-active={active}
+        class:is-playing={playing}
         role="row"
         tabindex="0"
-        data-selected={isSelected(track.id) ? 'true' : 'false'}
-        data-active={activeTrackId === track.id ? 'true' : 'false'}
-        data-playing={playingTrackId === track.id ? 'true' : 'false'}
+        data-selected={selected ? 'true' : 'false'}
+        data-active={active ? 'true' : 'false'}
+        data-playing={playing ? 'true' : 'false'}
         on:click={(event) => handleRowClick(event, track)}
         on:dblclick={() => handleRowDoubleClick(track)}
         on:focus={() => handleRowFocus(track)}

@@ -107,7 +107,13 @@
     {#if route.name === "home"}
       <HomeView tracks={$tracks} albums={$albums} artists={$artists} playlists={$playlists} />
     {:else if route.name === "songs"}
-      <SongsView tracks={$tracks} isLibraryLoading={$isLibraryLoading} searchTerm={searchInput} />
+      <SongsView
+        tracks={$tracks}
+        playlists={$playlists}
+        refreshPlaylists={loadPlaylists}
+        isLibraryLoading={$isLibraryLoading}
+        searchTerm={searchInput}
+      />
     {:else if route.name === "albums"}
       <AlbumsView albums={$albums} isLibraryLoading={$isLibraryLoading} on:openAlbum={handleOpenAlbum} />
     {:else if route.name === "albumDetail"}
