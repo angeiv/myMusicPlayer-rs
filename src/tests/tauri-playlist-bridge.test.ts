@@ -7,6 +7,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 import {
+  addToPlaylist,
   createPlaylist,
   getPlaylists,
   removeFromPlaylist,
@@ -23,6 +24,16 @@ describe('tauri playlist bridge', () => {
 
     await expect(createPlaylist('Road Trip')).resolves.toBe('playlist-id');
     expect(invokeMock).toHaveBeenCalledWith('create_playlist', { name: 'Road Trip' });
+  });
+
+  it('invokes add_to_playlist with camelCase payload keys', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    await addToPlaylist('playlist-1', 'track-9');
+    expect(invokeMock).toHaveBeenCalledWith('add_to_playlist', {
+      playlistId: 'playlist-1',
+      trackId: 'track-9',
+    });
   });
 
   it('returns empty playlist array when backend payload is missing', async () => {

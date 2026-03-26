@@ -1,6 +1,7 @@
 import type { Playlist, Track } from '../../types';
 import {
   addMockPlaylist,
+  appendMockTrackToPlaylist,
   getMockPlaylistById,
   getMockPlaylistTracks,
   getMockPlaylists,
@@ -23,6 +24,10 @@ export async function getPlaylist(id: string): Promise<Playlist | null> {
 
 export async function getPlaylistTracks(id: string): Promise<Track[]> {
   return getMockPlaylistTracks(id);
+}
+
+export async function addToPlaylist(playlistId: string, trackId: string): Promise<void> {
+  appendMockTrackToPlaylist(playlistId, trackId);
 }
 
 export async function removeFromPlaylist(playlistId: string, trackIndex: number): Promise<Track | null> {

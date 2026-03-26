@@ -7,6 +7,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 import {
+  addToQueue,
   getPlaybackState,
   getQueue,
   seekTo,
@@ -31,6 +32,14 @@ describe('tauri playback bridge', () => {
 
     await setPlayModeFromUi(true, 'all');
     expect(invokeMock).toHaveBeenCalledWith('set_play_mode', { mode: 'random' });
+  });
+
+  it('invokes add_to_queue with tracks payload', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+    const tracks = [{ id: 'track-1' }] as any[];
+
+    await addToQueue(tracks as never);
+    expect(invokeMock).toHaveBeenCalledWith('add_to_queue', { tracks });
   });
 
   it('normalizes playback state payloads from the backend', async () => {

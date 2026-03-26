@@ -14,6 +14,7 @@ export const setPlayMode = impl.setPlayMode;
 export const setPlayModeFromUi = impl.setPlayModeFromUi;
 export const getQueue = impl.getQueue;
 export const setQueue = impl.setQueue;
+export const addToQueue = impl.addToQueue;
 export const playTrack = impl.playTrack;
 export const pausePlayback = impl.pausePlayback;
 export const resumePlayback = impl.resumePlayback;

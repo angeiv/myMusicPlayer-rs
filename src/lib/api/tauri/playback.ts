@@ -50,6 +50,10 @@ export async function setQueue(tracks: Track[]): Promise<void> {
   await invoke('set_queue', { tracks });
 }
 
+export async function addToQueue(tracks: Track[]): Promise<void> {
+  await invoke('add_to_queue', { tracks });
+}
+
 export async function playTrack(track: Track): Promise<void> {
   await invoke('play', { track });
 }

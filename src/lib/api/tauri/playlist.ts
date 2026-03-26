@@ -21,6 +21,10 @@ export async function getPlaylistTracks(id: string): Promise<Track[]> {
   return payload ?? [];
 }
 
+export async function addToPlaylist(playlistId: string, trackId: string): Promise<void> {
+  await invoke('add_to_playlist', { playlistId, trackId });
+}
+
 export async function removeFromPlaylist(playlistId: string, trackIndex: number): Promise<Track | null> {
   const payload = await invoke<Track | null>('remove_from_playlist', { playlistId, trackIndex });
   return payload ?? null;
