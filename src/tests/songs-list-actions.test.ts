@@ -7,6 +7,7 @@ import {
   playSelectedTracks,
   playVisibleTrack,
 } from '../lib/features/songs-list/actions';
+import type { SongsListActionDeps } from '../lib/features/songs-list/actions';
 import type { Track } from '../lib/types';
 
 function createTrack(overrides: Pick<Track, 'id' | 'title'> & Partial<Track>): Track {
@@ -28,23 +29,45 @@ function createTrack(overrides: Pick<Track, 'id' | 'title'> & Partial<Track>): T
   };
 }
 
-const visibleTracks: Track[] = [
+function createDeps(overrides: Partial<SongsListActionDeps> = {}): SongsListActionDeps {
+  return {
+    setQueue: vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined),
+    addToQueue: vi.fn<SongsListActionDeps['addToQueue']>().mockResolvedValue(undefined),
+    playTrack: vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined),
+    addToPlaylist: vi.fn<SongsListActionDeps['addToPlaylist']>().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+function getFirstInvocationCallOrder(mock: { mock: { invocationCallOrder: number[] } }): number {
+  const firstInvocation = mock.mock.invocationCallOrder[0];
+
+  if (firstInvocation === undefined) {
+    throw new Error('Expected mock to have been called at least once');
+  }
+
+  return firstInvocation;
+}
+
+const visibleTracks: [Track, Track, Track, Track] = [
   createTrack({ id: 'track-1', title: 'First' }),
   createTrack({ id: 'track-2', title: 'Second' }),
   createTrack({ id: 'track-3', title: 'Third' }),
   createTrack({ id: 'track-4', title: 'Fourth' }),
 ];
 
+const [firstVisibleTrack, secondVisibleTrack, thirdVisibleTrack, fourthVisibleTrack] = visibleTracks;
+
 describe('songs-list actions', () => {
   it('getSelectedVisibleTracks keeps the visible tracks order', () => {
     expect(
       getSelectedVisibleTracks(visibleTracks, ['track-3', 'track-1', 'track-4']),
-    ).toEqual([visibleTracks[0], visibleTracks[2], visibleTracks[3]]);
+    ).toEqual([firstVisibleTrack, thirdVisibleTrack, fourthVisibleTrack]);
   });
 
   it('playSelectedTracks replaces the queue in visible order and starts from the active selected track', async () => {
-    const setQueue = vi.fn<[(typeof visibleTracks)], Promise<void>>().mockResolvedValue(undefined);
-    const playTrack = vi.fn<[Track], Promise<void>>().mockResolvedValue(undefined);
+    const setQueue = vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined);
+    const playTrack = vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined);
 
     const result = await playSelectedTracks({
       visibleTracks,
@@ -53,17 +76,15 @@ describe('songs-list actions', () => {
         activeTrackId: 'track-2',
         anchorTrackId: 'track-2',
       },
-      deps: {
+      deps: createDeps({
         setQueue,
-        addToQueue: vi.fn(),
         playTrack,
-        addToPlaylist: vi.fn(),
-      },
+      }),
     });
 
-    expect(setQueue).toHaveBeenCalledWith([visibleTracks[0], visibleTracks[1], visibleTracks[3]]);
-    expect(playTrack).toHaveBeenCalledWith(visibleTracks[1]);
-    expect(setQueue.mock.invocationCallOrder[0]).toBeLessThan(playTrack.mock.invocationCallOrder[0]);
+    expect(setQueue).toHaveBeenCalledWith([firstVisibleTrack, secondVisibleTrack, fourthVisibleTrack]);
+    expect(playTrack).toHaveBeenCalledWith(secondVisibleTrack);
+    expect(getFirstInvocationCallOrder(setQueue)).toBeLessThan(getFirstInvocationCallOrder(playTrack));
     expect(result).toEqual({
       status: 'success',
       message: '已开始播放选中歌曲',
@@ -71,8 +92,8 @@ describe('songs-list actions', () => {
   });
 
   it('playSelectedTracks falls back to the first selected visible track when activeTrackId is not selected', async () => {
-    const setQueue = vi.fn<[(typeof visibleTracks)], Promise<void>>().mockResolvedValue(undefined);
-    const playTrack = vi.fn<[Track], Promise<void>>().mockResolvedValue(undefined);
+    const setQueue = vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined);
+    const playTrack = vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined);
 
     await playSelectedTracks({
       visibleTracks,
@@ -81,19 +102,17 @@ describe('songs-list actions', () => {
         activeTrackId: 'track-3',
         anchorTrackId: 'track-3',
       },
-      deps: {
+      deps: createDeps({
         setQueue,
-        addToQueue: vi.fn(),
         playTrack,
-        addToPlaylist: vi.fn(),
-      },
+      }),
     });
 
-    expect(playTrack).toHaveBeenCalledWith(visibleTracks[1]);
+    expect(playTrack).toHaveBeenCalledWith(secondVisibleTrack);
   });
 
   it('addSelectedTracksToQueue keeps the selected visible track order', async () => {
-    const addToQueue = vi.fn<[Track[]], Promise<void>>().mockResolvedValue(undefined);
+    const addToQueue = vi.fn<SongsListActionDeps['addToQueue']>().mockResolvedValue(undefined);
 
     const result = await addSelectedTracksToQueue({
       visibleTracks,
@@ -102,15 +121,12 @@ describe('songs-list actions', () => {
         activeTrackId: 'track-3',
         anchorTrackId: 'track-3',
       },
-      deps: {
-        setQueue: vi.fn(),
+      deps: createDeps({
         addToQueue,
-        playTrack: vi.fn(),
-        addToPlaylist: vi.fn(),
-      },
+      }),
     });
 
-    expect(addToQueue).toHaveBeenCalledWith([visibleTracks[0], visibleTracks[2]]);
+    expect(addToQueue).toHaveBeenCalledWith([firstVisibleTrack, thirdVisibleTrack]);
     expect(result).toEqual({
       status: 'success',
       message: '已加入队列：2 首',
@@ -118,7 +134,7 @@ describe('songs-list actions', () => {
   });
 
   it('playSelectedTracks returns a structured error result when playback orchestration fails', async () => {
-    const setQueue = vi.fn<[(typeof visibleTracks)], Promise<void>>().mockRejectedValue(new Error('boom'));
+    const setQueue = vi.fn<SongsListActionDeps['setQueue']>().mockRejectedValue(new Error('boom'));
 
     const result = await playSelectedTracks({
       visibleTracks,
@@ -127,12 +143,9 @@ describe('songs-list actions', () => {
         activeTrackId: 'track-2',
         anchorTrackId: 'track-2',
       },
-      deps: {
+      deps: createDeps({
         setQueue,
-        addToQueue: vi.fn(),
-        playTrack: vi.fn(),
-        addToPlaylist: vi.fn(),
-      },
+      }),
     });
 
     expect(result).toEqual({
@@ -142,7 +155,7 @@ describe('songs-list actions', () => {
   });
 
   it('addSelectedTracksToQueue returns a structured error result when queue insertion fails', async () => {
-    const addToQueue = vi.fn<[Track[]], Promise<void>>().mockRejectedValue(new Error('boom'));
+    const addToQueue = vi.fn<SongsListActionDeps['addToQueue']>().mockRejectedValue(new Error('boom'));
 
     const result = await addSelectedTracksToQueue({
       visibleTracks,
@@ -151,12 +164,9 @@ describe('songs-list actions', () => {
         activeTrackId: 'track-1',
         anchorTrackId: 'track-1',
       },
-      deps: {
-        setQueue: vi.fn(),
+      deps: createDeps({
         addToQueue,
-        playTrack: vi.fn(),
-        addToPlaylist: vi.fn(),
-      },
+      }),
     });
 
     expect(result).toEqual({
@@ -166,7 +176,9 @@ describe('songs-list actions', () => {
   });
 
   it('addSelectedTracksToPlaylist returns error when there are no visible selected tracks', async () => {
-    const addToPlaylist = vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined);
+    const addToPlaylist = vi
+      .fn<SongsListActionDeps['addToPlaylist']>()
+      .mockResolvedValue(undefined);
 
     const result = await addSelectedTracksToPlaylist({
       playlistId: 'playlist-1',
@@ -176,12 +188,9 @@ describe('songs-list actions', () => {
         activeTrackId: 'hidden-track',
         anchorTrackId: 'hidden-track',
       },
-      deps: {
-        setQueue: vi.fn(),
-        addToQueue: vi.fn(),
-        playTrack: vi.fn(),
+      deps: createDeps({
         addToPlaylist,
-      },
+      }),
     });
 
     expect(addToPlaylist).not.toHaveBeenCalled();
@@ -194,7 +203,9 @@ describe('songs-list actions', () => {
   });
 
   it('addSelectedTracksToPlaylist returns success when every selected track is added', async () => {
-    const addToPlaylist = vi.fn<[string, string], Promise<void>>().mockResolvedValue(undefined);
+    const addToPlaylist = vi
+      .fn<SongsListActionDeps['addToPlaylist']>()
+      .mockResolvedValue(undefined);
 
     const result = await addSelectedTracksToPlaylist({
       playlistId: 'playlist-1',
@@ -204,12 +215,9 @@ describe('songs-list actions', () => {
         activeTrackId: 'track-3',
         anchorTrackId: 'track-3',
       },
-      deps: {
-        setQueue: vi.fn(),
-        addToQueue: vi.fn(),
-        playTrack: vi.fn(),
+      deps: createDeps({
         addToPlaylist,
-      },
+      }),
     });
 
     expect(addToPlaylist).toHaveBeenNthCalledWith(1, 'playlist-1', 'track-1');
@@ -224,7 +232,7 @@ describe('songs-list actions', () => {
 
   it('addSelectedTracksToPlaylist returns partial when some selected tracks fail', async () => {
     const addToPlaylist = vi
-      .fn<[string, string], Promise<void>>()
+      .fn<SongsListActionDeps['addToPlaylist']>()
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('failed track-3'));
@@ -237,12 +245,9 @@ describe('songs-list actions', () => {
         activeTrackId: 'track-2',
         anchorTrackId: 'track-2',
       },
-      deps: {
-        setQueue: vi.fn(),
-        addToQueue: vi.fn(),
-        playTrack: vi.fn(),
+      deps: createDeps({
         addToPlaylist,
-      },
+      }),
     });
 
     expect(result).toEqual({
@@ -254,7 +259,9 @@ describe('songs-list actions', () => {
   });
 
   it('addSelectedTracksToPlaylist returns error when every selected track fails', async () => {
-    const addToPlaylist = vi.fn<[string, string], Promise<void>>().mockRejectedValue(new Error('boom'));
+    const addToPlaylist = vi
+      .fn<SongsListActionDeps['addToPlaylist']>()
+      .mockRejectedValue(new Error('boom'));
 
     const result = await addSelectedTracksToPlaylist({
       playlistId: 'playlist-1',
@@ -264,12 +271,9 @@ describe('songs-list actions', () => {
         activeTrackId: 'track-3',
         anchorTrackId: 'track-3',
       },
-      deps: {
-        setQueue: vi.fn(),
-        addToQueue: vi.fn(),
-        playTrack: vi.fn(),
+      deps: createDeps({
         addToPlaylist,
-      },
+      }),
     });
 
     expect(result).toEqual({
@@ -281,22 +285,20 @@ describe('songs-list actions', () => {
   });
 
   it('playVisibleTrack always replaces the queue with full visible tracks and starts from the double-clicked row', async () => {
-    const setQueue = vi.fn<[Track[]], Promise<void>>().mockResolvedValue(undefined);
-    const playTrack = vi.fn<[Track], Promise<void>>().mockResolvedValue(undefined);
+    const setQueue = vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined);
+    const playTrack = vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined);
 
     const result = await playVisibleTrack({
       visibleTracks,
-      track: visibleTracks[2],
-      deps: {
+      track: thirdVisibleTrack,
+      deps: createDeps({
         setQueue,
-        addToQueue: vi.fn(),
         playTrack,
-        addToPlaylist: vi.fn(),
-      },
+      }),
     });
 
     expect(setQueue).toHaveBeenCalledWith(visibleTracks);
-    expect(playTrack).toHaveBeenCalledWith(visibleTracks[2]);
+    expect(playTrack).toHaveBeenCalledWith(thirdVisibleTrack);
     expect(result).toEqual({
       status: 'success',
       message: '已开始播放当前歌曲',
