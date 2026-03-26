@@ -18,36 +18,43 @@
   $: addToPlaylistDescription = disabledAddToPlaylistHint.length > 0 ? addToPlaylistHintId : undefined;
 </script>
 
-<div
-  class="context-menu"
-  role="menu"
-  aria-label="歌曲操作菜单"
-  aria-describedby={addToPlaylistDescription}
-  style={`top:${y}px;left:${x}px;`}
->
-  <button type="button" role="menuitem" on:click={() => dispatch('playSelected')}>播放选中</button>
-  <button type="button" role="menuitem" on:click={() => dispatch('addToQueue')}>加入队列</button>
-  <button
-    type="button"
-    role="menuitem"
-    disabled={!canAddToPlaylist}
+<div class="context-menu-shell" style={`top:${y}px;left:${x}px;`}>
+  <div
+    class="context-menu"
+    role="menu"
+    aria-label="歌曲操作菜单"
     aria-describedby={addToPlaylistDescription}
-    on:click={() => dispatch('addToPlaylist')}
   >
-    加入歌单
-  </button>
+    <button type="button" role="menuitem" on:click={() => dispatch('playSelected')}>播放选中</button>
+    <button type="button" role="menuitem" on:click={() => dispatch('addToQueue')}>加入队列</button>
+    <button
+      type="button"
+      role="menuitem"
+      disabled={!canAddToPlaylist}
+      aria-describedby={addToPlaylistDescription}
+      on:click={() => dispatch('addToPlaylist')}
+    >
+      加入歌单
+    </button>
+  </div>
 
   {#if disabledAddToPlaylistHint}
-    <p id={addToPlaylistHintId} class="disabled-hint" aria-live="polite" aria-atomic="true">
+    <p id={addToPlaylistHintId} class="disabled-hint" role="status" aria-live="polite" aria-atomic="true">
       {disabledAddToPlaylistHint}
     </p>
   {/if}
 </div>
 
 <style>
-  .context-menu {
+  .context-menu-shell {
     position: fixed;
     z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .context-menu {
     min-width: 180px;
     padding: 8px;
     display: flex;
@@ -83,7 +90,8 @@
   }
 
   .disabled-hint {
-    margin: 4px 4px 0;
+    max-width: 180px;
+    margin: 0 4px;
     font-size: 0.8rem;
     line-height: 1.4;
     color: rgba(191, 219, 254, 0.78);
