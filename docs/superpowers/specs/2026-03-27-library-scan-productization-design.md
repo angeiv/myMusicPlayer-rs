@@ -69,7 +69,10 @@
 - 返回：`Result<(), String>`
 - 行为：
   - 若已在扫描中：返回错误（前端应提示“扫描正在进行”）。
-  - 对路径做基础校验（不存在/不是目录/危险路径）后，启动后台任务。
+  - 对 `paths` 做规范化与去重（尽量 `canonicalize`），并进行有效性校验。
+  - 对无效路径（不存在/不是目录/危险路径/无权限）：**跳过该路径**，并在 `ScanStatus` 中计入一次 `InvalidPath` 错误（计数 + 采样），继续处理其他有效路径。
+  - 若最终没有任何有效路径：返回错误并不启动扫描。
+  - 启动后台任务后会重置计数器（processed/inserted/errors/sampleErrors），并将 `phase` 置为 `Running`。
 
 ### 4.2 `get_library_scan_status`
 - 名称：`get_library_scan_status`
@@ -101,6 +104,7 @@
 - `kind: ScanErrorKind`
 
 `ScanErrorKind`（MVP）：
+- `InvalidPath`（start 时路径无效/危险/无权限）
 - `Walk`
 - `ReadMetadata`
 - `Persist`
@@ -110,13 +114,15 @@
 - `startedAtMs?: number`（可选）
 - `endedAtMs?: number`（可选）
 - `currentPath?: string`（可选，建议截断到合理长度）
-- `processedFiles: number`（无 total，仅累计“已处理候选音频文件数”）
+- `processedFiles: number`（无 total：仅统计“匹配支持的音频扩展名且已尝试读取/入库”的文件数；不包含目录与非音频文件）
 - `insertedTracks: number`（本次扫描新增入库数量）
 - `errorCount: number`
 - `sampleErrors: ScanErrorSample[]`（最多 N 条）
 
 约束：
 - `sampleErrors` 只保留前 N 条（默认 N=20），避免 payload 过大。
+- 终态（Completed/Cancelled/Failed）后的 `ScanStatus` 会保留（用于 UI 展示摘要），直到下一次 `start_library_scan` 启动时重置。
+- App 启动初始状态为 `Idle`（计数为 0）。
 
 ---
 
@@ -156,10 +162,11 @@
 ### 6.3 危险路径与输入校验
 在 `start_library_scan` 入口对每个 path 做：
 - `exists && is_dir` 校验。
-- 明显危险路径拒绝（MVP 最小集合）：
-  - Unix：`/`、`/System`、`/Library`、`/Applications`、`/Volumes`（macOS）
-  - Linux：`/proc`、`/sys`、`/dev`
-  - Windows：系统目录（可用 `dirs`/`known folders` 能力不足时先做“盘符根目录拒绝” + `Windows` 目录字符串匹配）
+- 规范化：尽量 `canonicalize`（失败时用原 path 继续判定）。
+- 明显危险路径拒绝（MVP 最小集合），并明确匹配规则（使用 `Path::starts_with` 等路径组件判断，避免纯字符串前缀误判）：
+  - **精确等于（exact match）拒绝**：Unix 根目录 `/`；macOS 的 `/Volumes`（仅拒绝根本身，允许 `/Volumes/<Disk>/...`）。
+  - **前缀（prefix / is-descendant）拒绝**：macOS `/System`, `/Library`, `/Applications`；Linux `/proc`, `/sys`, `/dev`。（即：如果 path 位于这些目录下，也拒绝）
+  - Windows：先实现 **盘符根目录拒绝**（如 `C:\\`），并对明显系统目录做前缀拒绝（如 `C:\\Windows`）。后续再迭代更精确规则。
 
 > 目标不是完美覆盖所有系统路径，而是显著降低误扫风险；规则后续可迭代。
 
@@ -184,7 +191,7 @@
 新增：`src/lib/features/library-scan/store.ts`
 - state：`status: Writable<ScanStatus>`
 - actions：`start(paths) / cancel() / stopPolling()`
-- polling：`setInterval` 每 250-500ms（MVP），当 phase 进入终态（Completed/Cancelled/Failed）后自动停止。
+- polling：`setInterval` 每 250-500ms（MVP），当 phase 进入终态（Completed/Cancelled/Failed）后自动停止（但保留最后的 status 供 UI 展示摘要）。
 
 ### 7.3 UI 行为
 用户选择：**锁定并提示**。
