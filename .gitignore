@@ -23,6 +23,7 @@
 .stylelintcache
 .turbo/
 .vercel/
+/.bg-shell/
 
 # Local coverage artifacts
 /coverage/
