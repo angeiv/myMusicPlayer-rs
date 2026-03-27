@@ -133,7 +133,7 @@
     {:else if route.name === "settings"}
       <SettingsView on:refreshLibrary={loadLibrary} on:refreshPlaylists={loadPlaylists} />
     {:else if route.name === "playlistDetail"}
-      <PlaylistDetailView playlistId={route.id} />
+      <PlaylistDetailView playlistId={route.id} on:refreshPlaylists={loadPlaylists} />
     {/if}
   </main>
 

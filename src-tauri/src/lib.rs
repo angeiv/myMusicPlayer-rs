@@ -37,7 +37,11 @@ impl AppState {
                 services::library::LibraryService::new()
                     .context("Failed to initialize library service")?,
             )),
-            playlists: Arc::new(Mutex::new(services::playlist::PlaylistService::new())),
+            playlists: Arc::new(Mutex::new(
+                services::playlist::PlaylistService::new()
+                    .map_err(anyhow::Error::msg)
+                    .context("Failed to initialize playlist service")?,
+            )),
         })
     }
 }

@@ -26,7 +26,10 @@
 
   export let playlistId: string | null = null;
 
-  const dispatch = createEventDispatcher<{ playTrack: { track: Track } }>();
+  const dispatch = createEventDispatcher<{
+    playTrack: { track: Track };
+    refreshPlaylists: void;
+  }>();
 
   let playlist: Playlist | null = null;
   let tracks: Track[] = [];
@@ -135,6 +138,7 @@
     try {
       await updatePlaylistMetadata(playlistId, trimmed, playlist.description ?? null);
       await loadPlaylist(playlistId, { force: true });
+      dispatch('refreshPlaylists');
     } catch (err) {
       console.error('Failed to rename playlist:', err);
       alert('Could not rename playlist.');
