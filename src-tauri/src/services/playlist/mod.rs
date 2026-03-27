@@ -1,22 +1,66 @@
 //! Playlist service for managing playlists
 
+mod store;
+
 use log::info;
 use std::collections::HashMap;
+use std::path::Path;
 use uuid::Uuid;
 
 use crate::models::Playlist;
 
+use self::store::PlaylistStore;
+
 /// Playlist service for managing playlists
-#[derive(Default)]
 pub struct PlaylistService {
+    store: PlaylistStore,
     playlists: HashMap<Uuid, Playlist>,
     playlist_names: HashMap<String, Uuid>,
 }
 
+impl Default for PlaylistService {
+    fn default() -> Self {
+        Self::open_in_memory().expect("in-memory playlist service should initialize")
+    }
+}
+
 impl PlaylistService {
-    /// Create a new PlaylistService
-    pub fn new() -> Self {
-        Self::default()
+    /// Create a new PlaylistService backed by the application data database.
+    pub fn new() -> Result<Self, String> {
+        let mut path = crate::utils::app_data_dir()
+            .ok_or_else(|| "Failed to locate app data directory".to_string())?;
+        crate::utils::ensure_dir_exists(&path)
+            .map_err(|e| format!("Failed to create app data directory {}: {e}", path.display()))?;
+        path.push("library.sqlite");
+        Self::open(&path)
+    }
+
+    /// Create a playlist service backed by the database at the provided path.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, String> {
+        let store = PlaylistStore::open(path.as_ref()).map_err(|e| e.to_string())?;
+        Self::from_store(store)
+    }
+
+    fn open_in_memory() -> Result<Self, String> {
+        let store = PlaylistStore::open_in_memory().map_err(|e| e.to_string())?;
+        Self::from_store(store)
+    }
+
+    fn from_store(store: PlaylistStore) -> Result<Self, String> {
+        let loaded = store.load_all().map_err(|e| e.to_string())?;
+        let mut playlists = HashMap::new();
+        let mut playlist_names = HashMap::new();
+
+        for playlist in loaded {
+            playlist_names.insert(playlist.name.to_lowercase(), playlist.id);
+            playlists.insert(playlist.id, playlist);
+        }
+
+        Ok(Self {
+            store,
+            playlists,
+            playlist_names,
+        })
     }
 
     /// Create a new playlist
@@ -25,17 +69,17 @@ impl PlaylistService {
             return Err("Playlist name cannot be empty".to_string());
         }
 
-        // Check if a playlist with this name already exists
         let key = name.to_lowercase();
         if self.playlist_names.contains_key(&key) {
             return Err(format!("A playlist named '{}' already exists", name));
         }
 
         let id = Uuid::new_v4();
-        let playlist = Playlist::new(name);
+        let playlist = Playlist::with_id(id, name);
 
-        self.playlists.insert(id, playlist);
+        self.store.save_playlist(&playlist).map_err(|e| e.to_string())?;
         self.playlist_names.insert(key, id);
+        self.playlists.insert(id, playlist);
 
         info!("Created playlist '{}' with ID: {}", name, id);
 
@@ -44,23 +88,27 @@ impl PlaylistService {
 
     /// Delete a playlist
     pub fn delete_playlist(&mut self, id: &Uuid) -> Result<(), String> {
-        if let Some(playlist) = self.playlists.remove(id) {
-            self.playlist_names.remove(&playlist.name.to_lowercase());
-            info!("Deleted playlist '{}' with ID: {}", playlist.name, id);
-            Ok(())
-        } else {
-            Err("Playlist not found".to_string())
-        }
+        let playlist = self
+            .playlists
+            .get(id)
+            .cloned()
+            .ok_or_else(|| "Playlist not found".to_string())?;
+
+        self.store.delete_playlist(id).map_err(|e| e.to_string())?;
+        self.playlists.remove(id);
+        self.playlist_names.remove(&playlist.name.to_lowercase());
+
+        info!("Deleted playlist '{}' with ID: {}", playlist.name, id);
+        Ok(())
     }
 
     /// Add a track to a playlist
     pub fn add_to_playlist(&mut self, playlist_id: &Uuid, track_id: Uuid) -> Result<(), String> {
-        if let Some(playlist) = self.playlists.get_mut(playlist_id) {
-            playlist.add_track(track_id);
-            info!("Added track to playlist '{}'", playlist.name);
+        let added = self.add_tracks_to_playlist(playlist_id, &[track_id])?;
+        if added == 1 {
             Ok(())
         } else {
-            Err("Playlist not found".to_string())
+            Err("Failed to add track to playlist".to_string())
         }
     }
 
@@ -70,19 +118,28 @@ impl PlaylistService {
         playlist_id: &Uuid,
         track_ids: &[Uuid],
     ) -> Result<usize, String> {
-        if let Some(playlist) = self.playlists.get_mut(playlist_id) {
-            for track_id in track_ids {
-                playlist.add_track(*track_id);
-            }
-            info!(
-                "Added {} tracks to playlist '{}'",
-                track_ids.len(),
-                playlist.name
-            );
-            Ok(track_ids.len())
-        } else {
-            Err("Playlist not found".to_string())
+        let mut next_playlist = self
+            .playlists
+            .get(playlist_id)
+            .cloned()
+            .ok_or_else(|| "Playlist not found".to_string())?;
+
+        for track_id in track_ids {
+            next_playlist.add_track(*track_id);
         }
+
+        self.store
+            .save_playlist(&next_playlist)
+            .map_err(|e| e.to_string())?;
+        let playlist_name = next_playlist.name.clone();
+        self.playlists.insert(*playlist_id, next_playlist);
+
+        info!(
+            "Added {} tracks to playlist '{}'",
+            track_ids.len(),
+            playlist_name
+        );
+        Ok(track_ids.len())
     }
 
     /// Remove a track from a playlist
@@ -91,30 +148,83 @@ impl PlaylistService {
         playlist_id: &Uuid,
         track_index: usize,
     ) -> Result<Option<Uuid>, String> {
-        if let Some(playlist) = self.playlists.get_mut(playlist_id) {
-            let result = playlist.remove_track(track_index);
-            if result.is_some() {
-                info!("Removed track from playlist '{}'", playlist.name);
-            }
-            Ok(result)
-        } else {
-            Err("Playlist not found".to_string())
+        let mut next_playlist = self
+            .playlists
+            .get(playlist_id)
+            .cloned()
+            .ok_or_else(|| "Playlist not found".to_string())?;
+        let result = next_playlist.remove_track(track_index);
+
+        self.store
+            .save_playlist(&next_playlist)
+            .map_err(|e| e.to_string())?;
+        let playlist_name = next_playlist.name.clone();
+        self.playlists.insert(*playlist_id, next_playlist);
+
+        if result.is_some() {
+            info!("Removed track from playlist '{}'", playlist_name);
         }
+
+        Ok(result)
+    }
+
+    /// Replace the full ordered track list for a playlist.
+    pub fn set_playlist_tracks(
+        &mut self,
+        playlist_id: &Uuid,
+        track_ids: Vec<Uuid>,
+    ) -> Result<(), String> {
+        let mut next_playlist = self
+            .playlists
+            .get(playlist_id)
+            .cloned()
+            .ok_or_else(|| "Playlist not found".to_string())?;
+
+        next_playlist.track_ids = track_ids;
+        next_playlist.updated_at = chrono::Utc::now();
+
+        self.store
+            .save_playlist(&next_playlist)
+            .map_err(|e| e.to_string())?;
+        self.playlists.insert(*playlist_id, next_playlist);
+        Ok(())
+    }
+
+    /// Reorder tracks in a playlist.
+    pub fn reorder_playlist_tracks(
+        &mut self,
+        playlist_id: &Uuid,
+        from_index: usize,
+        to_index: usize,
+    ) -> Result<(), String> {
+        let mut next_playlist = self
+            .playlists
+            .get(playlist_id)
+            .cloned()
+            .ok_or_else(|| "Playlist not found".to_string())?;
+
+        if from_index >= next_playlist.track_ids.len() || to_index >= next_playlist.track_ids.len() {
+            return Err("Index out of bounds".to_string());
+        }
+
+        if from_index == to_index {
+            return Ok(());
+        }
+
+        let track_id = next_playlist.track_ids.remove(from_index);
+        next_playlist.track_ids.insert(to_index, track_id);
+        next_playlist.updated_at = chrono::Utc::now();
+
+        self.store
+            .save_playlist(&next_playlist)
+            .map_err(|e| e.to_string())?;
+        self.playlists.insert(*playlist_id, next_playlist);
+        Ok(())
     }
 
     /// Get a playlist by ID
     pub fn get_playlist(&self, id: &Uuid) -> Option<&Playlist> {
         self.playlists.get(id)
-    }
-
-    /// Get a mutable reference to a playlist by ID
-    pub fn get_playlist_mut(&mut self, id: &Uuid) -> Option<&mut Playlist> {
-        self.playlists.get_mut(id)
-    }
-
-    /// Get all playlists
-    pub fn get_playlists(&self) -> Vec<&Playlist> {
-        self.playlists.values().collect()
     }
 
     /// Update playlist metadata
@@ -124,34 +234,48 @@ impl PlaylistService {
         name: Option<&str>,
         description: Option<&str>,
     ) -> Result<(), String> {
-        if let Some(playlist) = self.playlists.get_mut(id) {
-            if let Some(new_name) = name
-                && !new_name.trim().is_empty()
-                && new_name != playlist.name
-            {
-                // Check if the new name is already taken
-                let new_key = new_name.to_lowercase();
-                if self.playlist_names.contains_key(&new_key) {
-                    return Err(format!("A playlist named '{}' already exists", new_name));
-                }
+        let current = self
+            .playlists
+            .get(id)
+            .cloned()
+            .ok_or_else(|| "Playlist not found".to_string())?;
 
-                // Remove old name
-                self.playlist_names.remove(&playlist.name.to_lowercase());
-
-                // Update name
-                playlist.name = new_name.to_string();
-                self.playlist_names.insert(new_key, *id);
+        let mut next_playlist = current.clone();
+        if let Some(new_name) = name
+            && !new_name.trim().is_empty()
+            && new_name != current.name
+        {
+            let new_key = new_name.to_lowercase();
+            if self.playlist_names.get(&new_key).is_some_and(|existing| existing != id) {
+                return Err(format!("A playlist named '{}' already exists", new_name));
             }
 
-            if let Some(desc) = description {
-                playlist.description = Some(desc.to_string());
-            }
-
-            info!("Updated metadata for playlist '{}'", playlist.name);
-            Ok(())
-        } else {
-            Err("Playlist not found".to_string())
+            next_playlist.name = new_name.to_string();
+            next_playlist.updated_at = chrono::Utc::now();
         }
+
+        if let Some(desc) = description {
+            next_playlist.description = Some(desc.to_string());
+            next_playlist.updated_at = chrono::Utc::now();
+        }
+
+        self.store
+            .save_playlist(&next_playlist)
+            .map_err(|e| e.to_string())?;
+
+        self.playlist_names.remove(&current.name.to_lowercase());
+        self.playlist_names
+            .insert(next_playlist.name.to_lowercase(), *id);
+        let playlist_name = next_playlist.name.clone();
+        self.playlists.insert(*id, next_playlist);
+
+        info!("Updated metadata for playlist '{}'", playlist_name);
+        Ok(())
+    }
+
+    /// Get all playlists
+    pub fn get_playlists(&self) -> Vec<&Playlist> {
+        self.playlists.values().collect()
     }
 
     /// Find a playlist by name (case-insensitive)
@@ -170,22 +294,131 @@ impl PlaylistService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_create_playlist_returns_same_id_as_playlist_record() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("library.sqlite");
+        let mut service = PlaylistService::open(&db_path).unwrap();
+
+        let playlist_id = service.create_playlist("Road Trip").unwrap();
+        let playlist = service.get_playlist(&playlist_id).unwrap();
+
+        assert_eq!(playlist.id, playlist_id);
+    }
+
+    #[test]
+    fn test_playlist_data_persists_across_service_reopen() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("library.sqlite");
+        let track_ids = vec![Uuid::new_v4(), Uuid::new_v4()];
+
+        let playlist_id = {
+            let mut service = PlaylistService::open(&db_path).unwrap();
+            let playlist_id = service.create_playlist("After Hours").unwrap();
+            let added = service.add_tracks_to_playlist(&playlist_id, &track_ids).unwrap();
+            assert_eq!(added, track_ids.len());
+            playlist_id
+        };
+
+        let reopened = PlaylistService::open(&db_path).unwrap();
+        let playlist = reopened.get_playlist(&playlist_id).unwrap();
+
+        assert_eq!(playlist.name, "After Hours");
+        assert_eq!(playlist.track_ids, track_ids);
+    }
+
+    #[test]
+    fn test_update_playlist_metadata_persists_across_service_reopen() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("library.sqlite");
+
+        let playlist_id = {
+            let mut service = PlaylistService::open(&db_path).unwrap();
+            let playlist_id = service.create_playlist("Old Name").unwrap();
+            service
+                .update_playlist_metadata(&playlist_id, Some("New Name"), Some("Late-night mix"))
+                .unwrap();
+            playlist_id
+        };
+
+        let reopened = PlaylistService::open(&db_path).unwrap();
+        let playlist = reopened.get_playlist(&playlist_id).unwrap();
+        assert_eq!(playlist.name, "New Name");
+        assert_eq!(playlist.description.as_deref(), Some("Late-night mix"));
+    }
+
+    #[test]
+    fn test_set_playlist_tracks_persists_across_service_reopen() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("library.sqlite");
+        let track_ids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+
+        let playlist_id = {
+            let mut service = PlaylistService::open(&db_path).unwrap();
+            let playlist_id = service.create_playlist("Queue Draft").unwrap();
+            service.set_playlist_tracks(&playlist_id, track_ids.clone()).unwrap();
+            playlist_id
+        };
+
+        let reopened = PlaylistService::open(&db_path).unwrap();
+        let playlist = reopened.get_playlist(&playlist_id).unwrap();
+        assert_eq!(playlist.track_ids, track_ids);
+    }
+
+    #[test]
+    fn test_reorder_playlist_tracks_persists_across_service_reopen() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("library.sqlite");
+        let track_a = Uuid::new_v4();
+        let track_b = Uuid::new_v4();
+        let track_c = Uuid::new_v4();
+
+        let playlist_id = {
+            let mut service = PlaylistService::open(&db_path).unwrap();
+            let playlist_id = service.create_playlist("Commute").unwrap();
+            service
+                .set_playlist_tracks(&playlist_id, vec![track_a, track_b, track_c])
+                .unwrap();
+            service.reorder_playlist_tracks(&playlist_id, 2, 0).unwrap();
+            playlist_id
+        };
+
+        let reopened = PlaylistService::open(&db_path).unwrap();
+        let playlist = reopened.get_playlist(&playlist_id).unwrap();
+        assert_eq!(playlist.track_ids, vec![track_c, track_a, track_b]);
+    }
+
+    #[test]
+    fn test_delete_playlist_persists_across_service_reopen() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("library.sqlite");
+
+        let playlist_id = {
+            let mut service = PlaylistService::open(&db_path).unwrap();
+            let playlist_id = service.create_playlist("Disposable").unwrap();
+            service.delete_playlist(&playlist_id).unwrap();
+            playlist_id
+        };
+
+        let reopened = PlaylistService::open(&db_path).unwrap();
+        assert!(reopened.get_playlist(&playlist_id).is_none());
+    }
+
     #[test]
     fn test_create_playlist() {
         let mut service = PlaylistService::default();
 
-        // Create a new playlist
         let result = service.create_playlist("My Playlist");
         assert!(result.is_ok());
 
         let _playlist_id = result.unwrap();
         assert_eq!(service.count(), 1);
 
-        // Try to create a duplicate playlist
         let result = service.create_playlist("My Playlist");
         assert!(result.is_err());
 
-        // Try to create a playlist with empty name
         let result = service.create_playlist("");
         assert!(result.is_err());
     }
@@ -196,23 +429,18 @@ mod tests {
         let playlist_id = service.create_playlist("Test").unwrap();
         let track_id = Uuid::new_v4();
 
-        // Add a track
         assert!(service.add_to_playlist(&playlist_id, track_id).is_ok());
 
-        // Check track count
         let playlist = service.get_playlist(&playlist_id).unwrap();
         assert_eq!(playlist.track_count(), 1);
 
-        // Remove the track
         let result = service.remove_from_playlist(&playlist_id, 0);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Some(track_id));
 
-        // Check track count after removal
         let playlist = service.get_playlist(&playlist_id).unwrap();
         assert_eq!(playlist.track_count(), 0);
 
-        // Try to remove non-existent track
         let result = service.remove_from_playlist(&playlist_id, 0);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
@@ -236,7 +464,6 @@ mod tests {
         let mut service = PlaylistService::default();
         let playlist_id = service.create_playlist("Old Name").unwrap();
 
-        // Update name
         assert!(
             service
                 .update_playlist_metadata(&playlist_id, Some("New Name"), Some("A test playlist"))
@@ -247,7 +474,6 @@ mod tests {
         assert_eq!(playlist.name, "New Name");
         assert_eq!(playlist.description, Some("A test playlist".to_string()));
 
-        // Try to update to existing name
         let another_id = service.create_playlist("Another Playlist").unwrap();
         let result = service.update_playlist_metadata(&another_id, Some("New Name"), None);
         assert!(result.is_err());

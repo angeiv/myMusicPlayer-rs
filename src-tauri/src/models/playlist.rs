@@ -25,25 +25,21 @@ pub struct Playlist {
 
 impl Default for Playlist {
     fn default() -> Self {
-        let now = Utc::now();
-        Self {
-            id: Uuid::new_v4(),
-            name: "New Playlist".to_string(),
-            description: None,
-            track_ids: Vec::new(),
-            artwork: None,
-            created_at: now,
-            updated_at: now,
-        }
+        Self::with_id(Uuid::new_v4(), "New Playlist")
     }
 }
 
 impl Playlist {
     /// Create a new playlist with the given name
     pub fn new(name: &str) -> Self {
+        Self::with_id(Uuid::new_v4(), name)
+    }
+
+    /// Create a new playlist with an explicit identifier.
+    pub fn with_id(id: Uuid, name: &str) -> Self {
         let now = Utc::now();
         Self {
-            id: Uuid::new_v4(),
+            id,
             name: name.to_string(),
             description: None,
             track_ids: Vec::new(),

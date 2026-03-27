@@ -282,30 +282,12 @@ pub async fn reorder_playlist_tracks(
         "Failed to access playlists service".to_string()
     })?;
 
-    // Get the playlist
-    let playlist = playlists
-        .get_playlist_mut(&playlist_id)
-        .ok_or_else(|| "Playlist not found".to_string())?;
-
-    // Check bounds
-    if from_index >= playlist.track_ids.len() || to_index >= playlist.track_ids.len() {
-        return Err("Index out of bounds".to_string());
-    }
-
-    // Reorder tracks
-    if from_index < to_index {
-        // Move item to the right
-        for i in from_index..to_index {
-            playlist.track_ids.swap(i, i + 1);
-        }
-    } else if from_index > to_index {
-        // Move item to the left
-        for i in (to_index..from_index).rev() {
-            playlist.track_ids.swap(i, i + 1);
-        }
-    }
-
-    Ok(())
+    playlists
+        .reorder_playlist_tracks(&playlist_id, from_index, to_index)
+        .map_err(|e| {
+            error!("Failed to reorder playlist tracks: {}", e);
+            e
+        })
 }
 
 /// Get tracks in a playlist
@@ -363,18 +345,17 @@ pub async fn set_playlist_tracks(
         "Failed to access playlists service".to_string()
     })?;
 
-    let playlist = playlists
-        .get_playlist_mut(&playlist_id)
-        .ok_or_else(|| "Playlist not found".to_string())?;
-
     let parsed_ids: Result<Vec<Uuid>, String> = tracks
         .into_iter()
         .map(|id| Uuid::parse_str(&id).map_err(|e| format!("Invalid track ID: {}", e)))
         .collect();
 
-    playlist.track_ids = parsed_ids?;
-
-    Ok(())
+    playlists
+        .set_playlist_tracks(&playlist_id, parsed_ids?)
+        .map_err(|e| {
+            error!("Failed to set playlist tracks: {}", e);
+            e
+        })
 }
 
 /// Get the number of playlists

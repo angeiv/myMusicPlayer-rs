@@ -59,6 +59,11 @@ vi.mock('../lib/player/BottomPlayerBar.svelte', async () => {
   return { default: module.default };
 });
 
+vi.mock('../lib/views/PlaylistDetailView.svelte', async () => {
+  const module = await import('./stubs/PlaylistDetailViewSpy.svelte');
+  return { default: module.default };
+});
+
 import App from '../App.svelte';
 
 type SongsViewSpyWindow = Window & {
@@ -86,6 +91,7 @@ describe('App songs-shell wiring', () => {
     cleanup();
     delete spyWindow.__songsViewSpyProps;
     window.location.hash = '';
+    appShellMock.loadPlaylists.mockClear();
   });
 
   it('passes playlists and refreshPlaylists into SongsView on the songs route', async () => {
@@ -101,5 +107,16 @@ describe('App songs-shell wiring', () => {
 
     expect(spyWindow.__songsViewSpyProps?.playlists).toEqual(appShellMock.playlistsValue);
     expect(spyWindow.__songsViewSpyProps?.refreshPlaylists).toBe(appShellMock.loadPlaylists);
+  });
+
+  it('refreshes app-shell playlists when PlaylistDetailView dispatches refreshPlaylists', async () => {
+    window.location.hash = '#/playlists/playlist-1';
+
+    render(App);
+
+    const refreshTrigger = await screen.findByTestId('playlist-detail-view-spy');
+    await refreshTrigger.click();
+
+    expect(appShellMock.loadPlaylists).toHaveBeenCalledTimes(1);
   });
 });
