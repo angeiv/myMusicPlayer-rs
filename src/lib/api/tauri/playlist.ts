@@ -2,6 +2,19 @@ import { invoke } from '@tauri-apps/api/core';
 
 import type { Playlist, Track } from '../../types';
 
+type AddTracksToPlaylistPayload = {
+  added?: number;
+  total?: number;
+  failed_track_ids?: string[];
+  failedTrackIds?: string[];
+};
+
+export type AddTracksToPlaylistResult = {
+  added: number;
+  total: number;
+  failedTrackIds: string[];
+};
+
 export async function createPlaylist(name: string): Promise<string> {
   return invoke<string>('create_playlist', { name });
 }
@@ -19,6 +32,26 @@ export async function getPlaylist(id: string): Promise<Playlist | null> {
 export async function getPlaylistTracks(id: string): Promise<Track[]> {
   const payload = await invoke<Track[] | undefined>('get_playlist_tracks', { id });
   return payload ?? [];
+}
+
+export async function addToPlaylist(playlistId: string, trackId: string): Promise<void> {
+  await invoke('add_to_playlist', { playlistId, trackId });
+}
+
+export async function addTracksToPlaylist(
+  playlistId: string,
+  trackIds: string[]
+): Promise<AddTracksToPlaylistResult> {
+  const payload = await invoke<AddTracksToPlaylistPayload | undefined>('add_tracks_to_playlist', {
+    playlistId,
+    trackIds,
+  });
+
+  return {
+    added: payload?.added ?? 0,
+    total: payload?.total ?? trackIds.length,
+    failedTrackIds: payload?.failedTrackIds ?? payload?.failed_track_ids ?? [],
+  };
 }
 
 export async function removeFromPlaylist(playlistId: string, trackIndex: number): Promise<Track | null> {

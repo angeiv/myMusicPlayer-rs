@@ -1,13 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
 
+  import { buildLyricsPanelState, type LyricsLine } from './lyrics';
   import { createPlaybackStore } from '../stores/playback';
   import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
-
-  const fallbackLyrics = `Float softly through the midnight air
-Windows glow with silver light
-Every heartbeat keeps the rhythm
-We are satellites tonight.`;
 
   const playback = createPlaybackStore();
 
@@ -31,7 +27,9 @@ We are satellites tonight.`;
   let selectedDeviceId = 'default';
   let isPlaying = false;
   let isMuted = false;
-  let activeLyrics: string[] = [];
+  let lyricsLines: LyricsLine[] = [];
+  let activeLyricIndex = -1;
+  let hasTimedLyrics = false;
   let remainingTime = 0;
   let progressPercent = 0;
   let playingClass = '';
@@ -56,7 +54,10 @@ We are satellites tonight.`;
 
   $: isPlaying = playbackState.state === 'playing';
   $: isMuted = volume <= 0;
-  $: activeLyrics = (currentTrack?.lyrics?.trim() ?? fallbackLyrics).split('\n');
+  $: ({ lines: lyricsLines, activeIndex: activeLyricIndex, hasTimedLyrics } = buildLyricsPanelState(
+    currentTrack?.lyrics,
+    progress
+  ));
   $: remainingTime = duration > 0 ? Math.max(duration - progress, 0) : 0;
   $: progressPercent = duration ? Math.min(Math.max((progress / duration) * 100, 0), 100) : 0;
 
@@ -255,23 +256,68 @@ We are satellites tonight.`;
 
     <div class="controls">
       <button
+        type="button"
         class:active={shuffleEnabled}
         on:click={toggleShuffle}
-        title="Toggle shuffle"
+        aria-label="切换随机播放"
+        aria-pressed={shuffleEnabled}
       >
-        🔀
+        <span class="transport-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M4 7h3l4.25 5 4.25 5H20" />
+            <path d="M17 5.5 20 7l-3 1.5" />
+            <path d="M4 17h3l2.5-3" />
+            <path d="M15.5 12 20 17" />
+            <path d="M17 15.5 20 17l-3 1.5" />
+          </svg>
+        </span>
       </button>
-      <button class="ghost" on:click={handlePrevious} title="Previous track">⏮</button>
-      <button class={`play ${playingClass}`} on:click={togglePlayPause} aria-label="Play or pause">
-        {isPlaying ? '⏸' : '▶'}
+      <button type="button" class="ghost" on:click={handlePrevious} aria-label="上一首">
+        <span class="transport-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M6.5 6.5v11" />
+            <path d="M17.5 7 10 12l7.5 5V7Z" />
+          </svg>
+        </span>
       </button>
-      <button class="ghost" on:click={handleNext} title="Next track">⏭</button>
+      <button class={`play ${playingClass}`} type="button" on:click={togglePlayPause} aria-label="播放或暂停">
+        <span class={`transport-icon transport-play-icon ${isPlaying ? 'pause-glyph' : 'play-glyph'}`} aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            {#if isPlaying}
+              <path d="M9.25 7.5v9" />
+              <path d="M14.75 7.5v9" />
+            {:else}
+              <path d="M9 7.25 16.5 12 9 16.75V7.25Z" fill="currentColor" stroke="none" />
+            {/if}
+          </svg>
+        </span>
+      </button>
+      <button type="button" class="ghost" on:click={handleNext} aria-label="下一首">
+        <span class="transport-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M17.5 6.5v11" />
+            <path d="M6.5 7 14 12l-7.5 5V7Z" />
+          </svg>
+        </span>
+      </button>
       <button
+        type="button"
         class:active={repeatMode !== 'off'}
         on:click={nextRepeatMode}
-        title={`Repeat: ${repeatMode}`}
+        aria-label="切换重复模式"
+        aria-pressed={repeatMode !== 'off'}
       >
-        {repeatMode === 'one' ? '🔂' : '🔁'}
+        <span class="transport-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M7.5 7.5h9.5l2.5 2.5" />
+            <path d="M7.5 16.5H17l2.5-2.5" />
+            <path d="M17 5.5 19.5 10 15 10" />
+            <path d="M7 18.5 4.5 14H9" />
+          </svg>
+        </span>
+        {#if repeatMode === 'one'}
+          <span class="transport-badge" aria-hidden="true">1</span>
+        {/if}
       </button>
       <button class="pill" on:click={promptAndPlayFile}>打开文件</button>
     </div>
@@ -279,8 +325,21 @@ We are satellites tonight.`;
 
   <div class="extras">
     <div class="popover-group">
-      <button on:click={toggleQueuePopover} aria-expanded={showQueue}>
-        📃 队列
+      <button
+        type="button"
+        class="utility-trigger utility-icon-button"
+        on:click={toggleQueuePopover}
+        aria-expanded={showQueue}
+        aria-label="队列"
+      >
+        <span class="utility-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M7 6.75h11.25M7 12h11.25M7 17.25h8.25" />
+            <circle cx="4.25" cy="6.75" r="1" fill="currentColor" stroke="none" />
+            <circle cx="4.25" cy="12" r="1" fill="currentColor" stroke="none" />
+            <circle cx="4.25" cy="17.25" r="1" fill="currentColor" stroke="none" />
+          </svg>
+        </span>
       </button>
       {#if showQueue}
         <div class="popover queue-popover">
@@ -307,16 +366,31 @@ We are satellites tonight.`;
       {/if}
     </div>
 
-  <div class="volume-wrap">
+  <div class="volume-wrap popover-group">
       <button
+        type="button"
+        class="utility-trigger utility-icon-button volume-trigger"
         class:active={isMuted}
         on:click={() => void toggleMute()}
+        aria-label={isMuted ? '取消静音' : '静音'}
         aria-pressed={isMuted}
-        title={isMuted ? 'Unmute' : 'Mute'}
       >
-        {volumePercentage() === 0 ? '🔇' : volumePercentage() < 50 ? '🔈' : '🔊'}
+        <span class="utility-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M5.5 9.5v5h3.25l4 3V6.5l-4 3H5.5Z" />
+            {#if isMuted}
+              <path d="M16 9.5 19.5 14.5" />
+              <path d="M19.5 9.5 16 14.5" />
+            {:else if volumePercentage() < 50}
+              <path d="M16 10.25c.9.55 1.35 1.14 1.35 1.75s-.45 1.2-1.35 1.75" />
+            {:else}
+              <path d="M15.75 8.5c1.4 1 2.1 2.17 2.1 3.5s-.7 2.5-2.1 3.5" />
+              <path d="M18.5 6.5c2.1 1.6 3.15 3.43 3.15 5.5s-1.05 3.9-3.15 5.5" />
+            {/if}
+          </svg>
+        </span>
       </button>
-      <div class="popover volume-popover" role="group" aria-label="Volume">
+      <div class="popover volume-popover" role="group" aria-label="音量">
         <div class="volume-header">
           <span class="volume-title">音量</span>
           <span class="volume-value">{Math.round(volumePercentUi)}%</span>
@@ -326,7 +400,20 @@ We are satellites tonight.`;
     </div>
 
     <div class="popover-group">
-      <button on:click={toggleDevicePopover} aria-expanded={showDevicePicker}>🎧 设备</button>
+      <button
+        type="button"
+        class="utility-trigger utility-icon-button"
+        on:click={toggleDevicePopover}
+        aria-expanded={showDevicePicker}
+        aria-label="输出设备"
+      >
+        <span class="utility-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M5.5 9.5v5h3.25l4 3V6.5l-4 3H5.5Z" />
+            <path d="M15.75 8.5c1.4 1 2.1 2.17 2.1 3.5s-.7 2.5-2.1 3.5" />
+          </svg>
+        </span>
+      </button>
       {#if showDevicePicker}
         <div class="popover device-popover">
           <p class="heading">输出设备</p>
@@ -358,7 +445,20 @@ We are satellites tonight.`;
       {/if}
     </div>
 
-    <button class:active={showLyricsPanel} on:click={toggleLyrics} aria-pressed={showLyricsPanel}>📝 歌词</button>
+    <button
+      type="button"
+      class="utility-trigger utility-icon-button"
+      class:active={showLyricsPanel}
+      on:click={toggleLyrics}
+      aria-label="歌词"
+      aria-pressed={showLyricsPanel}
+    >
+      <span class="utility-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M5.75 7h12.5M5.75 11h12.5M5.75 15h8.5M5.75 19h6.5" />
+        </svg>
+      </span>
+    </button>
   </div>
 </div>
 
@@ -366,15 +466,28 @@ We are satellites tonight.`;
   <section class="lyrics-panel">
     <div class="lyrics-header">
       <div>
-        <p class="eyebrow">实时歌词</p>
-        <p class="lyrics-title">{currentTrack ? currentTrack.title : 'Lyrics'}</p>
+        <p class="eyebrow">{hasTimedLyrics ? '实时歌词' : '本地歌词'}</p>
+        <p class="lyrics-title">{currentTrack ? currentTrack.title : '歌词'}</p>
       </div>
       <button on:click={toggleLyrics} aria-label="Close lyrics">✕</button>
     </div>
     <div class="lyrics-body">
-      {#each activeLyrics as line}
-        <p>{line}</p>
-      {/each}
+      {#if lyricsLines.length === 0}
+        <div class="lyrics-empty">
+          <p class="lyrics-empty-title">{currentTrack ? '未找到本地歌词' : '播放歌曲后可在这里查看本地歌词'}</p>
+          <p class="lyrics-empty-hint">
+            {#if currentTrack}
+              当前歌曲未找到同名 `.lrc` 文件。
+            {:else}
+              当前面板会显示正在播放歌曲的本地歌词。
+            {/if}
+          </p>
+        </div>
+      {:else}
+        {#each lyricsLines as line, index (line.id)}
+          <p class:active={index === activeLyricIndex}>{line.text}</p>
+        {/each}
+      {/if}
     </div>
   </section>
 {/if}
@@ -575,21 +688,29 @@ We are satellites tonight.`;
   }
 
   .controls button {
+    position: relative;
     border: none;
     background: transparent;
-    color: inherit;
-    font-size: 1rem;
+    color: rgba(226, 232, 240, 0.88);
     width: 40px;
     height: 40px;
     display: grid;
     place-items: center;
     border-radius: 999px;
     cursor: pointer;
-    transition: background 0.2s ease, transform 0.2s ease;
+    transition:
+      background 0.2s ease,
+      color 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.16s ease;
   }
 
-  .controls button:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  .controls button:hover:not(:disabled),
+  .controls button:focus-visible {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: #f8fbff;
+    transform: translateY(-1px);
+    outline: none;
   }
 
   .controls button:disabled {
@@ -597,23 +718,72 @@ We are satellites tonight.`;
     cursor: not-allowed;
   }
 
-  .controls button.active {
-    background: rgba(59, 130, 246, 0.25);
-    color: #bfdbfe;
+  .controls button.active,
+  .controls button[aria-pressed='true'] {
+    background: rgba(37, 99, 235, 0.24);
+    color: #eff6ff;
+    box-shadow:
+      inset 0 0 0 1px rgba(147, 197, 253, 0.18),
+      0 8px 20px rgba(37, 99, 235, 0.18);
+  }
+
+  .transport-icon {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .transport-icon svg {
+    width: 100%;
+    height: 100%;
+    stroke: currentColor;
+    stroke-width: 1.85;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    overflow: visible;
+  }
+
+  .transport-play-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .transport-play-icon.play-glyph {
+    transform: translateX(1px);
   }
 
   .controls .play {
     width: 52px;
     height: 52px;
-    font-size: 1.35rem;
     background: rgba(59, 130, 246, 0.3);
-    color: #e0f2fe;
-    box-shadow: 0 10px 25px rgba(59, 130, 246, 0.25);
+    color: #f8fbff;
+    box-shadow: 0 12px 28px rgba(59, 130, 246, 0.28);
   }
 
   .controls .play.playing {
-    background: rgba(16, 185, 129, 0.3);
-    box-shadow: 0 10px 25px rgba(16, 185, 129, 0.25);
+    background: rgba(16, 185, 129, 0.34);
+    box-shadow: 0 12px 28px rgba(16, 185, 129, 0.28);
+  }
+
+  .transport-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(59, 130, 246, 0.95);
+    color: #eff6ff;
+    font-size: 0.58rem;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.28);
   }
 
   .controls .pill {
@@ -631,25 +801,71 @@ We are satellites tonight.`;
     gap: 12px;
   }
 
-  .extras > button,
-  .popover-group > button {
-    border: none;
-    border-radius: 999px;
-    padding: 8px 14px;
-    background: rgba(30, 58, 138, 0.35);
-    color: #bfdbfe;
+  .utility-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(96, 165, 250, 0.14);
+    background: rgba(15, 23, 42, 0.72);
+    color: rgba(226, 232, 240, 0.92);
     cursor: pointer;
-    transition: background 0.2s ease;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 10px 24px rgba(2, 6, 23, 0.18);
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease,
+      color 0.2s ease,
+      transform 0.16s ease;
   }
 
-  .extras > button.active,
-  .popover-group > button[aria-expanded='true'] {
-    background: rgba(59, 130, 246, 0.3);
+  .utility-trigger.active,
+  .utility-trigger[aria-expanded='true'],
+  .utility-trigger[aria-pressed='true'] {
+    background: rgba(37, 99, 235, 0.32);
+    border-color: rgba(96, 165, 250, 0.36);
+    color: #eff6ff;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 12px 28px rgba(37, 99, 235, 0.22);
   }
 
-  .extras > button:hover,
-  .popover-group > button:hover {
-    background: rgba(59, 130, 246, 0.25);
+  .utility-trigger:hover,
+  .utility-trigger:focus-visible {
+    background: rgba(37, 99, 235, 0.22);
+    border-color: rgba(96, 165, 250, 0.28);
+    color: #eff6ff;
+    transform: translateY(-1px);
+    outline: none;
+  }
+
+  .utility-icon-button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 16px;
+  }
+
+  .utility-icon {
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .utility-icon svg {
+    width: 100%;
+    height: 100%;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    overflow: visible;
+  }
+
+  .volume-trigger .utility-icon {
+    transform: translateX(0.5px);
   }
 
   .popover-group {
@@ -881,6 +1097,35 @@ We are satellites tonight.`;
     margin: 0;
     font-size: 0.95rem;
     color: rgba(241, 245, 249, 0.9);
+    transition: color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+    opacity: 0.62;
+  }
+
+  .lyrics-body p.active {
+    color: #ffffff;
+    opacity: 1;
+    transform: translateX(4px);
+  }
+
+  .lyrics-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 4px;
+  }
+
+  .lyrics-empty-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: rgba(248, 250, 252, 0.96);
+  }
+
+  .lyrics-empty-hint {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: rgba(148, 163, 184, 0.92);
   }
 
   @media (max-width: 1100px) {

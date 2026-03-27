@@ -223,6 +223,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+    padding-right: 4px;
   }
 
   .section-header h2 {
@@ -230,20 +232,27 @@
   }
 
   .create {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
     border: none;
+    border-radius: 999px;
     background: var(--active-bg);
     color: var(--accent);
-    border-radius: 8px;
-    width: 28px;
-    height: 28px;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
+    line-height: 1;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease;
+    transition: background 0.2s ease, color 0.2s ease, transform 0.16s ease;
   }
 
   .create:hover {
     background: var(--hover-bg);
     color: var(--accent);
+    transform: translateY(-1px);
   }
 
   .empty {

@@ -148,6 +148,7 @@ pub fn run() {
             crate::api::playlist::create_playlist,
             crate::api::playlist::delete_playlist,
             crate::api::playlist::add_to_playlist,
+            crate::api::playlist::add_tracks_to_playlist,
             crate::api::playlist::remove_from_playlist,
             crate::api::playlist::get_playlist,
             crate::api::playlist::get_playlists,

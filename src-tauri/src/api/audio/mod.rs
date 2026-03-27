@@ -3,8 +3,10 @@
 use crate::AppState;
 use crate::models::{PlaybackState, Track};
 use crate::services::audio::VisualizationData;
+use crate::services::audio::lyrics::load_local_lyrics;
 use log::{error, info};
 use serde::Deserialize;
+use std::path::PathBuf;
 use std::time::Duration;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
@@ -29,14 +31,28 @@ pub async fn play_file(file_path: String, state: State<'_, AppState>) -> Result<
     info!("Playing file: {}", file_path);
 
     // Create a temporary track for the file
-    let path = std::path::PathBuf::from(&file_path);
+    let path = PathBuf::from(&file_path);
     if !path.is_file() {
         return Err(format!("Selected path is not a file: {}", path.display()));
     }
 
+    let track = build_temp_track_for_file(path);
+
+    let mut audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to acquire audio lock".to_string()
+    })?;
+
+    audio.play(&track).map_err(|e| {
+        error!("Failed to play file: {}", e);
+        format!("Failed to play file: {}", e)
+    })
+}
+
+fn build_temp_track_for_file(path: PathBuf) -> Track {
     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
-    let track = Track {
+    Track {
         id: uuid::Uuid::new_v4(),
         title: path
             .file_stem()
@@ -63,21 +79,11 @@ pub async fn play_file(file_path: String, state: State<'_, AppState>) -> Result<
         year: None,
         genre: None,
         artwork: None,
-        lyrics: None,
+        lyrics: load_local_lyrics(&path),
         play_count: 0,
         last_played: None,
         date_added: chrono::Utc::now(),
-    };
-
-    let mut audio = state.audio.lock().map_err(|e| {
-        error!("Failed to acquire audio lock: {}", e);
-        "Failed to acquire audio lock".to_string()
-    })?;
-
-    audio.play(&track).map_err(|e| {
-        error!("Failed to play file: {}", e);
-        format!("Failed to play file: {}", e)
-    })
+    }
 }
 
 #[tauri::command]
@@ -468,4 +474,35 @@ pub async fn get_position(state: State<'_, AppState>) -> Result<u64, String> {
     })?;
 
     Ok(audio.position().as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_temp_track_for_file;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn build_temp_track_for_file_loads_companion_lrc() {
+        let dir = tempdir().unwrap();
+        let audio_path = dir.path().join("demo.mp3");
+        let lyrics_path = dir.path().join("demo.lrc");
+        fs::write(&audio_path, b"audio").unwrap();
+        fs::write(&lyrics_path, b"[00:01.00]hello").unwrap();
+
+        let track = build_temp_track_for_file(audio_path);
+
+        assert_eq!(track.lyrics.as_deref(), Some("[00:01.00]hello"));
+    }
+
+    #[test]
+    fn build_temp_track_for_file_sets_none_when_lrc_missing() {
+        let dir = tempdir().unwrap();
+        let audio_path = dir.path().join("demo.flac");
+        fs::write(&audio_path, b"audio").unwrap();
+
+        let track = build_temp_track_for_file(audio_path);
+
+        assert_eq!(track.lyrics, None);
+    }
 }

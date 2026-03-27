@@ -8,6 +8,8 @@ export const createPlaylist = impl.createPlaylist;
 export const getPlaylists = impl.getPlaylists;
 export const getPlaylist = impl.getPlaylist;
 export const getPlaylistTracks = impl.getPlaylistTracks;
+export const addToPlaylist = impl.addToPlaylist;
+export const addTracksToPlaylist = impl.addTracksToPlaylist;
 export const removeFromPlaylist = impl.removeFromPlaylist;
 export const updatePlaylistMetadata = impl.updatePlaylistMetadata;
 

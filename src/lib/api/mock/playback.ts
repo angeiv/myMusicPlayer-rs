@@ -57,6 +57,10 @@ export async function setQueue(tracks: Track[]): Promise<void> {
   queue = tracks.slice();
 }
 
+export async function addToQueue(tracks: Track[]): Promise<void> {
+  queue = [...queue, ...tracks.map((track) => ({ ...track }))];
+}
+
 export async function playTrack(track: Track): Promise<void> {
   currentTrack = track;
   playbackState = { state: 'playing', position: 0, duration: track.duration };

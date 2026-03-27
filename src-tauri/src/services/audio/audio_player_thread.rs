@@ -1,6 +1,9 @@
 //! Thread-safe audio player using message passing
 
-use super::play_queue::{PlayMode, PlayQueue};
+use super::{
+    lyrics::load_local_lyrics,
+    play_queue::{PlayMode, PlayQueue},
+};
 use crate::models::{playback_state::PlaybackState, track::Track};
 use anyhow::{Context, Result, anyhow};
 use cpal::traits::{DeviceTrait, HostTrait};
@@ -750,9 +753,8 @@ fn play_track_internal(
     position_tracker.start(duration);
 
     let mut enriched_track = track.clone();
-    enriched_track.duration = duration_secs.min(u64::from(u32::MAX)) as u32;
-    enriched_track.sample_rate = sample_rate;
-    enriched_track.channels = channels;
+    enriched_track =
+        prepare_track_for_playback(&enriched_track, duration_secs, sample_rate, channels);
 
     if queue.is_empty() {
         queue.set_tracks(vec![enriched_track.clone()]);
@@ -776,6 +778,20 @@ fn play_track_internal(
 
     info!("Successfully started playing: {}", track.title);
     Ok(())
+}
+
+fn prepare_track_for_playback(
+    track: &Track,
+    duration_secs: u64,
+    sample_rate: u32,
+    channels: u16,
+) -> Track {
+    let mut enriched_track = track.clone();
+    enriched_track.duration = duration_secs.min(u64::from(u32::MAX)) as u32;
+    enriched_track.sample_rate = sample_rate;
+    enriched_track.channels = channels;
+    enriched_track.lyrics = load_local_lyrics(&enriched_track.path);
+    enriched_track
 }
 
 fn update_state(
@@ -965,6 +981,8 @@ impl PositionTracker {
 mod tests {
     use super::*;
     use rodio::buffer::SamplesBuffer;
+    use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn clamp_seek_target_caps_to_track_duration() {
@@ -1078,5 +1096,42 @@ mod tests {
                 duration: 3,
             }
         );
+    }
+
+    #[test]
+    fn prepare_track_for_playback_preserves_lyrics_when_present() {
+        let dir = tempdir().unwrap();
+        let audio_path = dir.path().join("track.mp3");
+        let lyrics_path = dir.path().join("track.lrc");
+        fs::write(&audio_path, b"audio").unwrap();
+        fs::write(&lyrics_path, b"[00:01.00]hello").unwrap();
+
+        let track = Track {
+            path: audio_path,
+            ..Track::default()
+        };
+
+        let enriched = prepare_track_for_playback(&track, 180, 48_000, 2);
+
+        assert_eq!(enriched.lyrics.as_deref(), Some("[00:01.00]hello"));
+        assert_eq!(enriched.duration, 180);
+        assert_eq!(enriched.sample_rate, 48_000);
+        assert_eq!(enriched.channels, 2);
+    }
+
+    #[test]
+    fn prepare_track_for_playback_returns_none_when_lyrics_are_missing() {
+        let dir = tempdir().unwrap();
+        let audio_path = dir.path().join("track.flac");
+        fs::write(&audio_path, b"audio").unwrap();
+
+        let track = Track {
+            path: audio_path,
+            ..Track::default()
+        };
+
+        let enriched = prepare_track_for_playback(&track, 120, 44_100, 2);
+
+        assert_eq!(enriched.lyrics, None);
     }
 }

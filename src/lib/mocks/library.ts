@@ -407,6 +407,13 @@ export function getMockPlaylistTracks(id: string | null | undefined): Track[] {
   );
 }
 
+export function appendMockTrackToPlaylist(id: string, trackId: string): void {
+  const playlist = playlistsState.find((item) => item.id === id);
+  if (!playlist) return;
+  playlist.track_ids.push(trackId);
+  playlist.updated_at = new Date().toISOString();
+}
+
 export function removeMockTrackFromPlaylist(id: string, index: number): void {
   const playlist = playlistsState.find((item) => item.id === id);
   if (!playlist) return;
