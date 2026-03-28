@@ -39,18 +39,23 @@
   - export 透传上述新函数
 - **Create:** `src/lib/features/library-scan/store.ts`
   - scan store（轮询 status、start/cancel、终态停止轮询但保留摘要）
+- **Modify:** `src/App.svelte`
+  - 从 appShell 解构并传递 `scanStatus/isScanning/runLibraryScan/cancelLibraryScan` 给 `SettingsView`
 - **Modify:** `src/lib/views/SettingsView.svelte`
-  - “Rescan Now” 改为 `startLibraryScan(libraryPaths)`
+  - “Rescan Now” 改为调用父组件注入的 `runLibraryScan(libraryPaths)`（确保全局扫描状态一致）
   - 展示扫描面板（phase/currentPath/processed/inserted/errors/sampleErrors 摘要）
-  - 取消按钮（cancelLibraryScan）
-  - 终态后触发 `dispatch('refreshLibrary')`
+  - 取消按钮：调用父组件注入的 `cancelLibraryScan()`
+  - 扫描终态后触发 `dispatch('refreshLibrary')`（由 AppShell 执行 `loadLibrary()`）
 - **Modify:** `src/lib/features/app-shell/store.ts`
-  - autoScan 改为调用 `startLibraryScan` + 轮询 status 等待终态
-  - 扫描 Running/Cancelling 期间置 `isLibraryLoading=true`（锁定提示）
+  - 创建**单例** scan store（`createLibraryScanStore`），并暴露：`scanStatus` / `isScanning`
+  - 提供 `runLibraryScan(paths)`：开始扫描 + 等待终态（用于 autoScan 与 Settings 手动扫描）
+  - autoScan 改为调用 `runLibraryScan`，扫描 Running/Cancelling 期间置 `isLibraryLoading=true`（锁定提示）
 
 ### Tests
 - **Modify:** `src/tests/app-shell.test.ts`
-  - 更新 bootstrap 测试：从 `scanDirectory` 改为 start/status polling
+  - 更新 bootstrap 测试：从 `scanDirectory` 改为 start/status（或 `runLibraryScan`）
+- **Modify:** `src/tests/app-shell-wiring.test.ts`
+  - 若 `App.svelte` 需要向 `SettingsView` 传 scan props，需补齐 mock store 字段以避免解构失败
 - **Modify:** `src/tests/api-adapter-selection.test.ts`
   - libraryStub 增加新函数，避免 module stub 缺 export
 - **Modify:** `src/tests/tauri-library-bridge.test.ts`
@@ -214,7 +219,25 @@ pub fn is_dangerous_root(path: &Path) -> bool {
     }
   }
 
-  // Windows：MVP 先在 start 命令处做盘符根目录拒绝 + C:\\Windows 前缀拒绝（见 Task 3）
+  #[cfg(target_os = "windows")]
+  {
+    use std::path::Component;
+
+    // 盘符根目录：例如 C:\\ （Prefix + RootDir 且没有后续 Normal 组件）
+    let mut comps = path.components();
+    if matches!(
+      (comps.next(), comps.next(), comps.next()),
+      (Some(Component::Prefix(_)), Some(Component::RootDir), None)
+    ) {
+      return true;
+    }
+
+    // prefix reject（MVP 先覆盖 C:\\Windows）
+    if path.starts_with(Path::new("C:\\\\Windows")) {
+      return true;
+    }
+  }
+
   false
 }
 ```
@@ -728,80 +751,92 @@ git commit -m "feat(library-scan): add polling scan store"
 
 ---
 
-## Task 6: 前端：SettingsView 扫描 UI + AppShell autoScan 调整（锁定并提示）
+## Task 6: 前端：共享 scan store（全局锁定）+ Settings 扫描 UI + autoScan 调整
+
+> 目标：确保**手动扫描**与 **autoScan** 共享同一套 scan 状态与锁定提示。
 
 **Files:**
-- Modify: `src/lib/views/SettingsView.svelte`
 - Modify: `src/lib/features/app-shell/store.ts`
+- Modify: `src/App.svelte`
+- Modify: `src/lib/views/SettingsView.svelte`
 - Modify: `src/tests/app-shell.test.ts`
+- Modify: `src/tests/app-shell-wiring.test.ts`
 
-- [ ] **Step 1: 更新 AppShell store 依赖类型与 bootstrap 测试（先红）**
+- [ ] **Step 1: 扩展 AppShell store 依赖类型与 bootstrap 测试（先红）**
 
 在 `src/lib/features/app-shell/store.ts` 的 `AppShellStoreDependencies` 增加：
 ```ts
 startLibraryScan: (paths: string[]) => Promise<void>;
 getLibraryScanStatus: () => Promise<ScanStatus>;
+cancelLibraryScan: () => Promise<void>;
 ```
 
-并更新 `tests/app-shell.test.ts`：把原来的 `scanDirectory` stub 替换成 `startLibraryScan/getLibraryScanStatus`，让 `getLibraryScanStatus` 直接返回 completed（避免复杂轮询）：
-```ts
-startLibraryScan: async () => { calls.push('startLibraryScan'); },
-getLibraryScanStatus: async () => ({ phase: 'completed', processed_files: 0, inserted_tracks: 0, error_count: 0, sample_errors: [] }),
-```
+并更新 `tests/app-shell.test.ts`：
+- 把原来的 `scanDirectory` stub 替换成 `startLibraryScan/getLibraryScanStatus/cancelLibraryScan`
+- 让 `getLibraryScanStatus` 直接返回 `completed`（避免测试里处理真实轮询）
 
 Expected: FAIL（实现未改）。
 
-- [ ] **Step 2: 修改 bootstrap：autoScan 用 start/status 等待终态**
+- [ ] **Step 2: 在 AppShell store 内创建单例 scan store，并提供 `runLibraryScan(paths)`**
 
-在 `bootstrap()` 中：
-```ts
-if (restored.autoScan) {
-  isLibraryLoading.set(true);
-  try {
-    await deps.startLibraryScan(restored.libraryPaths);
-    // 简化：poll status 直到 completed/cancelled/failed（MVP 可用 while + await）
-    for (;;) {
-      const status = await deps.getLibraryScanStatus();
-      if (['completed','cancelled','failed'].includes(status.phase)) break;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-  } finally {
-    isLibraryLoading.set(false);
-  }
-}
+在 `createAppShellStore()` 内：
+- 创建 scan store（用 overrides 注入 deps，便于测试）：
+  - `const scan = createLibraryScanStore({ startLibraryScan: deps.startLibraryScan, getLibraryScanStatus: deps.getLibraryScanStatus, cancelLibraryScan: deps.cancelLibraryScan })`
+- 暴露给 UI：
+  - `scanStatus`（store）
+  - `isScanning`（store）
+- 新增方法：
+  - `runLibraryScan(paths): Promise<ScanStatus>`：
+    1) `isLibraryLoading.set(true)`（全局锁定提示）
+    2) `await scan.start(paths)`
+    3) `await waitForTerminalStatus(scan.status)`（通过 subscribe 等待 phase 进入 completed/cancelled/failed）
+    4) `isLibraryLoading.set(false)`
+    5) return final status
+  - `cancelLibraryScan(): Promise<void>`：直接代理到 `scan.cancel()`
+
+> 注意：这样无论扫描由 Settings 触发还是 autoScan 触发，`isLibraryLoading` 都会在扫描期间为 true，从而达到“锁定并提示”。
+
+- [ ] **Step 3: 修改 bootstrap：autoScan 改为调用 `runLibraryScan(restored.libraryPaths)`**
+
+并在终态后继续走原有：`await loadLibrary(); await loadPlaylists();`
+
+- [ ] **Step 4: 修改 `src/App.svelte`：把 scan props 传入 SettingsView**
+
+示意：
+```svelte
+<SettingsView
+  scanStatus={scanStatus}
+  isScanning={isScanning}
+  runLibraryScan={runLibraryScan}
+  cancelLibraryScan={cancelLibraryScan}
+  on:refreshLibrary={loadLibrary}
+  on:refreshPlaylists={loadPlaylists}
+/>
 ```
 
-> 如果不想用真实 setTimeout，请把 setTimeout 注入 deps（参考 playback store 的 timer 注入模式）。
+并同步更新 `src/tests/app-shell-wiring.test.ts` 的 mock store 字段，避免解构缺失。
 
-- [ ] **Step 3: 修改 SettingsView：Rescan Now 改为 startLibraryScan + 状态面板 + cancel**
+- [ ] **Step 5: 修改 SettingsView：使用注入的 scan props（不再自己 new store）**
 
-最小实现建议：在 Library panel footer 下方追加一个小面板：
-- phase 文本
-- processed/inserted/errors
-- currentPath（截断）
-- sampleErrors 前 N 条（折叠/详情）
-- Cancel 按钮（phase running/cancelling 时显示）
+- Rescan Now：`await runLibraryScan(libraryPaths)`，然后 `dispatch('refreshLibrary')`
+- Cancel：调用 `cancelLibraryScan()`
+- 面板展示：从 `$scanStatus` 渲染 phase/currentPath/processed/inserted/errors/sampleErrors
 
-实现上可直接在 SettingsView 内部：
-- `import { createLibraryScanStore } from '../features/library-scan/store'`
-- `const scan = createLibraryScanStore();`
-- 在 `handleRescan` 调用 `await scan.start(libraryPaths)`，然后在终态时 `dispatch('refreshLibrary')`
-
-- [ ] **Step 4: 跑前端 tests（关键集 + svelte-check）**
+- [ ] **Step 6: 跑前端 tests（关键集 + svelte-check）**
 
 Run:
 ```bash
-npm --prefix ./src run test -- --run tests/app-shell.test.ts tests/library-scan-store.test.ts
+npm --prefix ./src run test -- --run tests/app-shell.test.ts tests/app-shell-wiring.test.ts tests/library-scan-store.test.ts
 npm --prefix ./src run check
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/features/app-shell/store.ts src/lib/views/SettingsView.svelte src/tests/app-shell.test.ts
-git commit -m "feat(library-scan): wire autoscan and settings rescan UI"
+git add src/lib/features/app-shell/store.ts src/App.svelte src/lib/views/SettingsView.svelte src/tests/app-shell.test.ts src/tests/app-shell-wiring.test.ts
+git commit -m "feat(library-scan): share scan state across autoscan and settings"
 ```
 
 ---
