@@ -1,5 +1,9 @@
 //! Library service backed by SQLite for managing normalized music metadata.
 
+mod scan;
+#[allow(unused_imports)]
+pub use scan::*;
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
