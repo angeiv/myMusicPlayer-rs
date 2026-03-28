@@ -4,7 +4,14 @@ mod scan;
 #[allow(unused_imports)]
 pub use scan::*;
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use anyhow::{Context, Result, anyhow};
 use chrono::{TimeZone, Utc};
@@ -17,12 +24,70 @@ use lofty::{
 use log::{info, warn};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use uuid::Uuid;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 use crate::models::{Album, Artist, Track};
 use crate::utils;
 
 const DB_FILE_NAME: &str = "library.sqlite";
+
+#[derive(Debug, Clone)]
+pub struct ScanProgress {
+    pub current_path: PathBuf,
+    pub processed_files: u64,
+    pub inserted_tracks: u64,
+    pub error_count: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScanSummary {
+    pub processed_files: u64,
+    pub inserted_tracks: u64,
+    pub error_count: u64,
+    pub sample_errors: Vec<ScanErrorSample>,
+    pub cancelled: bool,
+}
+
+fn scan_entry_is_visible(entry: &DirEntry) -> bool {
+    if entry.depth() == 0 {
+        return true;
+    }
+
+    let Some(name) = entry.file_name().to_str() else {
+        return true;
+    };
+
+    // Skip hidden files and directories.
+    if name.starts_with('.') {
+        return false;
+    }
+
+    // Skip common noise directories.
+    if entry.file_type().is_dir() && matches!(name, "node_modules" | "target") {
+        return false;
+    }
+
+    true
+}
+
+fn push_scan_error(
+    error_count: &mut u64,
+    sample_errors: &mut Vec<ScanErrorSample>,
+    sample_limit: usize,
+    kind: ScanErrorKind,
+    path: String,
+    message: String,
+) {
+    *error_count += 1;
+
+    if sample_errors.len() < sample_limit {
+        sample_errors.push(ScanErrorSample {
+            path,
+            message,
+            kind,
+        });
+    }
+}
 
 /// Raw metadata decoded from an audio file before persistence.
 #[derive(Debug)]
@@ -55,6 +120,14 @@ impl LibraryService {
     pub fn new() -> Result<Self> {
         let db_path = default_database_path()?;
         let mut conn = Connection::open(db_path).context("Failed to open library database")?;
+        initialize_schema(&mut conn)?;
+        Ok(Self { conn })
+    }
+
+    #[cfg(test)]
+    pub fn new_with_path_for_tests<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let mut conn =
+            Connection::open(path.as_ref()).context("Failed to open library database")?;
         initialize_schema(&mut conn)?;
         Ok(Self { conn })
     }
@@ -118,6 +191,154 @@ impl LibraryService {
 
         tx.commit()?;
         Ok(inserted)
+    }
+
+    pub fn scan_roots_with_control(
+        &mut self,
+        roots: &[PathBuf],
+        cancel_flag: &Arc<AtomicBool>,
+        sample_limit: usize,
+        mut on_progress: impl FnMut(&ScanProgress),
+    ) -> Result<ScanSummary> {
+        let tx = self.conn.transaction()?;
+        let mut processed_files = 0u64;
+        let mut inserted_tracks = 0u64;
+        let mut error_count = 0u64;
+        let mut sample_errors: Vec<ScanErrorSample> = Vec::new();
+        let mut seen_files: HashSet<PathBuf> = HashSet::new();
+        let mut cancelled = false;
+
+        'scan: for root in roots {
+            if cancel_flag.load(Ordering::SeqCst) {
+                cancelled = true;
+                break;
+            }
+
+            if !root.exists() || !root.is_dir() {
+                push_scan_error(
+                    &mut error_count,
+                    &mut sample_errors,
+                    sample_limit,
+                    ScanErrorKind::InvalidPath,
+                    root.display().to_string(),
+                    "Root path does not exist or is not a directory".to_string(),
+                );
+                continue;
+            }
+
+            for entry in WalkDir::new(root)
+                .follow_links(false)
+                .into_iter()
+                .filter_entry(scan_entry_is_visible)
+            {
+                match entry {
+                    Ok(entry) => {
+                        if !entry.file_type().is_file() {
+                            continue;
+                        }
+
+                        let is_audio = entry
+                            .path()
+                            .extension()
+                            .and_then(|ext| ext.to_str())
+                            .map(is_supported_extension)
+                            .unwrap_or(false);
+
+                        if !is_audio {
+                            continue;
+                        }
+
+                        // Cancellation is checked right before processing each candidate file so we can
+                        // commit partial work.
+                        if cancel_flag.load(Ordering::SeqCst) {
+                            cancelled = true;
+                            break 'scan;
+                        }
+
+                        let file_path = entry.path().to_path_buf();
+                        if !seen_files.insert(file_path.clone()) {
+                            continue;
+                        }
+
+                        processed_files += 1;
+
+                        match extract_metadata(&file_path) {
+                            Ok(raw) => match persist_track(&tx, raw) {
+                                Ok(created_new) => {
+                                    if created_new {
+                                        inserted_tracks += 1;
+                                    }
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        "Failed to persist metadata for {}: {}",
+                                        file_path.display(),
+                                        err
+                                    );
+                                    push_scan_error(
+                                        &mut error_count,
+                                        &mut sample_errors,
+                                        sample_limit,
+                                        ScanErrorKind::Persist,
+                                        file_path.display().to_string(),
+                                        err.to_string(),
+                                    );
+                                }
+                            },
+                            Err(err) => {
+                                warn!(
+                                    "Failed to read metadata for {}: {}",
+                                    file_path.display(),
+                                    err
+                                );
+                                push_scan_error(
+                                    &mut error_count,
+                                    &mut sample_errors,
+                                    sample_limit,
+                                    ScanErrorKind::ReadMetadata,
+                                    file_path.display().to_string(),
+                                    err.to_string(),
+                                );
+                            }
+                        }
+
+                        let progress = ScanProgress {
+                            current_path: file_path,
+                            processed_files,
+                            inserted_tracks,
+                            error_count,
+                        };
+                        on_progress(&progress);
+                    }
+                    Err(err) => {
+                        let path = err
+                            .path()
+                            .map(|path| path.display().to_string())
+                            .unwrap_or_else(|| "<unknown>".to_string());
+
+                        warn!("WalkDir error for {}: {}", path, err);
+                        push_scan_error(
+                            &mut error_count,
+                            &mut sample_errors,
+                            sample_limit,
+                            ScanErrorKind::Walk,
+                            path,
+                            err.to_string(),
+                        );
+                    }
+                }
+            }
+        }
+
+        tx.commit()?;
+
+        Ok(ScanSummary {
+            processed_files,
+            inserted_tracks,
+            error_count,
+            sample_errors,
+            cancelled,
+        })
     }
 
     /// Retrieve all tracks currently stored in the library.
@@ -877,12 +1098,143 @@ fn query_tracks_with_condition(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
+    use std::{
+        fs,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+    };
+
+    use tempfile::{NamedTempFile, TempDir};
+
+    fn touch_empty_mp3(path: &Path) {
+        fs::write(path, []).unwrap();
+    }
+
+    fn new_test_service(tmp: &TempDir) -> LibraryService {
+        let db_path = tmp.path().join("library.sqlite");
+        LibraryService::new_with_path_for_tests(&db_path).unwrap()
+    }
 
     #[test]
     fn schema_initializes_successfully() {
         let temp = NamedTempFile::new().unwrap();
         let mut conn = Connection::open(temp.path()).unwrap();
         initialize_schema(&mut conn).unwrap();
+    }
+
+    #[test]
+    fn scan_skips_hidden_entries() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+
+        let root = tmp.path().join("root");
+        fs::create_dir_all(&root).unwrap();
+
+        let visible_dir = root.join("music");
+        fs::create_dir_all(&visible_dir).unwrap();
+        touch_empty_mp3(&visible_dir.join("visible.mp3"));
+
+        let hidden_dir = root.join(".hidden");
+        fs::create_dir_all(&hidden_dir).unwrap();
+        touch_empty_mp3(&hidden_dir.join("hidden.mp3"));
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let roots = vec![root];
+
+        let mut progress_calls = 0u64;
+        let summary = service
+            .scan_roots_with_control(&roots, &cancel_flag, 10, |_| {
+                progress_calls += 1;
+            })
+            .unwrap();
+
+        assert_eq!(summary.processed_files, 1);
+        assert_eq!(summary.error_count, 1);
+        assert_eq!(progress_calls, 1);
+    }
+
+    #[test]
+    fn scan_caps_error_samples() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+
+        let root = tmp.path().join("root");
+        fs::create_dir_all(&root).unwrap();
+
+        for name in ["a.mp3", "b.mp3", "c.mp3", "d.mp3", "e.mp3"] {
+            touch_empty_mp3(&root.join(name));
+        }
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let roots = vec![root];
+
+        let summary = service
+            .scan_roots_with_control(&roots, &cancel_flag, 2, |_| {})
+            .unwrap();
+
+        assert_eq!(summary.processed_files, 5);
+        assert_eq!(summary.error_count, 5);
+        assert_eq!(summary.sample_errors.len(), 2);
+        assert!(summary
+            .sample_errors
+            .iter()
+            .all(|sample| sample.kind == ScanErrorKind::ReadMetadata));
+    }
+
+    #[test]
+    fn scan_dedupes_overlapping_roots() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+
+        let root = tmp.path().join("root");
+        let sub = root.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        touch_empty_mp3(&sub.join("dup.mp3"));
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let roots = vec![root, sub];
+
+        let summary = service
+            .scan_roots_with_control(&roots, &cancel_flag, 10, |_| {})
+            .unwrap();
+
+        assert_eq!(summary.processed_files, 1);
+        assert_eq!(summary.error_count, 1);
+    }
+
+    #[test]
+    fn scan_honors_cancel_flag_and_commits_partial_work() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+
+        let root = tmp.path().join("root");
+        fs::create_dir_all(&root).unwrap();
+
+        for name in ["a.mp3", "b.mp3", "c.mp3"] {
+            touch_empty_mp3(&root.join(name));
+        }
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let roots = vec![root];
+
+        let mut seen_progress = 0u64;
+        let summary = service
+            .scan_roots_with_control(&roots, &cancel_flag, 10, |_| {
+                seen_progress += 1;
+                if seen_progress == 1 {
+                    cancel_flag.store(true, Ordering::SeqCst);
+                }
+            })
+            .unwrap();
+
+        assert!(summary.cancelled);
+        assert_eq!(summary.processed_files, 1);
+        assert_eq!(summary.error_count, 1);
+
+        // Ensure the database remains usable after a cancelled scan.
+        let tracks = service.get_tracks().unwrap();
+        assert!(tracks.is_empty());
     }
 }
