@@ -222,7 +222,12 @@ pub async fn start_library_scan(
         match scan_result {
             Ok(summary) => {
                 let ended_at_ms = now_ms();
-                let phase = if cancel_flag.load(Ordering::SeqCst) {
+
+                let cancelled = summary.cancelled;
+                let error_count = summary.error_count;
+                let sample_errors = summary.sample_errors;
+
+                let phase = if cancelled {
                     ScanPhase::Cancelled
                 } else {
                     ScanPhase::Completed
@@ -236,11 +241,9 @@ pub async fn start_library_scan(
                 scan.status.phase = phase;
                 scan.status.ended_at_ms = Some(ended_at_ms);
 
-                let mut combined = scan.status.sample_errors.clone();
-                combined.extend(summary.sample_errors);
-                combined.truncate(sample_limit);
-                scan.status.sample_errors = combined;
-                scan.status.error_count = invalid_count + summary.error_count;
+                scan.status.sample_errors.extend(sample_errors);
+                scan.status.sample_errors.truncate(sample_limit);
+                scan.status.error_count = invalid_count + error_count;
             }
             Err(err) => {
                 error!("Library scan failed: {}", err);
@@ -256,14 +259,18 @@ pub async fn start_library_scan(
                 scan.status.ended_at_ms = Some(ended_at_ms);
 
                 let status = &mut scan.status;
-                push_error_sample(
-                    &mut status.error_count,
-                    &mut status.sample_errors,
-                    sample_limit,
-                    ScanErrorKind::Persist,
-                    "<scan>".to_string(),
-                    err.to_string(),
-                );
+
+                status.error_count += 1;
+                status.sample_errors.push(ScanErrorSample {
+                    path: "<scan>".to_string(),
+                    message: err.to_string(),
+                    kind: ScanErrorKind::Persist,
+                });
+
+                if status.sample_errors.len() > sample_limit {
+                    let excess = status.sample_errors.len() - sample_limit;
+                    status.sample_errors.drain(0..excess);
+                }
             }
         }
     });
