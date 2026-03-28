@@ -111,9 +111,9 @@ export interface ScanErrorSample {
 
 export interface ScanStatus {
   phase: ScanPhase;
-  started_at_ms?: number;
-  ended_at_ms?: number;
-  current_path?: string;
+  started_at_ms?: number | null;
+  ended_at_ms?: number | null;
+  current_path?: string | null;
   processed_files: number;
   inserted_tracks: number;
   error_count: number;

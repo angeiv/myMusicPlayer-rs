@@ -58,7 +58,7 @@ export async function searchLibrary(query: string): Promise<SearchResults> {
 }
 
 export async function startLibraryScan(paths: string[]): Promise<void> {
-  return invoke<void>('start_library_scan', { paths });
+  await invoke<void>('start_library_scan', { paths });
 }
 
 export async function getLibraryScanStatus(): Promise<ScanStatus> {
@@ -66,6 +66,6 @@ export async function getLibraryScanStatus(): Promise<ScanStatus> {
 }
 
 export async function cancelLibraryScan(): Promise<void> {
-  return invoke<void>('cancel_library_scan');
+  await invoke<void>('cancel_library_scan');
 }
 
