@@ -145,6 +145,11 @@ pub async fn start_library_scan(
             "Failed to access library scan state".to_string()
         })?;
 
+        // Re-check under lock in case another request started a scan while we validated paths.
+        if matches!(scan.status.phase, ScanPhase::Running | ScanPhase::Cancelling) {
+            return Err("Library scan already running".to_string());
+        }
+
         scan.cancel_flag.store(false, Ordering::SeqCst);
 
         scan.status.phase = ScanPhase::Idle;
