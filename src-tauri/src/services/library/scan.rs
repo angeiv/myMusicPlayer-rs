@@ -67,19 +67,31 @@ pub fn dedupe_overlapping_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
 
     let mut kept: Vec<PathBuf> = Vec::new();
     for root in sorted {
-        if kept.iter().any(|k| root.starts_with(k)) {
+        // Always dedupe exact duplicates, regardless of dangerousness.
+        if kept.iter().any(|k| k == &root) {
             continue;
         }
 
-        if !kept.iter().any(|k| k == &root) {
-            kept.push(root);
+        // Only treat a kept root as covering a descendant if it's not dangerous.
+        if kept
+            .iter()
+            .any(|k| !is_dangerous_root(k.as_path()) && root.starts_with(k))
+        {
+            continue;
         }
+
+        kept.push(root);
     }
 
     kept
 }
 
 pub fn is_dangerous_root(path: &Path) -> bool {
+    // Reject unnormalized / potentially bypassing inputs.
+    if path.components().any(|c| matches!(c, Component::ParentDir)) {
+        return true;
+    }
+
     // exact match
     if path == Path::new("/") {
         return true;
@@ -138,6 +150,26 @@ mod tests {
         let roots = vec![PathBuf::from("/music"), PathBuf::from("/music/sub")];
         let deduped = dedupe_overlapping_roots(&roots);
         assert_eq!(deduped, vec![PathBuf::from("/music")]);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn dedupe_roots_keeps_descendant_when_ancestor_is_dangerous() {
+        let roots = vec![PathBuf::from("/Volumes"), PathBuf::from("/Volumes/MyDisk/Music")];
+        let deduped = dedupe_overlapping_roots(&roots);
+        assert_eq!(
+            deduped,
+            vec![
+                PathBuf::from("/Volumes"),
+                PathBuf::from("/Volumes/MyDisk/Music")
+            ]
+        );
+    }
+
+    #[test]
+    fn parent_dir_component_is_dangerous() {
+        let path = PathBuf::from("music").join("..").join("secret");
+        assert!(is_dangerous_root(&path));
     }
 
     #[test]
