@@ -48,6 +48,24 @@ pub struct LibraryScanState {
     pub cancel_flag: Arc<AtomicBool>,
 }
 
+impl LibraryScanState {
+    pub fn new_idle() -> Self {
+        Self {
+            status: ScanStatus {
+                phase: ScanPhase::Idle,
+                started_at_ms: None,
+                ended_at_ms: None,
+                current_path: None,
+                processed_files: 0,
+                inserted_tracks: 0,
+                error_count: 0,
+                sample_errors: Vec::new(),
+            },
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
 fn normalize_root(root: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
 
@@ -155,7 +173,10 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn dedupe_roots_keeps_descendant_when_ancestor_is_dangerous() {
-        let roots = vec![PathBuf::from("/Volumes"), PathBuf::from("/Volumes/MyDisk/Music")];
+        let roots = vec![
+            PathBuf::from("/Volumes"),
+            PathBuf::from("/Volumes/MyDisk/Music"),
+        ];
         let deduped = dedupe_overlapping_roots(&roots);
         assert_eq!(
             deduped,

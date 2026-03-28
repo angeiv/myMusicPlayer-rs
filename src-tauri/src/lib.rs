@@ -27,6 +27,7 @@ pub struct AppState {
     pub audio: Arc<Mutex<services::audio::AudioService>>,
     pub library: Arc<Mutex<services::library::LibraryService>>,
     pub playlists: Arc<Mutex<services::playlist::PlaylistService>>,
+    pub library_scan: Arc<Mutex<services::library::LibraryScanState>>,
 }
 
 impl AppState {
@@ -42,6 +43,7 @@ impl AppState {
                     .map_err(anyhow::Error::msg)
                     .context("Failed to initialize playlist service")?,
             )),
+            library_scan: Arc::new(Mutex::new(services::library::LibraryScanState::new_idle())),
         })
     }
 }
@@ -138,6 +140,9 @@ pub fn run() {
             crate::api::audio::get_output_device,
             // Library commands
             crate::api::library::scan_directory,
+            crate::api::library::start_library_scan,
+            crate::api::library::get_library_scan_status,
+            crate::api::library::cancel_library_scan,
             crate::api::library::get_tracks,
             crate::api::library::get_track,
             crate::api::library::get_albums,
@@ -179,5 +184,6 @@ mod tests {
         assert!(state.audio.try_lock().is_ok());
         assert!(state.library.try_lock().is_ok());
         assert!(state.playlists.try_lock().is_ok());
+        assert!(state.library_scan.try_lock().is_ok());
     }
 }

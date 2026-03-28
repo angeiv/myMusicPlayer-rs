@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::models::{Album, Artist, Track};
+use crate::services::library::{ScanPhase, ScanStatus};
 
 type LibrarySearchResult = (Vec<Track>, Vec<Album>, Vec<Artist>);
 
@@ -24,6 +25,60 @@ pub async fn scan_directory(path: PathBuf, state: State<'_, AppState>) -> Result
         error!("Failed to scan directory: {}", e);
         e.to_string()
     })
+}
+
+/// Get current library scan status (Task 2 placeholder)
+#[tauri::command]
+pub async fn get_library_scan_status(state: State<'_, AppState>) -> Result<ScanStatus, String> {
+    let scan = state.library_scan.lock().map_err(|e| {
+        error!("Failed to acquire library_scan lock: {}", e);
+        "Failed to access library scan state".to_string()
+    })?;
+
+    Ok(scan.status.clone())
+}
+
+/// Request cancellation of a running library scan (Task 2 placeholder)
+#[tauri::command]
+pub async fn cancel_library_scan(state: State<'_, AppState>) -> Result<(), String> {
+    let mut scan = state.library_scan.lock().map_err(|e| {
+        error!("Failed to acquire library_scan lock: {}", e);
+        "Failed to access library scan state".to_string()
+    })?;
+
+    scan.cancel_flag
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    scan.status.phase = ScanPhase::Cancelling;
+
+    Ok(())
+}
+
+/// Start a library scan for one or more roots (Task 2 placeholder)
+#[tauri::command]
+pub async fn start_library_scan(
+    paths: Vec<PathBuf>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    info!("Starting library scan for {} path(s)", paths.len());
+
+    let mut scan = state.library_scan.lock().map_err(|e| {
+        error!("Failed to acquire library_scan lock: {}", e);
+        "Failed to access library scan state".to_string()
+    })?;
+
+    // Reset cancellation + counters. Background scan thread will be implemented in Task 3.
+    scan.cancel_flag
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    scan.status.phase = ScanPhase::Running;
+    scan.status.started_at_ms = None;
+    scan.status.ended_at_ms = None;
+    scan.status.current_path = None;
+    scan.status.processed_files = 0;
+    scan.status.inserted_tracks = 0;
+    scan.status.error_count = 0;
+    scan.status.sample_errors.clear();
+
+    Ok(())
 }
 
 /// Get all tracks in the library
