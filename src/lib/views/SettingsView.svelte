@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { createEventDispatcher } from 'svelte';
+  import type { Readable } from 'svelte/store';
   import { applyThemeToDocument } from '../features/app-shell/theme';
   import { normalizeConfigForSettings, normalizeTheme } from '../transport/config';
   import {
@@ -11,7 +12,6 @@
     removeLibraryPath,
     saveConfig as saveConfigCommand,
   } from '../api/config';
-  import { scanDirectory } from '../api/library';
   import {
     getOutputDevices,
     getOutputDevice,
@@ -23,12 +23,17 @@
     switchOutputDeviceWithHydration,
   } from './settings-output-device';
 
-  import type { AppConfig, OutputDeviceInfo, ThemeOption } from '../types';
+  import type { AppConfig, OutputDeviceInfo, ScanStatus, ThemeOption } from '../types';
 
   const dispatch = createEventDispatcher<{
     refreshLibrary: void;
     refreshPlaylists: void;
   }>();
+
+  export let scanStatus: Readable<ScanStatus>;
+  export let isScanning: Readable<boolean>;
+  export let runLibraryScan: (paths: string[]) => Promise<ScanStatus>;
+  export let cancelLibraryScan: () => Promise<void>;
 
   let libraryPaths: string[] = [];
   let isUpdatingPaths = false;
@@ -155,13 +160,20 @@
 
   async function handleRescan() {
     try {
-      for (const path of libraryPaths) {
-        await scanDirectory(path);
-      }
+      await runLibraryScan(libraryPaths);
       dispatch('refreshLibrary');
     } catch (error) {
       console.error('Rescan failed:', error);
       alert('Rescan failed.');
+    }
+  }
+
+  async function handleCancelScan() {
+    try {
+      await cancelLibraryScan();
+    } catch (error) {
+      console.error('Failed to cancel scan:', error);
+      alert('Failed to cancel scan.');
     }
   }
 
@@ -242,14 +254,44 @@
             {/each}
           </ul>
         {/if}
+
+        <div class="scan-status" aria-live="polite">
+          <div class="scan-status-row">
+            <span class="muted">Scan</span>
+            <span class="scan-phase">{$scanStatus.phase}</span>
+          </div>
+
+          {#if $scanStatus.current_path}
+            <div class="scan-status-row">
+              <span class="muted">Current</span>
+              <span class="scan-current">{$scanStatus.current_path}</span>
+            </div>
+          {/if}
+
+          <div class="scan-metrics">
+            <span>Files: {$scanStatus.processed_files}</span>
+            <span>Tracks: {$scanStatus.inserted_tracks}</span>
+            {#if $scanStatus.error_count > 0}
+              <span class="scan-errors">Errors: {$scanStatus.error_count}</span>
+            {/if}
+          </div>
+        </div>
       </div>
       <footer>
         <button class="primary" on:click={handleAddFolder} disabled={isUpdatingPaths}>
           ➕ Add Folder
         </button>
-        <button on:click={handleRescan} disabled={libraryPaths.length === 0 || isUpdatingPaths}>
+        <button
+          on:click={handleRescan}
+          disabled={libraryPaths.length === 0 || isUpdatingPaths || $isScanning}
+        >
           🔄 Rescan Now
         </button>
+        {#if $isScanning}
+          <button class="danger" on:click={handleCancelScan} disabled={isUpdatingPaths}>
+            ✋ Cancel Scan
+          </button>
+        {/if}
       </footer>
     </section>
 
@@ -428,6 +470,48 @@
     cursor: not-allowed;
   }
 
+  .scan-status {
+    margin-top: 16px;
+    padding: 12px;
+    border-radius: 12px;
+    background: rgba(30, 41, 59, 0.4);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 0.95rem;
+  }
+
+  .scan-status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  .scan-phase {
+    text-transform: capitalize;
+    color: #f8fafc;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scan-current {
+    overflow-wrap: anywhere;
+    text-align: right;
+    color: rgba(226, 232, 240, 0.9);
+  }
+
+  .scan-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    color: rgba(148, 163, 184, 0.75);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scan-errors {
+    color: #fecaca;
+  }
+
   footer {
     padding: 0 24px 20px 24px;
     display: flex;
@@ -453,6 +537,11 @@
     background: rgba(34, 197, 94, 0.3);
     color: #dcfce7;
     box-shadow: 0 12px 24px rgba(34, 197, 94, 0.2);
+  }
+
+  .danger {
+    background: rgba(239, 68, 68, 0.25);
+    color: #fecaca;
   }
 
   .muted {

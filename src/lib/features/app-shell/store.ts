@@ -4,9 +4,18 @@ import * as configApi from '../../api/config';
 import * as libraryApi from '../../api/library';
 import * as playbackApi from '../../api/playback';
 import * as playlistApi from '../../api/playlist';
-import type { Album, Artist, Playlist, SearchResults, ThemeOption, Track } from '../../types';
+import type {
+  Album,
+  Artist,
+  Playlist,
+  ScanStatus,
+  SearchResults,
+  ThemeOption,
+  Track,
+} from '../../types';
 import type { RouteMatch } from '../../routing/routes';
 import { normalizeConfigForRestore } from '../../transport/config';
+import { createLibraryScanStore } from '../library-scan/store';
 import { applyThemeToDocument } from './theme';
 
 export type AppShellStoreDependencies = {
@@ -22,7 +31,9 @@ export type AppShellStoreDependencies = {
   applyTheme: (theme: ThemeOption) => void;
   setOutputDevice: (deviceId: string) => Promise<void>;
   setVolume: (volume: number) => Promise<void>;
-  scanDirectory: (path: string) => Promise<unknown>;
+  startLibraryScan: (paths: string[]) => Promise<void>;
+  getLibraryScanStatus: () => Promise<ScanStatus>;
+  cancelLibraryScan: () => Promise<void>;
   getTracks: () => Promise<Track[]>;
   getAlbums: () => Promise<Album[]>;
   getArtists: () => Promise<Artist[]>;
@@ -39,12 +50,16 @@ export type AppShellStore = {
   artists: Writable<Artist[]>;
   playlists: Writable<Playlist[]>;
   counts: Readable<{ songs: number; albums: number; artists: number }>;
+  scanStatus: Readable<ScanStatus>;
+  isScanning: Readable<boolean>;
   isLibraryLoading: Writable<boolean>;
   isSearching: Writable<boolean>;
   searchResults: Writable<SearchResults | null>;
   bootstrap: () => Promise<void>;
   loadLibrary: () => Promise<void>;
   loadPlaylists: () => Promise<void>;
+  runLibraryScan: (paths: string[]) => Promise<ScanStatus>;
+  cancelLibraryScan: () => Promise<void>;
   syncRouteSearch: (route: RouteMatch) => Promise<void>;
   createPlaylistFromPrompt: () => Promise<void>;
 };
@@ -57,7 +72,9 @@ function defaultDependencies(): AppShellStoreDependencies {
     applyTheme: applyThemeToDocument,
     setOutputDevice: playbackApi.setOutputDevice,
     setVolume: playbackApi.setVolume,
-    scanDirectory: libraryApi.scanDirectory,
+    startLibraryScan: libraryApi.startLibraryScan,
+    getLibraryScanStatus: libraryApi.getLibraryScanStatus,
+    cancelLibraryScan: libraryApi.cancelLibraryScan,
     getTracks: libraryApi.getTracks,
     getAlbums: libraryApi.getAlbums,
     getArtists: libraryApi.getArtists,
@@ -71,8 +88,12 @@ function defaultDependencies(): AppShellStoreDependencies {
   };
 }
 
+function isActiveScanPhase(phase: ScanStatus['phase']): boolean {
+  return phase === 'running' || phase === 'cancelling';
+}
+
 export function createAppShellStore(
-  overrides: Partial<AppShellStoreDependencies> = {}
+  overrides: Partial<AppShellStoreDependencies> = {},
 ): AppShellStore {
   const deps: AppShellStoreDependencies = { ...defaultDependencies(), ...overrides };
 
@@ -84,11 +105,46 @@ export function createAppShellStore(
   const isSearching = writable<boolean>(false);
   const searchResults = writable<SearchResults | null>(null);
 
+  const scan = createLibraryScanStore({
+    startLibraryScan: deps.startLibraryScan,
+    getLibraryScanStatus: deps.getLibraryScanStatus,
+    cancelLibraryScan: deps.cancelLibraryScan,
+  });
+
+  const scanStatus = scan.status;
+  const isScanning = scan.isScanning;
+
   const counts = derived([tracks, albums, artists], ([$tracks, $albums, $artists]) => ({
     songs: $tracks.length,
     albums: $albums.length,
     artists: $artists.length,
   }));
+
+  async function waitForScanToFinish(): Promise<ScanStatus> {
+    return new Promise((resolve) => {
+      let unsubscribe = () => {};
+      unsubscribe = scanStatus.subscribe((status) => {
+        if (!isActiveScanPhase(status.phase)) {
+          unsubscribe();
+          resolve(status);
+        }
+      });
+    });
+  }
+
+  async function runLibraryScan(paths: string[]): Promise<ScanStatus> {
+    isLibraryLoading.set(true);
+    try {
+      await scan.start(paths);
+      return await waitForScanToFinish();
+    } finally {
+      isLibraryLoading.set(false);
+    }
+  }
+
+  async function cancelLibraryScan(): Promise<void> {
+    await scan.cancel();
+  }
 
   async function loadLibrary(): Promise<void> {
     isLibraryLoading.set(true);
@@ -138,14 +194,7 @@ export function createAppShellStore(
     }
 
     if (restored.autoScan) {
-      isLibraryLoading.set(true);
-      try {
-        for (const path of restored.libraryPaths) {
-          await deps.scanDirectory(path);
-        }
-      } finally {
-        isLibraryLoading.set(false);
-      }
+      await runLibraryScan(restored.libraryPaths);
     }
 
     await loadLibrary();
@@ -198,14 +247,17 @@ export function createAppShellStore(
     artists,
     playlists,
     counts,
+    scanStatus,
+    isScanning,
     isLibraryLoading,
     isSearching,
     searchResults,
     bootstrap,
     loadLibrary,
     loadPlaylists,
+    runLibraryScan,
+    cancelLibraryScan,
     syncRouteSearch,
     createPlaylistFromPrompt,
   };
 }
-
