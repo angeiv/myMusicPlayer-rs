@@ -122,13 +122,32 @@ export function createAppShellStore(
 
   async function waitForScanToFinish(): Promise<ScanStatus> {
     return new Promise((resolve) => {
-      let unsubscribe = () => {};
+      let unsubscribe: (() => void) | undefined;
+      let pendingUnsubscribe = false;
+      let settled = false;
+
+      const settle = (status: ScanStatus) => {
+        if (settled) return;
+        settled = true;
+
+        if (unsubscribe) {
+          unsubscribe();
+        } else {
+          pendingUnsubscribe = true;
+        }
+
+        resolve(status);
+      };
+
       unsubscribe = scanStatus.subscribe((status) => {
         if (!isActiveScanPhase(status.phase)) {
-          unsubscribe();
-          resolve(status);
+          settle(status);
         }
       });
+
+      if (pendingUnsubscribe && unsubscribe) {
+        unsubscribe();
+      }
     });
   }
 
@@ -193,7 +212,7 @@ export function createAppShellStore(
       await deps.setVolume(restored.defaultVolume);
     }
 
-    if (restored.autoScan) {
+    if (restored.autoScan && restored.libraryPaths.length > 0) {
       await runLibraryScan(restored.libraryPaths);
     }
 

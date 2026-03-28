@@ -249,14 +249,20 @@
             {#each libraryPaths as path}
               <li>
                 <span>{path}</span>
-                <button on:click={() => handleRemovePath(path)} disabled={isUpdatingPaths}>Remove</button>
+                <button
+                  on:click={() => handleRemovePath(path)}
+                  disabled={isUpdatingPaths}
+                  aria-label={`Remove folder ${path}`}
+                >
+                  Remove
+                </button>
               </li>
             {/each}
           </ul>
         {/if}
 
-        <div class="scan-status" aria-live="polite">
-          <div class="scan-status-row">
+        <div class="scan-status">
+          <div class="scan-status-row" role="status" aria-live="polite" aria-atomic="true">
             <span class="muted">Scan</span>
             <span class="scan-phase">{$scanStatus.phase}</span>
           </div>
