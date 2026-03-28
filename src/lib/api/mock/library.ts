@@ -1,4 +1,4 @@
-import type { Album, Artist, SearchResults, Track } from '../../types';
+import type { Album, Artist, ScanStatus, SearchResults, Track } from '../../types';
 import {
   getMockAlbumById,
   getMockAlbums,
@@ -10,6 +10,35 @@ import {
   getMockTracksByArtist,
   searchMockLibrary,
 } from '../../mocks/library';
+
+let scanStatus: ScanStatus = {
+  phase: 'completed',
+  processed_files: 0,
+  inserted_tracks: 0,
+  error_count: 0,
+  sample_errors: [],
+};
+
+export async function startLibraryScan(_paths: string[]): Promise<void> {
+  const now = Date.now();
+  scanStatus = {
+    phase: 'completed',
+    started_at_ms: now,
+    ended_at_ms: now,
+    processed_files: 0,
+    inserted_tracks: 0,
+    error_count: 0,
+    sample_errors: [],
+  };
+}
+
+export async function getLibraryScanStatus(): Promise<ScanStatus> {
+  return scanStatus;
+}
+
+export async function cancelLibraryScan(): Promise<void> {
+  // no-op in web mode
+}
 
 export async function scanDirectory(_path: string): Promise<number> {
   return 0;

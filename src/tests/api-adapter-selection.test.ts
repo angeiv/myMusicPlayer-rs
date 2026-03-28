@@ -7,6 +7,9 @@ async function importLibraryAdapter(isTauri: boolean) {
   const mockGetTracks = vi.fn(async () => ['mock-library']);
   const libraryStub = {
     scanDirectory: vi.fn(),
+    startLibraryScan: vi.fn(),
+    getLibraryScanStatus: vi.fn(),
+    cancelLibraryScan: vi.fn(),
     getTracks: vi.fn(),
     getTrack: vi.fn(),
     getAlbums: vi.fn(),
