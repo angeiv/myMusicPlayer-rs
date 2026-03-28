@@ -376,12 +376,10 @@ fn scan_skips_hidden_entries() {
   std::fs::write(dir.path().join(".hidden").join("a.mp3"), b"").unwrap();
   std::fs::write(dir.path().join("b.mp3"), b"").unwrap();
 
-  // cancel_flag=false, sample_limit small
   let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-  let mut status = crate::services::library::ScanStatus::idle();
 
   let mut svc = LibraryService::new_with_path_for_tests(dir.path().join("lib.sqlite")).unwrap();
-  let summary = svc.scan_roots_with_control(&[dir.path().to_path_buf()], &cancel, &mut status, 20).unwrap();
+  let summary = svc.scan_roots_with_control(&[dir.path().to_path_buf()], &cancel, 20, |_| {}).unwrap();
 
   assert_eq!(summary.processed_files, 1);
   assert_eq!(summary.error_count, 1);
@@ -412,14 +410,27 @@ pub struct ScanSummary {
   pub sample_errors: Vec<ScanErrorSample>,
 }
 
+pub struct ScanProgress {
+  pub current_path: Option<String>,
+  pub processed_files: u64,
+  pub inserted_tracks: u64,
+  pub error_count: u64,
+  pub sample_errors_len: usize,
+}
+
 impl LibraryService {
-  pub fn scan_roots_with_control(
+  pub fn scan_roots_with_control<F>(
     &mut self,
     roots: &[PathBuf],
     cancel_flag: &Arc<AtomicBool>,
-    status: &mut ScanStatus,
     sample_limit: usize,
-  ) -> Result<ScanSummary> { /* ... */ }
+    mut on_progress: F,
+  ) -> Result<ScanSummary>
+  where
+    F: FnMut(&ScanProgress),
+  {
+    /* ... */
+  }
 }
 ```
 
@@ -428,7 +439,8 @@ impl LibraryService {
 - `filter_entry` prune：隐藏项 + 噪音目录（.git/node_modules/target）
 - 仅对支持扩展名文件计入 `processed_files`（`is_supported_extension`）
 - `HashSet<PathBuf>` 去重：重复文件 path 只处理一次
-- 每个文件前检查 `cancel_flag.load(Ordering::SeqCst)`，若 true：break 并 `tx.commit()`
+- 每个候选音频文件处理前检查 `cancel_flag.load(Ordering::SeqCst)`，若 true：停止遍历并 `tx.commit()`
+- 每处理一个文件（或每 N 个文件）调用一次 `on_progress(&ScanProgress { ... })` 上报进度（**on_progress 内部只做短锁更新**）
 - metadata 读取失败：`error_count += 1`，`sample_errors.push(...)`（<= sample_limit）
 
 - [ ] **Step 4: 为测试提供 `new_with_path_for_tests`（仅 cfg(test)）**
@@ -475,7 +487,8 @@ fn scan_honors_cancel_flag_and_commits_partial_work() { /* status sink 在 proce
   - `std::thread::spawn(move || { ... })`：
     - **注意：先 clone Arc 再 move**（`let library = state.library.clone(); let scan = state.library_scan.clone();`），不要捕获 `State<'_, AppState>` 进线程（避免 `'static`/Send 编译问题）。
     - lock `library`
-    - 调用 `scan_roots_with_control`，持续写回 `scan.status`
+    - 调用 `scan_roots_with_control(..., |progress| { /* 短锁更新 scan.status */ })`
+      - **重要：禁止长时间持有 `library_scan` 的 mutex**。必须做到每次更新都是 `lock → update → drop`，确保 `get_library_scan_status` 轮询与 `cancel_library_scan` 不被阻塞。
     - 结束时根据 cancel_flag 与结果设置 `phase=Completed/Cancelled/Failed` + `ended_at_ms=now`
 - `get_library_scan_status`：只锁 `library_scan` 返回 clone（不得触碰 `state.library`）
 - `cancel_library_scan`：
