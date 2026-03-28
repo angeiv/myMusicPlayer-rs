@@ -53,14 +53,20 @@ export function createLibraryScanStore(
 ): LibraryScanStore {
   const deps: LibraryScanStoreDependencies = { ...defaultDependencies(), ...overrides };
 
-  const status = writable<ScanStatus>(initialStatus());
+  const initial = initialStatus();
+  const status = writable<ScanStatus>(initial);
+
+  let lastKnownStatus = initial;
+  let unsubscribeLastKnownStatus: () => void = status.subscribe((value) => {
+    lastKnownStatus = value;
+  });
+
   const isScanning = derived(
     status,
     ($status) => $status.phase === 'running' || $status.phase === 'cancelling',
   );
 
   let destroyed = false;
-  let lastKnownStatus = initialStatus();
 
   let pollInterval: ReturnType<typeof deps.setInterval> | null = null;
   let pollInFlight: Promise<ScanStatus> | null = null;
@@ -130,6 +136,7 @@ export function createLibraryScanStore(
       console.error('Failed to start library scan:', error);
     }
 
+    ensurePolling();
     const next = await pollStatus();
 
     if (!isTerminalPhase(next.phase)) {
@@ -146,6 +153,7 @@ export function createLibraryScanStore(
       console.error('Failed to cancel library scan:', error);
     }
 
+    ensurePolling();
     const next = await pollStatus();
 
     if (!isTerminalPhase(next.phase)) {
@@ -156,6 +164,9 @@ export function createLibraryScanStore(
   function destroy(): void {
     destroyed = true;
     stopPolling();
+
+    unsubscribeLastKnownStatus();
+    unsubscribeLastKnownStatus = () => {};
   }
 
   return {

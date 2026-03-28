@@ -172,4 +172,58 @@ describe('library scan store', () => {
 
     store.destroy();
   });
+
+  it('recovers polling if the first status poll after start fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const completed1 = createStatus({ phase: 'completed', processed_files: 10, ended_at_ms: 1 });
+    const running = createStatus({ phase: 'running', processed_files: 0 });
+    const completed2 = createStatus({ phase: 'completed', processed_files: 42, ended_at_ms: 2 });
+
+    const getLibraryScanStatus = vi
+      .fn<LibraryScanStoreDependencies['getLibraryScanStatus']>()
+      // Seed lastKnownStatus with a terminal state from a previous scan.
+      .mockResolvedValueOnce(completed1)
+      // First poll after start fails.
+      .mockRejectedValueOnce(new Error('transient error'))
+      // Subsequent polls succeed.
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(completed2)
+      .mockResolvedValue(completed2);
+
+    const deps = createDependencies({ getLibraryScanStatus });
+    const store = createLibraryScanStore(deps);
+
+    await store.start(['/music']);
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
+    expect(get(store.status)).toMatchObject({ phase: 'completed', processed_files: 10 });
+
+    await store.start(['/music']);
+
+    // Polling failed; the store is still on the previous terminal status for now.
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(2);
+    expect(get(store.status)).toMatchObject({ phase: 'completed', processed_files: 10 });
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(3);
+    expect(get(store.status)).toMatchObject({ phase: 'running', processed_files: 0 });
+    expect(get(store.isScanning)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(4);
+    expect(get(store.status)).toMatchObject({ phase: 'completed', processed_files: 42 });
+    expect(get(store.isScanning)).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 6);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(4);
+
+    store.destroy();
+  });
 });
