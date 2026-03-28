@@ -205,10 +205,35 @@ impl LibraryService {
         let mut inserted_tracks = 0u64;
         let mut error_count = 0u64;
         let mut sample_errors: Vec<ScanErrorSample> = Vec::new();
-        let mut seen_files: HashSet<PathBuf> = HashSet::new();
+
+        let deduped_roots = dedupe_overlapping_roots(roots);
+        let should_dedupe_files = deduped_roots.len() != roots.len();
+
+        let mut scan_roots: Vec<PathBuf> = Vec::new();
+        for root in deduped_roots {
+            if is_dangerous_root(&root) {
+                push_scan_error(
+                    &mut error_count,
+                    &mut sample_errors,
+                    sample_limit,
+                    ScanErrorKind::InvalidPath,
+                    root.display().to_string(),
+                    "Root path is considered dangerous and will not be scanned".to_string(),
+                );
+                continue;
+            }
+
+            scan_roots.push(root);
+        }
+
+        let mut seen_files: Option<HashSet<PathBuf>> = if should_dedupe_files {
+            Some(HashSet::new())
+        } else {
+            None
+        };
         let mut cancelled = false;
 
-        'scan: for root in roots {
+        'scan: for root in &scan_roots {
             if cancel_flag.load(Ordering::SeqCst) {
                 cancelled = true;
                 break;
@@ -256,7 +281,10 @@ impl LibraryService {
                         }
 
                         let file_path = entry.path().to_path_buf();
-                        if !seen_files.insert(file_path.clone()) {
+                        if seen_files
+                            .as_mut()
+                            .is_some_and(|seen| !seen.insert(file_path.clone()))
+                        {
                             continue;
                         }
 
@@ -1202,6 +1230,31 @@ mod tests {
 
         assert_eq!(summary.processed_files, 1);
         assert_eq!(summary.error_count, 1);
+    }
+
+    #[test]
+    fn scan_filters_dangerous_roots_and_reports_errors() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+
+        let root = tmp.path().join("root");
+        fs::create_dir_all(&root).unwrap();
+        touch_empty_mp3(&root.join("a.mp3"));
+
+        // Include a `..` component to ensure the root is treated as dangerous.
+        let dangerous_root = root.join("..").join("root");
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let roots = vec![dangerous_root];
+
+        let summary = service
+            .scan_roots_with_control(&roots, &cancel_flag, 10, |_| {})
+            .unwrap();
+
+        assert_eq!(summary.processed_files, 0);
+        assert_eq!(summary.error_count, 1);
+        assert_eq!(summary.sample_errors.len(), 1);
+        assert_eq!(summary.sample_errors[0].kind, ScanErrorKind::InvalidPath);
     }
 
     #[test]
