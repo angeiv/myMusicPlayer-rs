@@ -48,7 +48,7 @@ pub struct LibraryScanState {
     pub cancel_flag: Arc<AtomicBool>,
 }
 
-fn normalize_root(root: &PathBuf) -> PathBuf {
+fn normalize_root(root: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
 
     for component in root.components() {
@@ -62,7 +62,7 @@ fn normalize_root(root: &PathBuf) -> PathBuf {
 }
 
 pub fn dedupe_overlapping_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut sorted: Vec<PathBuf> = roots.iter().map(normalize_root).collect();
+    let mut sorted: Vec<PathBuf> = roots.iter().map(|r| normalize_root(r)).collect();
     sorted.sort_by_key(|p| p.components().count());
 
     let mut kept: Vec<PathBuf> = Vec::new();
