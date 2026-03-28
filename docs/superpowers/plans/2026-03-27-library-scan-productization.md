@@ -155,7 +155,71 @@ cargo test --manifest-path ./src-tauri/Cargo.toml services::library::scan::tests
 
 Expected: PASS.
 
-- [ ] **Step 5: 定义 ScanPhase/ScanErrorKind/ScanStatus/LibraryScanState（带 serde rename）**
+- [ ] **Step 5: 写 failing tests：危险/系统路径识别规则（exact/prefix）**
+
+在 `src-tauri/src/services/library/scan.rs` 的 tests 模块里追加（用 `cfg` 保证跨平台可编译）：
+```rust
+#[test]
+fn macos_dangerous_root_rules() {
+  #[cfg(target_os = "macos")]
+  {
+    use std::path::Path;
+
+    assert!(is_dangerous_root(Path::new("/")));
+    assert!(is_dangerous_root(Path::new("/System")));
+    assert!(is_dangerous_root(Path::new("/Library")));
+    assert!(is_dangerous_root(Path::new("/Applications")));
+
+    // exact match 拒绝：只拒绝 /Volumes 根本身
+    assert!(is_dangerous_root(Path::new("/Volumes")));
+    assert!(!is_dangerous_root(Path::new("/Volumes/MyDisk/Music")));
+  }
+}
+```
+
+Expected: FAIL（`is_dangerous_root` 尚未实现）。
+
+- [ ] **Step 6: 实现 `is_dangerous_root()` helper（按 spec exact/prefix 规则）**
+
+In `scan.rs`:
+```rust
+use std::path::Path;
+
+pub fn is_dangerous_root(path: &Path) -> bool {
+  // exact match
+  if path == Path::new("/") {
+    return true;
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    if path == Path::new("/Volumes") {
+      return true;
+    }
+
+    // prefix / descendant reject
+    for banned in ["/System", "/Library", "/Applications"] {
+      if path.starts_with(banned) {
+        return true;
+      }
+    }
+  }
+
+  #[cfg(target_os = "linux")]
+  {
+    for banned in ["/proc", "/sys", "/dev"] {
+      if path.starts_with(banned) {
+        return true;
+      }
+    }
+  }
+
+  // Windows：MVP 先在 start 命令处做盘符根目录拒绝 + C:\\Windows 前缀拒绝（见 Task 3）
+  false
+}
+```
+
+- [ ] **Step 7: 定义 ScanPhase/ScanErrorKind/ScanStatus/LibraryScanState（带 serde rename）**
 
 In `scan.rs`:
 ```rust
@@ -195,7 +259,7 @@ pub struct LibraryScanState {
 }
 ```
 
-- [ ] **Step 6: 在 `services/library/mod.rs` 声明子模块**
+- [ ] **Step 8: 在 `services/library/mod.rs` 声明子模块**
 
 Add near top:
 ```rust
@@ -203,11 +267,11 @@ mod scan;
 pub use scan::*;
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src-tauri/src/services/library/mod.rs src-tauri/src/services/library/scan.rs
-git commit -m "feat(library-scan): add scan status model and root dedupe helpers"
+git commit -m "feat(library-scan): add scan status model and validation helpers"
 ```
 
 ---
@@ -397,15 +461,26 @@ fn scan_honors_cancel_flag_and_commits_partial_work() { /* status sink 在 proce
 
 在 `src-tauri/src/api/library/mod.rs`：
 - `start_library_scan(paths, state)`：
-  - 先锁 `library_scan`：reset 状态、清空 cancel
-  - 规范化 + 校验 + 去重 roots（调用 `scan.rs` helper），把无效 path 转成 `InvalidPath` sample
-  - 若无有效 roots：return Err
+  - 先锁 `library_scan`：
+    - 若 `status.phase` 为 `Running` 或 `Cancelling`：直接 `return Err("Scan already running".to_string())`（防重入，符合 spec）。
+    - reset 状态：计数清零、`sample_errors` 清空、`started_at_ms=now`、`ended_at_ms=None`、`current_path=None`，并将 `phase` 置为 `Running`。
+    - `cancel_flag.store(false, Ordering::SeqCst)`。
+  - 规范化 + 校验 + 去重 roots（调用 `scan.rs` helper）：
+    - 尽量 `canonicalize`（失败则保留原 path）。
+    - `exists && is_dir` 校验。
+    - 危险路径过滤：`is_dangerous_root(&path)`（exact/prefix 规则按 spec）。
+    - 对无效/危险路径：追加一次 `InvalidPath` 错误样本（计数 + 采样），并跳过该 path。
+    - 重叠路径去重：`dedupe_overlapping_roots`（丢弃子路径）。
+  - 若最终没有任何有效 roots：将 `phase` 置回 `Idle`（并可保留 `InvalidPath` 摘要供 UI 展示），然后 `return Err("No valid scan paths".to_string())`。
   - `std::thread::spawn(move || { ... })`：
-    - lock `state.library`
-    - 调用 `scan_roots_with_control`，持续写回 `library_scan.status`
-    - 结束时 set phase=Completed/Cancelled/Failed + ended_at_ms
-- `get_library_scan_status`：只锁 `library_scan` 返回 clone
-- `cancel_library_scan`：设置 cancel_flag=true，并把 phase 切为 Cancelling（若当前 Running）
+    - **注意：先 clone Arc 再 move**（`let library = state.library.clone(); let scan = state.library_scan.clone();`），不要捕获 `State<'_, AppState>` 进线程（避免 `'static`/Send 编译问题）。
+    - lock `library`
+    - 调用 `scan_roots_with_control`，持续写回 `scan.status`
+    - 结束时根据 cancel_flag 与结果设置 `phase=Completed/Cancelled/Failed` + `ended_at_ms=now`
+- `get_library_scan_status`：只锁 `library_scan` 返回 clone（不得触碰 `state.library`）
+- `cancel_library_scan`：
+  - 若当前 `phase` 为 `Running`：将 `phase` 切为 `Cancelling` 并 `cancel_flag.store(true, Ordering::SeqCst)`
+  - 若处于 `Idle/Completed/Cancelled/Failed`：no-op，返回 `Ok(())`（符合 spec）
 
 - [ ] **Step 7: 跑 Rust 全量 tests**
 
@@ -452,14 +527,14 @@ Expected: FAIL（函数不存在）。
 
 - [ ] **Step 2: 实现 tauri API wrappers**
 
-In `src/lib/api/tauri/library.ts`：
+In `src/lib/api/tauri/library.ts`（记得补齐 `import type { ScanStatus } from '../../types'`）：
 ```ts
 export async function startLibraryScan(paths: string[]): Promise<void> {
   await invoke('start_library_scan', { paths });
 }
 
-export async function getLibraryScanStatus(): Promise<unknown> {
-  return invoke('get_library_scan_status');
+export async function getLibraryScanStatus(): Promise<ScanStatus> {
+  return invoke<ScanStatus>('get_library_scan_status');
 }
 
 export async function cancelLibraryScan(): Promise<void> {
