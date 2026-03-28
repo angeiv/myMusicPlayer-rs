@@ -44,8 +44,13 @@ function initialStatus(): ScanStatus {
   };
 }
 
+function isActivePhase(phase: ScanPhase): boolean {
+  return phase === 'running' || phase === 'cancelling';
+}
+
 function isTerminalPhase(phase: ScanPhase): boolean {
-  return phase === 'completed' || phase === 'cancelled' || phase === 'failed';
+  // Treat anything other than running/cancelling as non-active; polling should stop.
+  return !isActivePhase(phase);
 }
 
 export function createLibraryScanStore(
@@ -61,10 +66,7 @@ export function createLibraryScanStore(
     lastKnownStatus = value;
   });
 
-  const isScanning = derived(
-    status,
-    ($status) => $status.phase === 'running' || $status.phase === 'cancelling',
-  );
+  const isScanning = derived(status, ($status) => isActivePhase($status.phase));
 
   let destroyed = false;
 

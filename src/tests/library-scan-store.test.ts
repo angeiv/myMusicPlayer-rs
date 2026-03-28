@@ -173,6 +173,37 @@ describe('library scan store', () => {
     store.destroy();
   });
 
+  it('stops polling if startLibraryScan rejects and backend reports idle', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const startLibraryScan = vi
+      .fn<LibraryScanStoreDependencies['startLibraryScan']>()
+      .mockRejectedValue(new Error('start failed'));
+
+    const idle = createStatus({ phase: 'idle' });
+
+    const getLibraryScanStatus = vi
+      .fn<LibraryScanStoreDependencies['getLibraryScanStatus']>()
+      .mockResolvedValue(idle);
+
+    const deps = createDependencies({ startLibraryScan, getLibraryScanStatus });
+    const store = createLibraryScanStore(deps);
+
+    await store.start(['/music']);
+
+    expect(startLibraryScan).toHaveBeenCalledWith(['/music']);
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
+    expect(get(store.status)).toMatchObject({ phase: 'idle' });
+    expect(get(store.isScanning)).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 10);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
+
+    store.destroy();
+  });
+
   it('recovers polling if the first status poll after start fails', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
