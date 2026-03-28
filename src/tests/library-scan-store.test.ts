@@ -95,4 +95,81 @@ describe('library scan store', () => {
 
     store.destroy();
   });
+
+  it('destroy() stops future polling calls', async () => {
+    const running = createStatus({ phase: 'running' });
+
+    const getLibraryScanStatus = vi
+      .fn<LibraryScanStoreDependencies['getLibraryScanStatus']>()
+      .mockResolvedValue(running);
+
+    const deps = createDependencies({ getLibraryScanStatus });
+    const store = createLibraryScanStore(deps);
+
+    await store.start(['/music']);
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(2);
+
+    store.destroy();
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 10);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('continues polling even if startLibraryScan rejects when scan is already running', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const running1 = createStatus({ phase: 'running', processed_files: 1 });
+    const running2 = createStatus({ phase: 'running', processed_files: 4 });
+    const completed = createStatus({ phase: 'completed', processed_files: 10, ended_at_ms: 123 });
+
+    const startLibraryScan = vi
+      .fn<LibraryScanStoreDependencies['startLibraryScan']>()
+      .mockRejectedValue(new Error('already running'));
+
+    const getLibraryScanStatus = vi
+      .fn<LibraryScanStoreDependencies['getLibraryScanStatus']>()
+      .mockResolvedValueOnce(running1)
+      .mockResolvedValueOnce(running2)
+      .mockResolvedValueOnce(completed)
+      .mockResolvedValue(completed);
+
+    const deps = createDependencies({ startLibraryScan, getLibraryScanStatus });
+    const store = createLibraryScanStore(deps);
+
+    await store.start(['/music']);
+
+    expect(startLibraryScan).toHaveBeenCalledWith(['/music']);
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
+    expect(get(store.status)).toMatchObject({ phase: 'running', processed_files: 1 });
+    expect(get(store.isScanning)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(2);
+    expect(get(store.status)).toMatchObject({ phase: 'running', processed_files: 4 });
+    expect(get(store.isScanning)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(3);
+    expect(get(store.status)).toMatchObject({ phase: 'completed', processed_files: 10 });
+    expect(get(store.isScanning)).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 6);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(3);
+
+    store.destroy();
+  });
 });

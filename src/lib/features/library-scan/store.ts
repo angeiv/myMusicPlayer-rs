@@ -59,7 +59,11 @@ export function createLibraryScanStore(
     ($status) => $status.phase === 'running' || $status.phase === 'cancelling',
   );
 
+  let destroyed = false;
+  let lastKnownStatus = initialStatus();
+
   let pollInterval: ReturnType<typeof deps.setInterval> | null = null;
+  let pollInFlight: Promise<ScanStatus> | null = null;
 
   function stopPolling(): void {
     if (!pollInterval) return;
@@ -67,55 +71,90 @@ export function createLibraryScanStore(
     pollInterval = null;
   }
 
-  async function pollStatus(): Promise<ScanStatus | null> {
-    try {
-      const next = await deps.getLibraryScanStatus();
-      status.set(next);
+  function ensurePolling(): void {
+    if (destroyed || pollInterval) return;
 
-      if (isTerminalPhase(next.phase)) {
-        stopPolling();
+    pollInterval = deps.setInterval(() => {
+      // Intentionally fire-and-forget: pollStatus handles its own error logging,
+      // and has an inFlight guard so timer ticks don't overlap.
+      void pollStatus();
+    }, SCAN_STATUS_POLL_INTERVAL_MS);
+  }
+
+  function setStatus(next: ScanStatus): void {
+    lastKnownStatus = next;
+    status.set(next);
+  }
+
+  async function pollStatus(): Promise<ScanStatus> {
+    if (destroyed) return lastKnownStatus;
+
+    if (pollInFlight) {
+      return pollInFlight;
+    }
+
+    pollInFlight = (async () => {
+      try {
+        const next = await deps.getLibraryScanStatus();
+        if (!destroyed) {
+          setStatus(next);
+        }
+
+        if (isTerminalPhase(next.phase)) {
+          stopPolling();
+        }
+
+        return next;
+      } catch (error) {
+        // Keep polling on transient errors; preserve last known status.
+        console.error('Failed to poll library scan status:', error);
+        return lastKnownStatus;
       }
+    })();
 
-      return next;
-    } catch (error) {
-      console.error('Failed to poll library scan status:', error);
-      stopPolling();
-      return null;
+    try {
+      return await pollInFlight;
+    } finally {
+      pollInFlight = null;
     }
   }
 
   async function start(paths: string[]): Promise<void> {
-    stopPolling();
+    if (destroyed) return;
 
     try {
       await deps.startLibraryScan(paths);
     } catch (error) {
+      // Starting can fail for reasons like "scan already running"; don't treat
+      // it as fatal. We still poll once and keep polling if scan isn't terminal.
       console.error('Failed to start library scan:', error);
-      await pollStatus();
-      return;
     }
 
     const next = await pollStatus();
-    if (!next) return;
 
     if (!isTerminalPhase(next.phase)) {
-      pollInterval = deps.setInterval(() => {
-        void pollStatus();
-      }, SCAN_STATUS_POLL_INTERVAL_MS);
+      ensurePolling();
     }
   }
 
   async function cancel(): Promise<void> {
+    if (destroyed) return;
+
     try {
       await deps.cancelLibraryScan();
     } catch (error) {
       console.error('Failed to cancel library scan:', error);
     }
 
-    await pollStatus();
+    const next = await pollStatus();
+
+    if (!isTerminalPhase(next.phase)) {
+      ensurePolling();
+    }
   }
 
   function destroy(): void {
+    destroyed = true;
     stopPolling();
   }
 
