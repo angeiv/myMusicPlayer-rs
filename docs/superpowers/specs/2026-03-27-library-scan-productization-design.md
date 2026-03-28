@@ -70,6 +70,7 @@
 - 行为：
   - 若已在扫描中：返回错误（前端应提示“扫描正在进行”）。
   - 对 `paths` 做规范化与去重（尽量 `canonicalize`），并进行有效性校验。
+  - **重叠路径去重**：将规范化后的 `paths` 按长度从短到长排序；如果某个 path 是已保留 path 的子路径（使用 `Path::starts_with` 做路径组件判断），则丢弃该子路径（因为上层目录扫描已覆盖）。
   - 对无效路径（不存在/不是目录/危险路径/无权限）：**跳过该路径**，并在 `ScanStatus` 中计入一次 `InvalidPath` 错误（计数 + 采样），继续处理其他有效路径。
   - 若最终没有任何有效路径：返回错误并不启动扫描。
   - 启动后台任务后会重置计数器（processed/inserted/errors/sampleErrors），并将 `phase` 置为 `Running`。
@@ -145,14 +146,17 @@
    - 默认忽略隐藏项：任何 path segment 的文件名以 `.` 开头则跳过（目录直接 prune）。
    - 默认忽略常见噪音目录：`.git/`, `node_modules/`, `target/`（可扩展，但 MVP 先固定一小组）。
    - 默认不跟随 symlink：`WalkDir::new(path).follow_links(false)`。
-3. **可取消**：每处理一定步数（至少每个候选音频文件之前）检查 `cancel_flag`。
-4. **错误汇总**：
+3. **去重**：在一次扫描任务内，用 `HashSet` 记录已处理的音频文件路径；当多 root 存在重叠时，避免同一文件被重复读取/入库；`processedFiles` 仅统计去重后的尝试数。
+4. **可取消**：每处理一定步数（至少每个候选音频文件之前）检查 `cancel_flag`。
+5. **错误汇总**：
    - 读取元数据失败：计数 + 采样。
    - 入库失败：计数 + 采样。
    - WalkDir entry error：计数 + 采样。
-5. **事务语义**：
+6. **事务语义**：
    - 扫描依旧使用一个 transaction（当前实现也是 tx + commit）。
    - 取消时：停止遍历，`tx.commit()` 提交已完成部分（符合“保留已入库”）。
+
+补充：数据库层面 `tracks.file_path` 为 `UNIQUE`，persist 会对已存在文件做 `UPDATE`，因此跨多次扫描不会产生重复 track；`insertedTracks` 仅代表本次新插入数量。
 
 建议新增一个内部函数（示意）：
 - `scan_directory_with_control(path, cancel_flag, status_sink) -> ScanSummary`
@@ -213,6 +217,7 @@
 
 ### 8.1 Rust
 - 忽略隐藏项：目录含 `.hidden/` 或 `.DS_Store` 等，确保不会被处理。
+- 去重：`paths` 包含重叠目录（例如 `/music` 与 `/music/sub`）时，不会重复处理同一文件；`processedFiles` 口径保持一致。
 - 取消语义：扫描中调用 cancel，确保 phase 最终为 `Cancelled`，且 `insertedTracks` 为已提交的部分（不回滚）。
 - 错误摘要 cap：构造多错误路径，验证 `errorCount` 累计正确且 `sampleErrors.len() <= N`。
 
@@ -226,6 +231,7 @@
 ## 9. 验收清单（Definition of Done for #15）
 
 - [ ] 默认忽略隐藏文件、系统目录和明显无效路径
+- [ ] 多路径/重叠目录扫描会去重（避免重复处理同一文件；入库层面保持 file_path 幂等）
 - [ ] 前后端能暴露扫描进度（Running + processedFiles + currentPath）
 - [ ] 用户可以取消扫描，且取消后状态能正确回收（Cancelled 摘要）
 - [ ] 扫描结束能返回错误摘要（errorCount + sampleErrors 前 N 条）
@@ -237,4 +243,5 @@
 ## 10. 风险与后续
 
 - 危险路径过滤为 MVP 规则集，跨平台覆盖不可能一次到位；后续可以把规则变为可配置或更精细的 allowlist。
+- 去重基于路径组件判断（`starts_with`）与运行时 `HashSet`；在极端情况下（不同路径指向同一文件的 hardlink 等）仍可能出现重复处理 —— MVP 接受。
 - 单 transaction + 大扫描可能导致 commit 较慢；MVP 接受，后续可改为分批提交。
