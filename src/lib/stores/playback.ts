@@ -252,11 +252,7 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
     const config = await deps.getConfig();
 
     if (typeof config.default_volume === 'number' && Number.isFinite(config.default_volume)) {
-      try {
-        await deps.setVolume(config.default_volume);
-      } catch (error) {
-        console.warn('Failed to apply startup volume:', error);
-      }
+      await setVolume(config.default_volume);
     }
 
     const output =
