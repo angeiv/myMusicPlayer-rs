@@ -2,7 +2,6 @@ import { derived, writable, type Readable, type Writable } from 'svelte/store';
 
 import * as configApi from '../../api/config';
 import * as libraryApi from '../../api/library';
-import * as playbackApi from '../../api/playback';
 import * as playlistApi from '../../api/playlist';
 import type {
   Album,
@@ -29,8 +28,6 @@ export type AppShellStoreDependencies = {
     libraryPaths: string[];
   };
   applyTheme: (theme: ThemeOption) => void;
-  setOutputDevice: (deviceId: string) => Promise<void>;
-  setVolume: (volume: number) => Promise<void>;
   startLibraryScan: (paths: string[]) => Promise<void>;
   getLibraryScanStatus: () => Promise<ScanStatus>;
   cancelLibraryScan: () => Promise<void>;
@@ -70,8 +67,6 @@ function defaultDependencies(): AppShellStoreDependencies {
     getConfig: configApi.getConfig,
     normalizeConfigForRestore,
     applyTheme: applyThemeToDocument,
-    setOutputDevice: playbackApi.setOutputDevice,
-    setVolume: playbackApi.setVolume,
     startLibraryScan: libraryApi.startLibraryScan,
     getLibraryScanStatus: libraryApi.getLibraryScanStatus,
     cancelLibraryScan: libraryApi.cancelLibraryScan,
@@ -203,14 +198,6 @@ export function createAppShellStore(
     const restored = deps.normalizeConfigForRestore(config);
 
     deps.applyTheme(restored.theme);
-
-    if (restored.outputDeviceId) {
-      await deps.setOutputDevice(restored.outputDeviceId);
-    }
-
-    if (typeof restored.defaultVolume === 'number') {
-      await deps.setVolume(restored.defaultVolume);
-    }
 
     if (restored.autoScan && restored.libraryPaths.length > 0) {
       await runLibraryScan(restored.libraryPaths);

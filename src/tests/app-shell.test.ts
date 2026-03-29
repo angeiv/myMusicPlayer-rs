@@ -1,6 +1,7 @@
 import { get } from 'svelte/store';
 import { describe, expect, it, vi } from 'vitest';
 
+import * as playbackApi from '../lib/api/playback';
 import { deriveAppShellRouteState } from '../lib/features/app-shell/navigation';
 import { createAppShellStore } from '../lib/features/app-shell/store';
 import type { Album, Artist, Playlist, SearchResults, Track } from '../lib/types';
@@ -82,6 +83,9 @@ describe('deriveAppShellRouteState', () => {
 
 describe('createAppShellStore', () => {
   it('preserves bootstrap ordering from greet through config restore and data loads', async () => {
+    await playbackApi.setOutputDevice('default');
+    await playbackApi.setVolume(0.7);
+
     const calls: string[] = [];
     const store = createAppShellStore({
       bootstrapDesktopShell: async () => {
@@ -103,12 +107,6 @@ describe('createAppShellStore', () => {
       },
       applyTheme: (theme) => {
         calls.push(`applyTheme:${theme}`);
-      },
-      setOutputDevice: async (deviceId) => {
-        calls.push(`setOutputDevice:${deviceId}`);
-      },
-      setVolume: async (volume) => {
-        calls.push(`setVolume:${volume}`);
       },
       startLibraryScan: async (paths) => {
         calls.push(`startLibraryScan:${paths.join(',')}`);
@@ -158,8 +156,6 @@ describe('createAppShellStore', () => {
       'getConfig',
       'normalizeConfigForRestore',
       'applyTheme:dark',
-      'setOutputDevice:device-1',
-      'setVolume:0.35',
       'startLibraryScan:/music/a,/music/b',
       'getLibraryScanStatus',
       'getTracks',
@@ -167,6 +163,10 @@ describe('createAppShellStore', () => {
       'getArtists',
       'getPlaylists',
     ]);
+
+    expect(await playbackApi.getOutputDevice()).toBeNull();
+    expect(await playbackApi.getVolume()).toBeCloseTo(0.7);
+
     expect(get(store.tracks)).toEqual(tracksFixture);
     expect(get(store.playlists)).toEqual(playlistsFixture);
     expect(get(store.counts)).toEqual({ songs: 1, albums: 1, artists: 1 });
