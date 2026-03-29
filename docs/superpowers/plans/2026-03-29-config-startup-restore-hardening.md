@@ -232,6 +232,22 @@ mod tests {
 }
 ```
 
+- [ ] **Step 1b: 写失败测试：config.json 不存在时返回 default（不报错）**
+
+在同一个 tests module 里补一条用例（示意）：
+
+```rust
+#[test]
+fn missing_config_returns_default() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("config.json");
+    assert!(!path.exists());
+
+    let config = load_config_from_path(&path).expect("missing file should return default");
+    assert_eq!(config.play_mode, "sequential");
+}
+```
+
 - [ ] **Step 2: 运行测试确认失败（函数尚不存在）**
 
 Run:
@@ -246,7 +262,11 @@ Expected: FAIL
 ```rust
 fn load_config_from_path(path: &Path) -> Result<Config, String> { /* ... */ }
 
-fn save_config_to_path_atomic(path: &Path, config: &Config) -> Result<(), String> { /* write tmp then rename */ }
+fn save_config_to_path_atomic(path: &Path, config: &Config) -> Result<(), String> {
+    /* write tmp then rename.
+     * NOTE: On Windows, rename-over-existing may fail; best-effort fallback: remove existing file then rename.
+     */
+}
 
 fn now_unix_ms() -> u128 { /* SystemTime::now() */ }
 
@@ -254,6 +274,8 @@ fn cleanup_broken_backups(dir: &Path, keep: usize) { /* best-effort */ }
 ```
 
 并让现有 `load_config()` / `save_config_to_disk()` 调用这些内部函数。
+
+注意：`load_config_from_path` 在 `path` 不存在时应直接返回 `Ok(Config::default())`（满足 Spec §9.1 的“缺失文件回退默认”）。
 
 - [ ] **Step 4: 实现“解析失败→备份→回退默认→写回新文件→清理旧备份”路径**
 
@@ -283,6 +305,9 @@ Expected: PASS
 - `get_library_paths`
 - `add_library_path`
 - `remove_library_path`
+
+注意：同文件内 `pick_and_add_library_folder()` 若直接调用 `add_library_path(...)`，在签名改为带 `State<'_, AppState>` 后会编译失败。
+- 推荐做法：抽取一个内部 helper（例如 `add_library_path_inner(resolved: PathBuf)`）封装“锁+load→mutate→save”，供 command 与 pick flow 复用。
 
 示例（poison best-effort）：
 ```rust
@@ -435,6 +460,23 @@ it('applies config preferences before refreshing playback state on start', async
 });
 ```
 
+- [ ] **Step 1b: 写失败测试：非法 play_mode 会回退 sequential**
+
+新增一个用例（示意）：
+```ts
+it('falls back to sequential when config play_mode is invalid', async () => {
+  const deps = createDependencies({
+    getConfig: vi.fn(async () => (createConfig({ play_mode: 'weird-mode' }))),
+    setPlayMode: vi.fn().mockResolvedValue(undefined),
+  } as any);
+
+  const store = createPlaybackStore(deps);
+  await store.start();
+
+  expect(deps.setPlayMode).toHaveBeenCalledWith('sequential');
+});
+```
+
 - [ ] **Step 2: 运行该测试确认失败**
 
 Run:
@@ -466,7 +508,14 @@ async function applyStartupConfig(): Promise<void> {
     : 'default';
   await deps.setOutputDevice(output);
 
-  const mode = (typeof config.play_mode === 'string' && config.play_mode) ? config.play_mode : 'sequential';
+  const rawMode = typeof config.play_mode === 'string' ? config.play_mode : '';
+  const mode =
+    rawMode === 'sequential' ||
+    rawMode === 'random' ||
+    rawMode === 'single_repeat' ||
+    rawMode === 'list_repeat'
+      ? rawMode
+      : 'sequential';
   await deps.setPlayMode(mode);
 }
 ```
