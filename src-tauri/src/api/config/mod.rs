@@ -173,12 +173,18 @@ fn save_config_to_disk(config: &Config) -> Result<(), String> {
 }
 
 fn load_config_from_path(path: &Path) -> Result<Config, String> {
-    if !path.exists() {
-        return Ok(Config::default());
-    }
-
-    let data = std::fs::read(path)
-        .map_err(|e| format!("Failed to read config file {}: {e}", path.display()))?;
+    let data = match std::fs::read(path) {
+        Ok(data) => data,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Config::default());
+        }
+        Err(err) => {
+            return Err(format!(
+                "Failed to read config file {}: {err}",
+                path.display()
+            ));
+        }
+    };
 
     match serde_json::from_slice(&data) {
         Ok(config) => Ok(config),
@@ -253,8 +259,13 @@ fn save_config_to_path_atomic(path: &Path, config: &Config) -> Result<(), String
     match std::fs::rename(&tmp_path, path) {
         Ok(()) => Ok(()),
         Err(rename_err) => {
-            // On Windows, rename-over-existing may fail; best-effort fallback: remove then rename.
-            if path.exists() {
+            // On Windows, rename-over-existing may fail with "already exists"; best-effort
+            // fallback: remove then rename. Only do this when we are confident the failure is due
+            // to the destination existing to avoid deleting a good config on unrelated errors.
+            let dest_exists_err = rename_err.kind() == std::io::ErrorKind::AlreadyExists
+                || (cfg!(windows) && rename_err.raw_os_error() == Some(183));
+
+            if dest_exists_err && path.exists() {
                 std::fs::remove_file(path).map_err(|e| {
                     let _ = std::fs::remove_file(&tmp_path);
                     format!("Failed to remove existing config file {}: {e}", path.display())
