@@ -1,5 +1,19 @@
 $ErrorActionPreference = "Stop"
 
+# Workaround: some environments contain both `Path` and `PATH` keys in the
+# process environment block. Windows PowerShell's `Start-Process -NoNewWindow`
+# fails when it tries to copy those into a case-insensitive dictionary.
+$processEnv = [System.Environment]::GetEnvironmentVariables("Process")
+if ($processEnv.ContainsKey("Path") -and $processEnv.ContainsKey("PATH")) {
+  $pathValue = [System.Environment]::GetEnvironmentVariable("Path", "Process")
+  if (-not $pathValue) {
+    $pathValue = [System.Environment]::GetEnvironmentVariable("PATH", "Process")
+  }
+
+  [System.Environment]::SetEnvironmentVariable("Path", $pathValue, "Process")
+  [System.Environment]::SetEnvironmentVariable("PATH", $null, "Process")
+}
+
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 $frontendDir = if ($env:FRONTEND_DIR) { $env:FRONTEND_DIR } else { "src" }
@@ -40,6 +54,21 @@ function Stop-ProcessTree {
   }
 }
 
+function Wait-AnyExit {
+  [CmdletBinding()]
+  param([Parameter(Mandatory = $true)][System.Diagnostics.Process[]]$Processes)
+
+  while ($true) {
+    foreach ($process in $Processes) {
+      if ($process -and $process.HasExited) {
+        return $process
+      }
+    }
+
+    Start-Sleep -Milliseconds 200
+  }
+}
+
 $env:TAURI_DEV_URL = $tauriDevUrl
 
 Write-Host "Starting Vite dev server..." -ForegroundColor Green
@@ -59,7 +88,7 @@ $backend = Start-Process `
   -PassThru
 
 try {
-  $exited = Wait-Process -Id @($frontend.Id, $backend.Id) -Any -PassThru
+  $exited = Wait-AnyExit -Processes @($frontend, $backend)
 
   if ($exited.Id -eq $frontend.Id) {
     Write-Host "Vite dev server exited; stopping Tauri dev..." -ForegroundColor Yellow
