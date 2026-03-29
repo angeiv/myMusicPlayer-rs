@@ -112,7 +112,7 @@
 
 当 `config.json` 无法解析：
 
-1) 将当前 `config.json` 重命名为 `config.json.broken-<timestamp>`（best-effort）。
+1) 将当前 `config.json` 重命名为 `config.json.broken-<unix_ms>`（best-effort）。
 2) 生成 `Config::default()` 并 **写回新的 `config.json`**（best-effort）。
 3) 返回 `Config::default()` 给前端。
 
@@ -121,8 +121,18 @@
 ### 5.2 备份保留策略（用户确认）
 
 - 在 config 目录中，匹配备份文件：`config.json.broken-*`
-- 保留策略：**最多保留最近 5 份**（按文件修改时间或从文件名解析 timestamp 排序均可；实现选择以简单可靠为准）
+- 保留策略：**最多保留最近 5 份**；排序规则：优先从文件名解析 `<unix_ms>`，解析失败则回退按文件修改时间（mtime）排序。
 - 清理：删除多余的更旧备份（best-effort；任何删除失败仅 log，不阻塞启动）
+
+### 5.3 并发与写入原子性（避免互相覆盖/再次损坏）
+
+背景问题：
+- `save_config` / `set_last_session` / 路径增删等命令都会执行 “load → 修改 → write”。
+- `set_last_session` 在播放过程中会高频写入（节流后仍会周期性发生），如果与其它配置写入并发，可能发生“互相覆盖”导致偏好丢失（例如 play_mode/output_device_id 回退）。
+
+MVP 方案：
+- 在 `AppState` 增加 `config_lock: Arc<Mutex<()>>`（或等价实现），所有涉及 config 读写/修复的命令在执行 load/write 时持有该锁，确保串行化。
+- 写入采用原子替换（best-effort）：写到 `config.json.tmp` 后再 rename 覆盖 `config.json`，降低部分写导致的文件损坏风险。
 
 ---
 
@@ -132,7 +142,8 @@
 
 - `bootstrapDesktopShell()`
 - `get_config()` → 应用 theme
-- 若 `auto_scan` 且 `library_paths` 非空：执行扫描（不会因为扫描失败而阻塞后续库加载）
+- 不在 AppShell 里应用 `default_volume/output_device_id/play_mode`（避免与 PlaybackStore 并发竞态；由 PlaybackStore.start 统一负责）
+- 若 `auto_scan` 且 `library_paths` 非空：`await runLibraryScan(paths)`，任何错误只记录并继续后续 `loadLibrary/loadPlaylists`
 - `loadLibrary()` / `loadPlaylists()`
 
 ### 6.2 PlaybackStore 负责内容（播放/音频偏好）
@@ -147,6 +158,10 @@ PlaybackStore 在 `start()` 时：
 3) 再执行现有刷新：`refreshState/refreshPlayMode/refreshOutputDeviceState`
 4) 启动轮询 interval
 
+调用时机说明（当前代码结构）：
+- `BottomPlayerBar.svelte` 在 `onMount` 调用 `playback.start()`。
+- `BottomPlayerBar` 在 `src/App.svelte` 根组件中常驻渲染，因此该 `start()` 发生在应用启动早期。
+
 失败策略：任一应用失败只 log（或写入可见的 UI error），不阻塞启动；失败后回退到后端实际值（通过 refresh 读回）。
 
 > 关键目标：避免“底栏先读到默认 output device，之后又不刷新”的不一致。
@@ -160,14 +175,20 @@ PlaybackStore 在 `start()` 时：
 当用户在底栏切换 shuffle / repeat：
 
 1) 调用后端 `set_play_mode`（现有能力）
-2) 成功后写回 config：`save_config({ play_mode: <next> })`
+2) 成功后写回 config（读-改-写，避免 partial 覆盖）：
+   - `base = await getConfig()`（调用 `get_config`）
+   - `next = { ...base, play_mode: <next> }`
+   - `await saveConfig(next)`（调用 `save_config`）
 
 ### 7.2 输出设备持久化（用户确认：底栏切换也要持久化）
 
 当用户在底栏切换输出设备：
 
 1) 调用后端 `set_output_device`
-2) 成功后写回 config：`save_config({ output_device_id: <next> })`
+2) 成功后写回 config（读-改-写，避免 partial 覆盖）：
+   - `base = await getConfig()`（调用 `get_config`）
+   - `next = { ...base, output_device_id: <next> }`
+   - `await saveConfig(next)`（调用 `save_config`）
 
 ### 7.3 配置写入的“覆盖风险”
 
