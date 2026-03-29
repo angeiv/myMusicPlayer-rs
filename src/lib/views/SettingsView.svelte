@@ -3,7 +3,11 @@
   import { createEventDispatcher } from 'svelte';
   import type { Readable } from 'svelte/store';
   import { applyThemeToDocument } from '../features/app-shell/theme';
-  import { normalizeConfigForSettings, normalizeTheme } from '../transport/config';
+  import {
+    buildNextConfigForSettingsSave,
+    normalizeConfigForSettings,
+    normalizeTheme,
+  } from '../transport/config';
   import {
     getAppVersion,
     getConfig,
@@ -42,7 +46,6 @@
   let defaultVolume = 0.7;
   let outputDevices: OutputDeviceInfo[] = [];
   let selectedDeviceId = 'default';
-  let config: AppConfig | null = null;
   let appVersion = 'unknown';
 
   onMount(async () => {
@@ -56,7 +59,6 @@
   async function loadConfig() {
     try {
       const next = await getConfig();
-      config = next;
       ({ theme, autoScan, defaultVolume, selectedDeviceId } = normalizeConfigForSettings(next, {
         autoScan,
         defaultVolume,
@@ -64,15 +66,13 @@
       }));
     } catch (error) {
       console.error('Failed to load config:', error);
-      config = null;
     }
   }
 
-  async function saveConfig(overrides: Partial<AppConfig>) {
+  async function saveConfig(overrides: Partial<AppConfig> = {}) {
     try {
-      const base = config ?? (await getConfig());
-      const next: AppConfig = {
-        ...base,
+      const base = await getConfig();
+      const patch: Partial<AppConfig> = {
         ...overrides,
         library_paths: libraryPaths,
         theme,
@@ -80,8 +80,8 @@
         auto_scan: autoScan,
         output_device_id: selectedDeviceId === 'default' ? null : selectedDeviceId,
       };
+      const next = buildNextConfigForSettingsSave(base, patch);
       await saveConfigCommand(next);
-      config = next;
     } catch (error) {
       console.error('Failed to save config:', error);
     }
