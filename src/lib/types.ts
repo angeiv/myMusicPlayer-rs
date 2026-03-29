@@ -88,6 +88,7 @@ export interface AppConfig {
   auto_scan: boolean;
   theme: ThemeOption;
   output_device_id?: string | null;
+  play_mode?: string | null;
 
   last_track_id?: string | null;
   last_position_seconds?: number | null;

@@ -33,6 +33,7 @@ function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     default_volume: 0.68,
     auto_scan: false,
     theme: 'system',
+    play_mode: 'sequential',
     ...overrides,
   };
 }
