@@ -1205,10 +1205,12 @@ mod tests {
         assert_eq!(summary.processed_files, 5);
         assert_eq!(summary.error_count, 5);
         assert_eq!(summary.sample_errors.len(), 2);
-        assert!(summary
-            .sample_errors
-            .iter()
-            .all(|sample| sample.kind == ScanErrorKind::ReadMetadata));
+        assert!(
+            summary
+                .sample_errors
+                .iter()
+                .all(|sample| sample.kind == ScanErrorKind::ReadMetadata)
+        );
     }
 
     #[test]

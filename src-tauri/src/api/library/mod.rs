@@ -8,8 +8,8 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::models::{Album, Artist, Track};
 use crate::services::library::{
-    dedupe_overlapping_roots, is_dangerous_root, now_ms, ScanErrorKind, ScanErrorSample,
-    ScanPhase, ScanStatus,
+    ScanErrorKind, ScanErrorSample, ScanPhase, ScanStatus, dedupe_overlapping_roots,
+    is_dangerous_root, now_ms,
 };
 
 type LibrarySearchResult = (Vec<Track>, Vec<Album>, Vec<Artist>);
@@ -93,7 +93,10 @@ pub async fn start_library_scan(
             "Failed to access library scan state".to_string()
         })?;
 
-        if matches!(scan.status.phase, ScanPhase::Running | ScanPhase::Cancelling) {
+        if matches!(
+            scan.status.phase,
+            ScanPhase::Running | ScanPhase::Cancelling
+        ) {
             return Err("Library scan already running".to_string());
         }
     }
@@ -146,7 +149,10 @@ pub async fn start_library_scan(
         })?;
 
         // Re-check under lock in case another request started a scan while we validated paths.
-        if matches!(scan.status.phase, ScanPhase::Running | ScanPhase::Cancelling) {
+        if matches!(
+            scan.status.phase,
+            ScanPhase::Running | ScanPhase::Cancelling
+        ) {
             return Err("Library scan already running".to_string());
         }
 
@@ -173,7 +179,10 @@ pub async fn start_library_scan(
         })?;
 
         // Re-check under lock in case a second request raced in.
-        if matches!(scan.status.phase, ScanPhase::Running | ScanPhase::Cancelling) {
+        if matches!(
+            scan.status.phase,
+            ScanPhase::Running | ScanPhase::Cancelling
+        ) {
             return Err("Library scan already running".to_string());
         }
 

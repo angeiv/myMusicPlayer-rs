@@ -19,7 +19,8 @@ impl PlaylistStore {
     }
 
     pub fn open_in_memory() -> Result<Self> {
-        let mut conn = Connection::open_in_memory().context("Failed to open in-memory playlist database")?;
+        let mut conn =
+            Connection::open_in_memory().context("Failed to open in-memory playlist database")?;
         initialize_schema(&mut conn)?;
         Ok(Self { conn })
     }
@@ -93,7 +94,11 @@ impl PlaylistStore {
                 INSERT INTO playlist_tracks (playlist_id, track_id, position)
                 VALUES (?1, ?2, ?3)
                 "#,
-                params![playlist.id.to_string(), track_id.to_string(), position as i64],
+                params![
+                    playlist.id.to_string(),
+                    track_id.to_string(),
+                    position as i64
+                ],
             )?;
         }
 
@@ -127,8 +132,9 @@ impl PlaylistStore {
         let mut track_ids = Vec::new();
         while let Some(row) = rows.next()? {
             let track_id_text: String = row.get(0)?;
-            let track_id = Uuid::parse_str(&track_id_text)
-                .with_context(|| format!("Invalid track UUID stored in database: {track_id_text}"))?;
+            let track_id = Uuid::parse_str(&track_id_text).with_context(|| {
+                format!("Invalid track UUID stored in database: {track_id_text}")
+            })?;
             track_ids.push(track_id);
         }
 
