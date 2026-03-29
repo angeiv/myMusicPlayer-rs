@@ -547,14 +547,50 @@ async function applyStartupConfig(): Promise<void> {
 
 ### 5.3 last session 失败清理
 
-- [ ] **Step 9: 写失败测试：restoreLastSession 找不到 track 会 setLastSession(null, 0)**
+- [ ] **Step 9: 写失败测试：last session 恢复失败会清理并回退**
 
-在现有“restores previous session”用例旁新增一个失败用例。
+在 `src/tests/playback-store.test.ts` 补两条失败用例（示意）：
 
-- [ ] **Step 10: 实现失败清理**
+1) **找不到 track**：`getTrack()` 返回 null → `setLastSession(null, 0)` 被调用
+2) **无法播放/恢复流程抛错**：例如 `playTrack()` reject → `setLastSession(null, 0)` 被调用，且 `togglePlayPause()` 会继续 fallback 到 `pickAndPlayFile()`
+
+- [ ] **Step 10: 实现失败清理（覆盖所有失败分支）**
 
 在 `restoreLastSession()`：
-- 如果 `getTrack(lastTrackId)` 返回 null，调用 `deps.setLastSession(null, 0)`（try/catch）后返回 false。
+- 用 `try/catch` 包住整个恢复流程（getTrack/setQueue/playTrack/seekTo）
+- 任一环节失败：best-effort 调用 `deps.setLastSession(null, 0)` 清理，并 `return false`（让 `togglePlayPause()` 走 `pickAndPlayFile()` fallback）
+
+示意：
+```ts
+async function restoreLastSession(): Promise<boolean> {
+  const config = await deps.getConfig();
+  const lastTrackId = config.last_track_id ?? null;
+  const lastPositionSeconds = config.last_position_seconds ?? 0;
+  if (!lastTrackId) return false;
+
+  try {
+    const track = await deps.getTrack(lastTrackId);
+    if (!track) throw new Error('missing last track');
+
+    await deps.setQueue([track]);
+    await deps.playTrack(track);
+    if (lastPositionSeconds > 0) {
+      await deps.seekTo(lastPositionSeconds);
+    }
+
+    return true;
+  } catch (error) {
+    console.warn('Failed to restore last session:', error);
+    try {
+      await deps.setLastSession(null, 0);
+    } catch (clearError) {
+      console.warn('Failed to clear last session:', clearError);
+    }
+    return false;
+  }
+}
+```
+
 
 - [ ] **Step 11: 运行 playback-store 测试**
 
