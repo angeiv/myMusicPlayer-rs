@@ -47,12 +47,14 @@ function createDependencies(
 
   return {
     getConfig: vi.fn().mockResolvedValue(createConfig()),
+    saveConfig: vi.fn().mockResolvedValue(undefined),
     setLastSession: vi.fn().mockResolvedValue(undefined),
     getTrack: vi.fn().mockResolvedValue(null),
     getCurrentTrack: vi.fn().mockResolvedValue(null),
     getOutputDevice: vi.fn().mockResolvedValue('default'),
     getOutputDevices: vi.fn().mockResolvedValue(defaultDevices),
     getPlayMode: vi.fn().mockResolvedValue('sequential'),
+    setPlayMode: vi.fn().mockResolvedValue(undefined),
     getPlaybackState: vi.fn().mockResolvedValue({ state: 'stopped' } satisfies PlaybackStateInfo),
     getQueue: vi.fn().mockResolvedValue([]),
     getVolume: vi.fn().mockResolvedValue(0.68),
@@ -85,6 +87,63 @@ describe('playback store', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('applies config preferences before refreshing playback state on start', async () => {
+    const calls: string[] = [];
+    const deps = createDependencies({
+      getConfig: vi.fn(async () =>
+        createConfig({
+          default_volume: 0.25,
+          output_device_id: 'usb-dac',
+          play_mode: 'random',
+        })
+      ),
+      setVolume: vi.fn(async () => calls.push('setVolume')),
+      setOutputDevice: vi.fn(async () => calls.push('setOutputDevice')),
+      setPlayMode: vi.fn(async () => calls.push('setPlayMode')),
+      getPlaybackState: vi.fn(async () => {
+        calls.push('getPlaybackState');
+        return { state: 'stopped' };
+      }),
+      getCurrentTrack: vi.fn(async () => {
+        calls.push('getCurrentTrack');
+        return null;
+      }),
+      getVolume: vi.fn(async () => {
+        calls.push('getVolume');
+        return 0.25;
+      }),
+      getPlayMode: vi.fn(async () => {
+        calls.push('getPlayMode');
+        return 'random';
+      }),
+      getOutputDevice: vi.fn(async () => {
+        calls.push('getOutputDevice');
+        return 'usb-dac';
+      }),
+    } as any);
+
+    const store = createPlaybackStore(deps);
+    await store.start();
+
+    expect(calls.slice(0, 3)).toEqual(['setVolume', 'setOutputDevice', 'setPlayMode']);
+
+    store.destroy();
+  });
+
+  it('falls back to sequential when config play_mode is invalid', async () => {
+    const deps = createDependencies({
+      getConfig: vi.fn(async () => createConfig({ play_mode: 'weird-mode' })),
+      setPlayMode: vi.fn().mockResolvedValue(undefined),
+    } as any);
+
+    const store = createPlaybackStore(deps);
+    await store.start();
+
+    expect(deps.setPlayMode).toHaveBeenCalledWith('sequential');
+
+    store.destroy();
   });
 
   it('loads playback state, play mode, output devices, and polls every second', async () => {
@@ -191,6 +250,47 @@ describe('playback store', () => {
     });
   });
 
+  it('clears last session when configured last track is missing', async () => {
+    const deps = createDependencies({
+      getConfig: vi.fn(async () =>
+        createConfig({
+          last_track_id: 'missing-track',
+          last_position_seconds: 0,
+        })
+      ),
+      getTrack: vi.fn(async () => null),
+      pickAndPlayFile: vi.fn().mockResolvedValue(undefined),
+      setLastSession: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.togglePlayPause();
+
+    expect(deps.setLastSession).toHaveBeenCalledWith(null, 0);
+  });
+
+  it('clears last session and falls back to pickAndPlayFile when restore fails', async () => {
+    const resumedTrack = createTrack({ id: 'resume-error', title: 'Resume Error Track', duration: 245 });
+    const deps = createDependencies({
+      getConfig: vi.fn(async () =>
+        createConfig({
+          last_track_id: resumedTrack.id,
+          last_position_seconds: 23,
+        })
+      ),
+      getTrack: vi.fn(async () => resumedTrack),
+      playTrack: vi.fn().mockRejectedValue(new Error('play failed')),
+      pickAndPlayFile: vi.fn().mockResolvedValue(undefined),
+      setLastSession: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.togglePlayPause();
+
+    expect(deps.setLastSession).toHaveBeenCalledWith(null, 0);
+    expect(deps.pickAndPlayFile).toHaveBeenCalledOnce();
+  });
+
   it('debounces persisted session updates and ignores near-duplicate positions', async () => {
     const track = createTrack({ id: 'persist-1' });
     const deps = createDependencies({
@@ -229,6 +329,56 @@ describe('playback store', () => {
     expect(get(store)).toMatchObject({ shuffleEnabled: false, repeatMode: 'all' });
   });
 
+  it('persists play mode changes when toggling shuffle', async () => {
+    const base = createConfig({
+      library_paths: ['/music'],
+      default_volume: 0.33,
+      auto_scan: true,
+      theme: 'dark',
+      output_device_id: 'usb-dac',
+      play_mode: 'sequential',
+    });
+
+    const deps = createDependencies({
+      getConfig: vi.fn(async () => base),
+      saveConfig: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.toggleShuffle();
+
+    expect(deps.getConfig).toHaveBeenCalled();
+    expect(deps.saveConfig).toHaveBeenCalledWith({
+      ...base,
+      play_mode: 'random',
+    });
+  });
+
+  it('persists play mode changes when cycling repeat mode', async () => {
+    const base = createConfig({
+      library_paths: ['/music'],
+      default_volume: 0.33,
+      auto_scan: true,
+      theme: 'dark',
+      output_device_id: 'usb-dac',
+      play_mode: 'sequential',
+    });
+
+    const deps = createDependencies({
+      getConfig: vi.fn(async () => base),
+      saveConfig: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.cycleRepeatMode();
+
+    expect(deps.getConfig).toHaveBeenCalled();
+    expect(deps.saveConfig).toHaveBeenCalledWith({
+      ...base,
+      play_mode: 'list_repeat',
+    });
+  });
+
   it('refreshes the queue after next-track playback when the queue popover is open', async () => {
     const nextTrack = createTrack({ id: 'next-1', title: 'Next Track' });
     const deps = createDependencies({
@@ -246,6 +396,31 @@ describe('playback store', () => {
     expect(deps.playNextTrack).toHaveBeenCalledOnce();
     expect(deps.getQueue).toHaveBeenCalledOnce();
     expect(get(store).queueTracks).toEqual([nextTrack]);
+  });
+
+  it('persists output device preference when selecting the default device', async () => {
+    const base = createConfig({
+      library_paths: ['/music'],
+      default_volume: 0.33,
+      auto_scan: true,
+      theme: 'dark',
+      output_device_id: 'usb-dac',
+      play_mode: 'sequential',
+    });
+
+    const deps = createDependencies({
+      getConfig: vi.fn(async () => base),
+      saveConfig: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.selectOutputDevice('default');
+
+    expect(deps.getConfig).toHaveBeenCalled();
+    expect(deps.saveConfig).toHaveBeenCalledWith({
+      ...base,
+      output_device_id: null,
+    });
   });
 
   it('rehydrates selected output device when switching device fails', async () => {
