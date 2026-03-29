@@ -250,6 +250,35 @@ describe('playback store', () => {
     });
   });
 
+  it('does not clear last session or fall back to pickAndPlayFile when seek fails', async () => {
+    const resumedTrack = createTrack({
+      id: 'resume-seek-fail',
+      title: 'Resume Seek Fail Track',
+      duration: 245,
+    });
+
+    const deps = createDependencies({
+      getConfig: vi.fn(async () =>
+        createConfig({
+          last_track_id: resumedTrack.id,
+          last_position_seconds: 23,
+        })
+      ),
+      getTrack: vi.fn(async () => resumedTrack),
+      seekTo: vi.fn().mockRejectedValue(new Error('seek failed')),
+      pickAndPlayFile: vi.fn().mockResolvedValue(undefined),
+      setLastSession: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.togglePlayPause();
+
+    expect(deps.playTrack).toHaveBeenCalledWith(resumedTrack);
+    expect(deps.seekTo).toHaveBeenCalledWith(23);
+    expect(deps.pickAndPlayFile).not.toHaveBeenCalled();
+    expect(deps.setLastSession).not.toHaveBeenCalledWith(null, 0);
+  });
+
   it('clears last session when configured last track is missing', async () => {
     const deps = createDependencies({
       getConfig: vi.fn(async () =>

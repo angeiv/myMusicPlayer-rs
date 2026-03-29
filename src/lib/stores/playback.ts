@@ -292,7 +292,17 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
       console.warn('Failed to apply startup preferences:', error);
     }
 
-    await Promise.all([refreshState(), refreshPlayMode(), refreshOutputDeviceState()]);
+    const refreshResults = await Promise.allSettled([
+      refreshState(),
+      refreshPlayMode(),
+      refreshOutputDeviceState(),
+    ]);
+
+    for (const result of refreshResults) {
+      if (result.status === 'rejected') {
+        console.warn('Failed to refresh playback store during start:', result.reason);
+      }
+    }
 
     if (refreshInterval) {
       deps.clearInterval(refreshInterval);
@@ -331,19 +341,16 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
 
     if (!lastTrackId) return false;
 
+    let track: Track | null;
     try {
-      const track = await deps.getTrack(lastTrackId);
-      if (!track) throw new Error('missing last track');
-
-      await deps.setQueue([track]);
-      await deps.playTrack(track);
-      if (lastPositionSeconds > 0) {
-        await deps.seekTo(lastPositionSeconds);
-      }
-
-      return true;
+      track = await deps.getTrack(lastTrackId);
     } catch (error) {
-      console.warn('Failed to restore last session:', error);
+      console.warn('Failed to load last session track:', error);
+      return false;
+    }
+
+    if (!track) {
+      console.warn('Configured last session track is missing. Clearing last session.');
       try {
         await deps.setLastSession(null, 0);
       } catch (clearError) {
@@ -351,6 +358,34 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
       }
       return false;
     }
+
+    try {
+      await deps.setQueue([track]);
+    } catch (error) {
+      console.warn('Failed to set queue for restoring session:', error);
+    }
+
+    try {
+      await deps.playTrack(track);
+    } catch (error) {
+      console.warn('Failed to play last session track:', error);
+      try {
+        await deps.setLastSession(null, 0);
+      } catch (clearError) {
+        console.warn('Failed to clear last session:', clearError);
+      }
+      return false;
+    }
+
+    if (lastPositionSeconds > 0) {
+      try {
+        await deps.seekTo(lastPositionSeconds);
+      } catch (error) {
+        console.warn('Failed to seek while restoring session:', error);
+      }
+    }
+
+    return true;
   }
 
   async function togglePlayPause(): Promise<void> {
