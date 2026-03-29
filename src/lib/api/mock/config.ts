@@ -8,6 +8,7 @@ const defaultConfig: AppConfig = {
   auto_scan: true,
   theme: 'system',
   output_device_id: null,
+  play_mode: 'sequential',
   last_track_id: null,
   last_position_seconds: 0,
 };

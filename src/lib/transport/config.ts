@@ -1,4 +1,4 @@
-import type { ThemeOption } from '../types';
+import type { AppConfig, ThemeOption } from '../types';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -90,4 +90,11 @@ export function normalizeConfigForSettings(
     defaultVolume,
     selectedDeviceId,
   };
+}
+
+export function buildNextConfigForSettingsSave(
+  base: AppConfig,
+  patch: Partial<AppConfig>
+): AppConfig {
+  return { ...base, ...patch };
 }

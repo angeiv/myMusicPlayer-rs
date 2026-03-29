@@ -4,7 +4,12 @@ import * as configApi from '../api/config';
 import * as libraryApi from '../api/library';
 import * as playbackApi from '../api/playback';
 import type { AppConfig, OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
-import { normalizeBackendPlayMode, type BackendPlayMode, type RepeatMode } from '../transport/playback';
+import {
+  normalizeBackendPlayMode,
+  resolveBackendPlayMode,
+  type BackendPlayMode,
+  type RepeatMode,
+} from '../transport/playback';
 
 export const REFRESH_INTERVAL = 1000;
 
@@ -24,12 +29,14 @@ type PlaybackStoreState = {
 
 export type PlaybackStoreDependencies = {
   getConfig: () => Promise<AppConfig>;
+  saveConfig: (config: AppConfig) => Promise<void>;
   setLastSession: (lastTrackId: string | null, lastPositionSeconds: number) => Promise<void>;
   getTrack: (id: string) => Promise<Track | null>;
   getCurrentTrack: () => Promise<Track | null>;
   getOutputDevice: () => Promise<string | null>;
   getOutputDevices: () => Promise<OutputDeviceInfo[]>;
   getPlayMode: () => Promise<BackendPlayMode>;
+  setPlayMode: (mode: BackendPlayMode) => Promise<void>;
   getPlaybackState: () => Promise<PlaybackStateInfo>;
   getQueue: () => Promise<Track[]>;
   getVolume: () => Promise<number>;
@@ -74,12 +81,14 @@ type PlaybackStore = Writable<PlaybackStoreState> & {
 function defaultDependencies(): PlaybackStoreDependencies {
   return {
     getConfig: configApi.getConfig,
+    saveConfig: configApi.saveConfig,
     setLastSession: configApi.setLastSession,
     getTrack: libraryApi.getTrack,
     getCurrentTrack: playbackApi.getCurrentTrack,
     getOutputDevice: playbackApi.getOutputDevice,
     getOutputDevices: playbackApi.getOutputDevices,
     getPlayMode: playbackApi.getPlayMode,
+    setPlayMode: playbackApi.setPlayMode,
     getPlaybackState: playbackApi.getPlaybackState,
     getQueue: playbackApi.getQueue,
     getVolume: playbackApi.getVolume,
@@ -239,8 +248,57 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
     }
   }
 
+  async function applyStartupConfig(): Promise<void> {
+    const config = await deps.getConfig();
+
+    if (typeof config.default_volume === 'number' && Number.isFinite(config.default_volume)) {
+      await setVolume(config.default_volume);
+    }
+
+    const output =
+      typeof config.output_device_id === 'string' && config.output_device_id
+        ? config.output_device_id
+        : 'default';
+    try {
+      await deps.setOutputDevice(output);
+    } catch (error) {
+      console.warn('Failed to apply startup output device:', error);
+    }
+
+    const rawMode = typeof config.play_mode === 'string' ? config.play_mode : '';
+    const mode: BackendPlayMode =
+      rawMode === 'sequential' ||
+      rawMode === 'random' ||
+      rawMode === 'single_repeat' ||
+      rawMode === 'list_repeat'
+        ? rawMode
+        : 'sequential';
+
+    try {
+      await deps.setPlayMode(mode);
+    } catch (error) {
+      console.warn('Failed to apply startup play mode:', error);
+    }
+  }
+
   async function start(): Promise<void> {
-    await Promise.all([refreshState(), refreshPlayMode(), refreshOutputDeviceState()]);
+    try {
+      await applyStartupConfig();
+    } catch (error) {
+      console.warn('Failed to apply startup preferences:', error);
+    }
+
+    const refreshResults = await Promise.allSettled([
+      refreshState(),
+      refreshPlayMode(),
+      refreshOutputDeviceState(),
+    ]);
+
+    for (const result of refreshResults) {
+      if (result.status === 'rejected') {
+        console.warn('Failed to refresh playback store during start:', result.reason);
+      }
+    }
 
     if (refreshInterval) {
       deps.clearInterval(refreshInterval);
@@ -266,20 +324,63 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
   }
 
   async function restoreLastSession(): Promise<boolean> {
-    const config = await deps.getConfig();
+    let config: AppConfig;
+    try {
+      config = await deps.getConfig();
+    } catch (error) {
+      console.warn('Failed to load config for restoring session:', error);
+      return false;
+    }
+
     const lastTrackId = config.last_track_id ?? null;
     const lastPositionSeconds = config.last_position_seconds ?? 0;
 
     if (!lastTrackId) return false;
 
-    const track = await deps.getTrack(lastTrackId);
-    if (!track) return false;
-
-    await deps.setQueue([track]);
-    await deps.playTrack(track);
-    if (lastPositionSeconds > 0) {
-      await deps.seekTo(lastPositionSeconds);
+    let track: Track | null;
+    try {
+      track = await deps.getTrack(lastTrackId);
+    } catch (error) {
+      console.warn('Failed to load last session track:', error);
+      return false;
     }
+
+    if (!track) {
+      console.warn('Configured last session track is missing. Clearing last session.');
+      try {
+        await deps.setLastSession(null, 0);
+      } catch (clearError) {
+        console.warn('Failed to clear last session:', clearError);
+      }
+      return false;
+    }
+
+    try {
+      await deps.setQueue([track]);
+    } catch (error) {
+      console.warn('Failed to set queue for restoring session:', error);
+    }
+
+    try {
+      await deps.playTrack(track);
+    } catch (error) {
+      console.warn('Failed to play last session track:', error);
+      try {
+        await deps.setLastSession(null, 0);
+      } catch (clearError) {
+        console.warn('Failed to clear last session:', clearError);
+      }
+      return false;
+    }
+
+    if (lastPositionSeconds > 0) {
+      try {
+        await deps.seekTo(lastPositionSeconds);
+      } catch (error) {
+        console.warn('Failed to seek while restoring session:', error);
+      }
+    }
+
     return true;
   }
 
@@ -373,6 +474,16 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
 
     try {
       await deps.setPlayModeFromUi(nextShuffleEnabled, nextRepeatMode);
+
+      try {
+        const base = await deps.getConfig();
+        await deps.saveConfig({
+          ...base,
+          play_mode: resolveBackendPlayMode(nextShuffleEnabled, nextRepeatMode),
+        });
+      } catch (error) {
+        console.warn('Failed to persist play mode:', error);
+      }
     } catch (error) {
       console.error('Failed to toggle shuffle:', error);
       await refreshPlayMode();
@@ -392,6 +503,16 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
 
     try {
       await deps.setPlayModeFromUi(false, nextRepeatMode);
+
+      try {
+        const base = await deps.getConfig();
+        await deps.saveConfig({
+          ...base,
+          play_mode: resolveBackendPlayMode(false, nextRepeatMode),
+        });
+      } catch (error) {
+        console.warn('Failed to persist play mode:', error);
+      }
     } catch (error) {
       console.error('Failed to set repeat mode:', error);
       await refreshPlayMode();
@@ -435,6 +556,16 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
     store.update((state) => ({ ...state, selectedDeviceId: deviceId }));
     try {
       await deps.setOutputDevice(deviceId);
+
+      try {
+        const base = await deps.getConfig();
+        await deps.saveConfig({
+          ...base,
+          output_device_id: deviceId === 'default' ? null : deviceId,
+        });
+      } catch (error) {
+        console.warn('Failed to persist output device:', error);
+      }
     } catch (error) {
       console.error('Failed to switch output device:', error);
       try {

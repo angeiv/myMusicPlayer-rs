@@ -29,8 +29,12 @@ impl PlaylistService {
     pub fn new() -> Result<Self, String> {
         let mut path = crate::utils::app_data_dir()
             .ok_or_else(|| "Failed to locate app data directory".to_string())?;
-        crate::utils::ensure_dir_exists(&path)
-            .map_err(|e| format!("Failed to create app data directory {}: {e}", path.display()))?;
+        crate::utils::ensure_dir_exists(&path).map_err(|e| {
+            format!(
+                "Failed to create app data directory {}: {e}",
+                path.display()
+            )
+        })?;
         path.push("library.sqlite");
         Self::open(&path)
     }
@@ -77,7 +81,9 @@ impl PlaylistService {
         let id = Uuid::new_v4();
         let playlist = Playlist::with_id(id, name);
 
-        self.store.save_playlist(&playlist).map_err(|e| e.to_string())?;
+        self.store
+            .save_playlist(&playlist)
+            .map_err(|e| e.to_string())?;
         self.playlist_names.insert(key, id);
         self.playlists.insert(id, playlist);
 
@@ -203,7 +209,8 @@ impl PlaylistService {
             .cloned()
             .ok_or_else(|| "Playlist not found".to_string())?;
 
-        if from_index >= next_playlist.track_ids.len() || to_index >= next_playlist.track_ids.len() {
+        if from_index >= next_playlist.track_ids.len() || to_index >= next_playlist.track_ids.len()
+        {
             return Err("Index out of bounds".to_string());
         }
 
@@ -246,7 +253,11 @@ impl PlaylistService {
             && new_name != current.name
         {
             let new_key = new_name.to_lowercase();
-            if self.playlist_names.get(&new_key).is_some_and(|existing| existing != id) {
+            if self
+                .playlist_names
+                .get(&new_key)
+                .is_some_and(|existing| existing != id)
+            {
                 return Err(format!("A playlist named '{}' already exists", new_name));
             }
 
@@ -317,7 +328,9 @@ mod tests {
         let playlist_id = {
             let mut service = PlaylistService::open(&db_path).unwrap();
             let playlist_id = service.create_playlist("After Hours").unwrap();
-            let added = service.add_tracks_to_playlist(&playlist_id, &track_ids).unwrap();
+            let added = service
+                .add_tracks_to_playlist(&playlist_id, &track_ids)
+                .unwrap();
             assert_eq!(added, track_ids.len());
             playlist_id
         };
@@ -358,7 +371,9 @@ mod tests {
         let playlist_id = {
             let mut service = PlaylistService::open(&db_path).unwrap();
             let playlist_id = service.create_playlist("Queue Draft").unwrap();
-            service.set_playlist_tracks(&playlist_id, track_ids.clone()).unwrap();
+            service
+                .set_playlist_tracks(&playlist_id, track_ids.clone())
+                .unwrap();
             playlist_id
         };
 
@@ -452,7 +467,9 @@ mod tests {
         let playlist_id = service.create_playlist("Batch Test").unwrap();
         let track_ids = vec![Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
 
-        let added = service.add_tracks_to_playlist(&playlist_id, &track_ids).unwrap();
+        let added = service
+            .add_tracks_to_playlist(&playlist_id, &track_ids)
+            .unwrap();
 
         assert_eq!(added, 3);
         let playlist = service.get_playlist(&playlist_id).unwrap();

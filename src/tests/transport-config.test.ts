@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildNextConfigForSettingsSave,
   normalizeConfigForRestore,
   normalizeConfigForSettings,
   normalizeConfigSession,
@@ -11,6 +12,26 @@ describe('config transport helpers', () => {
   it('coerces invalid theme values to system', () => {
     expect(normalizeTheme('sepia')).toBe('system');
     expect(normalizeTheme('dark')).toBe('dark');
+  });
+
+  it('buildNextConfigForSettingsSave preserves base play_mode', () => {
+    const base = {
+      library_paths: ['/music'],
+      default_volume: 0.7,
+      auto_scan: true,
+      theme: 'system',
+      play_mode: 'random',
+    };
+
+    const next = buildNextConfigForSettingsSave(base as any, {
+      library_paths: ['/music'],
+      theme: 'dark',
+      auto_scan: true,
+      default_volume: 0.5,
+      output_device_id: null,
+    });
+
+    expect(next.play_mode).toBe('random');
   });
 
   it('normalizes restore-time config without inventing optional values', () => {
