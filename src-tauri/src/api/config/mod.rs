@@ -303,20 +303,29 @@ fn cleanup_broken_backups(dir: &Path, keep: usize) {
         let Some(rest) = name.strip_prefix("config.json.broken-") else {
             continue;
         };
-        let Ok(ts) = rest.parse::<u128>() else {
-            continue;
+
+        let sort_key = match rest.parse::<u128>() {
+            Ok(ts) => ts,
+            Err(_) => entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|mtime| mtime.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis())
+                .unwrap_or(0),
         };
-        backups.push((ts, entry.path()));
+
+        backups.push((sort_key, entry.path()));
     }
 
-    backups.sort_by_key(|(ts, _)| *ts);
+    // Newest first.
+    backups.sort_by(|(a, _), (b, _)| b.cmp(a));
 
     if backups.len() <= keep {
         return;
     }
 
-    let remove_count = backups.len().saturating_sub(keep);
-    for (_, path) in backups.into_iter().take(remove_count) {
+    for (_, path) in backups.into_iter().skip(keep) {
         if let Err(err) = std::fs::remove_file(&path) {
             error!("Failed to remove broken config backup {}: {err}", path.display());
         }
@@ -371,15 +380,18 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_keeps_only_five_backups() {
+    fn cleanup_broken_backups_keeps_latest_5() {
         let dir = tempdir().unwrap();
 
-        for i in 0..7u128 {
+        for i in 0..6u128 {
             let path = dir
                 .path()
                 .join(format!("config.json.broken-{}", 1000 + i));
             std::fs::write(path, b"broken").unwrap();
         }
+
+        let non_numeric = dir.path().join("config.json.broken-not-a-number");
+        std::fs::write(non_numeric, b"broken").unwrap();
 
         cleanup_broken_backups(dir.path(), 5);
 
