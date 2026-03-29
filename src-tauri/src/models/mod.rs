@@ -31,6 +31,9 @@ pub struct Config {
     /// Theme preference
     pub theme: String,
 
+    /// Playback mode (e.g. "sequential")
+    pub play_mode: String,
+
     pub output_device_id: Option<String>,
 
     pub last_track_id: Option<String>,
@@ -44,9 +47,25 @@ impl Default for Config {
             default_volume: 0.7,
             auto_scan: true,
             theme: "system".to_string(),
+            play_mode: "sequential".to_string(),
             output_device_id: None,
             last_track_id: None,
             last_position_seconds: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_includes_play_mode() {
+        let value = serde_json::to_value(Config::default()).expect("Config should serialize");
+
+        let play_mode = value
+            .get("play_mode")
+            .expect("Config::default should serialize play_mode");
+        assert_eq!(play_mode, "sequential");
     }
 }
