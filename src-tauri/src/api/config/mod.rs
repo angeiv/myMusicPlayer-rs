@@ -200,8 +200,7 @@ fn load_config_from_path(path: &Path) -> Result<Config, String> {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("config.json");
-            let backup_path =
-                path.with_file_name(format!("{file_name}.broken-{}", now_unix_ms()));
+            let backup_path = path.with_file_name(format!("{file_name}.broken-{}", now_unix_ms()));
 
             if let Err(err) = std::fs::write(&backup_path, &data) {
                 error!(
@@ -253,8 +252,12 @@ fn save_config_to_path_atomic(path: &Path, config: &Config) -> Result<(), String
     })?;
     let tmp_path = dir.join(format!("{file_name}.tmp"));
 
-    std::fs::write(&tmp_path, &data)
-        .map_err(|e| format!("Failed to write temp config file {}: {e}", tmp_path.display()))?;
+    std::fs::write(&tmp_path, &data).map_err(|e| {
+        format!(
+            "Failed to write temp config file {}: {e}",
+            tmp_path.display()
+        )
+    })?;
 
     match std::fs::rename(&tmp_path, path) {
         Ok(()) => Ok(()),
@@ -268,7 +271,10 @@ fn save_config_to_path_atomic(path: &Path, config: &Config) -> Result<(), String
             if dest_exists_err && path.exists() {
                 std::fs::remove_file(path).map_err(|e| {
                     let _ = std::fs::remove_file(&tmp_path);
-                    format!("Failed to remove existing config file {}: {e}", path.display())
+                    format!(
+                        "Failed to remove existing config file {}: {e}",
+                        path.display()
+                    )
                 })?;
                 std::fs::rename(&tmp_path, path).map_err(|e| {
                     let _ = std::fs::remove_file(&tmp_path);
@@ -338,7 +344,10 @@ fn cleanup_broken_backups(dir: &Path, keep: usize) {
 
     for (_, path) in backups.into_iter().skip(keep) {
         if let Err(err) = std::fs::remove_file(&path) {
-            error!("Failed to remove broken config backup {}: {err}", path.display());
+            error!(
+                "Failed to remove broken config backup {}: {err}",
+                path.display()
+            );
         }
     }
 }
@@ -395,9 +404,7 @@ mod tests {
         let dir = tempdir().unwrap();
 
         for i in 0..6u128 {
-            let path = dir
-                .path()
-                .join(format!("config.json.broken-{}", 1000 + i));
+            let path = dir.path().join(format!("config.json.broken-{}", 1000 + i));
             std::fs::write(path, b"broken").unwrap();
         }
 
