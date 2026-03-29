@@ -98,3 +98,24 @@ export interface OutputDeviceInfo {
   name: string;
   is_default: boolean;
 }
+
+export type ScanPhase = 'idle' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
+
+export type ScanErrorKind = 'invalid_path' | 'walk' | 'read_metadata' | 'persist';
+
+export interface ScanErrorSample {
+  path: string;
+  message: string;
+  kind: ScanErrorKind;
+}
+
+export interface ScanStatus {
+  phase: ScanPhase;
+  started_at_ms?: number | null;
+  ended_at_ms?: number | null;
+  current_path?: string | null;
+  processed_files: number;
+  inserted_tracks: number;
+  error_count: number;
+  sample_errors: ScanErrorSample[];
+}

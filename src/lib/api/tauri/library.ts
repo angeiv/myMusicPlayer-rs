@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { Album, Artist, SearchResults, Track } from '../../types';
+import type { Album, Artist, ScanStatus, SearchResults, Track } from '../../types';
 import { normalizeSearchResults } from '../../transport/search';
 
 export async function scanDirectory(path: string): Promise<number> {
@@ -55,5 +55,17 @@ export async function getAlbumsByArtist(artistId: string): Promise<Album[]> {
 export async function searchLibrary(query: string): Promise<SearchResults> {
   const payload = await invoke<unknown>('search', { query });
   return normalizeSearchResults(payload);
+}
+
+export async function startLibraryScan(paths: string[]): Promise<void> {
+  await invoke<void>('start_library_scan', { paths });
+}
+
+export async function getLibraryScanStatus(): Promise<ScanStatus> {
+  return invoke<ScanStatus>('get_library_scan_status');
+}
+
+export async function cancelLibraryScan(): Promise<void> {
+  await invoke<void>('cancel_library_scan');
 }
 

@@ -34,12 +34,16 @@
     artists,
     playlists,
     counts,
+    scanStatus,
+    isScanning,
     isLibraryLoading,
     isSearching,
     searchResults,
     bootstrap,
     loadLibrary,
     loadPlaylists,
+    runLibraryScan,
+    cancelLibraryScan,
     syncRouteSearch,
     createPlaylistFromPrompt,
   } = appShell;
@@ -131,7 +135,14 @@
         on:openArtist={handleOpenArtist}
       />
     {:else if route.name === "settings"}
-      <SettingsView on:refreshLibrary={loadLibrary} on:refreshPlaylists={loadPlaylists} />
+      <SettingsView
+        {scanStatus}
+        {isScanning}
+        {runLibraryScan}
+        {cancelLibraryScan}
+        on:refreshLibrary={loadLibrary}
+        on:refreshPlaylists={loadPlaylists}
+      />
     {:else if route.name === "playlistDetail"}
       <PlaylistDetailView playlistId={route.id} on:refreshPlaylists={loadPlaylists} />
     {/if}

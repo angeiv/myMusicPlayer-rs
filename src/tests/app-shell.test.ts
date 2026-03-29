@@ -110,8 +110,24 @@ describe('createAppShellStore', () => {
       setVolume: async (volume) => {
         calls.push(`setVolume:${volume}`);
       },
-      scanDirectory: async (path) => {
-        calls.push(`scanDirectory:${path}`);
+      startLibraryScan: async (paths) => {
+        calls.push(`startLibraryScan:${paths.join(',')}`);
+      },
+      getLibraryScanStatus: async () => {
+        calls.push('getLibraryScanStatus');
+        return {
+          phase: 'completed',
+          started_at_ms: 0,
+          ended_at_ms: 0,
+          current_path: null,
+          processed_files: 0,
+          inserted_tracks: 0,
+          error_count: 0,
+          sample_errors: [],
+        };
+      },
+      cancelLibraryScan: async () => {
+        calls.push('cancelLibraryScan');
       },
       getTracks: async () => {
         calls.push('getTracks');
@@ -144,8 +160,8 @@ describe('createAppShellStore', () => {
       'applyTheme:dark',
       'setOutputDevice:device-1',
       'setVolume:0.35',
-      'scanDirectory:/music/a',
-      'scanDirectory:/music/b',
+      'startLibraryScan:/music/a,/music/b',
+      'getLibraryScanStatus',
       'getTracks',
       'getAlbums',
       'getArtists',

@@ -22,18 +22,34 @@ const appShellMock = vi.hoisted(() => {
   ];
 
   const loadPlaylists = vi.fn(async () => undefined);
+
+  const scanStatusValue = {
+    phase: 'idle',
+    started_at_ms: null,
+    ended_at_ms: null,
+    current_path: null,
+    processed_files: 0,
+    inserted_tracks: 0,
+    error_count: 0,
+    sample_errors: [],
+  };
+
   const store = {
     tracks: createStore([]),
     albums: createStore([]),
     artists: createStore([]),
     playlists: createStore(playlistsValue),
     counts: createStore({ songs: 0, albums: 0, artists: 0 }),
+    scanStatus: createStore(scanStatusValue),
+    isScanning: createStore(false),
     isLibraryLoading: createStore(false),
     isSearching: createStore(false),
     searchResults: createStore(null),
     bootstrap: vi.fn(async () => undefined),
     loadLibrary: vi.fn(async () => undefined),
     loadPlaylists,
+    runLibraryScan: vi.fn(async () => scanStatusValue),
+    cancelLibraryScan: vi.fn(async () => undefined),
     syncRouteSearch: vi.fn(async () => undefined),
     createPlaylistFromPrompt: vi.fn(async () => undefined),
   };

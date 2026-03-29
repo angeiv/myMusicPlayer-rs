@@ -5,6 +5,9 @@ import * as tauri from './tauri/library';
 const impl = isTauri ? tauri : mock;
 
 export const scanDirectory = impl.scanDirectory;
+export const startLibraryScan = impl.startLibraryScan;
+export const getLibraryScanStatus = impl.getLibraryScanStatus;
+export const cancelLibraryScan = impl.cancelLibraryScan;
 export const getTracks = impl.getTracks;
 export const getTrack = impl.getTrack;
 export const getAlbums = impl.getAlbums;

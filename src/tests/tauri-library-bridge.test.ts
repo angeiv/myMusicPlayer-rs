@@ -6,7 +6,15 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
 }));
 
-import { getTrack, getTracks, scanDirectory, searchLibrary } from '../lib/api/tauri/library';
+import {
+  cancelLibraryScan,
+  getLibraryScanStatus,
+  getTrack,
+  getTracks,
+  scanDirectory,
+  searchLibrary,
+  startLibraryScan,
+} from '../lib/api/tauri/library';
 
 describe('tauri library bridge', () => {
   beforeEach(() => {
@@ -18,6 +26,35 @@ describe('tauri library bridge', () => {
 
     await expect(scanDirectory('/music')).resolves.toBe(42);
     expect(invokeMock).toHaveBeenCalledWith('scan_directory', { path: '/music' });
+  });
+
+  it('invokes start_library_scan with the expected payload key', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    await expect(startLibraryScan(['/music'])).resolves.toBeUndefined();
+    expect(invokeMock).toHaveBeenCalledWith('start_library_scan', { paths: ['/music'] });
+  });
+
+  it('invokes get_library_scan_status without a payload', async () => {
+    const status = {
+      phase: 'completed',
+      processed_files: 0,
+      inserted_tracks: 0,
+      error_count: 0,
+      sample_errors: [],
+    };
+
+    invokeMock.mockResolvedValueOnce(status);
+
+    await expect(getLibraryScanStatus()).resolves.toEqual(status);
+    expect(invokeMock).toHaveBeenCalledWith('get_library_scan_status');
+  });
+
+  it('invokes cancel_library_scan without a payload', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    await expect(cancelLibraryScan()).resolves.toBeUndefined();
+    expect(invokeMock).toHaveBeenCalledWith('cancel_library_scan');
   });
 
   it('returns null for missing get_track payloads', async () => {
