@@ -61,7 +61,7 @@
               <button
                 type="button"
                 class="queue-remove"
-                aria-label="从队列移除"
+                aria-label={`从队列移除 ${track.title}`}
                 on:click={(event) => handleRemove(event, track)}
               >
                 ✕
