@@ -25,4 +25,6 @@ export const pickAndPlayFile = impl.pickAndPlayFile;
 export const playNextTrack = impl.playNextTrack;
 export const playPreviousTrack = impl.playPreviousTrack;
 export const togglePlayPause = impl.togglePlayPause;
+export const clearQueue = impl.clearQueue;
+export const removeFromQueue = impl.removeFromQueue;
 
