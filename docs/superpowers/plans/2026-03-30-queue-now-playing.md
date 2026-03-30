@@ -88,7 +88,7 @@
 Run:
 ```bash
 git fetch origin
-git worktree add .worktrees/issue-21-queue-now-playing origin/main -b issue-21-queue-now-playing
+git worktree add -b issue-21-queue-now-playing .worktrees/issue-21-queue-now-playing origin/main
 ```
 
 - [ ] **Step 2: 安装前端依赖（避免 svelte-check 缺失）**
@@ -113,6 +113,7 @@ Expected: PASS
 
 **Files:**
 - Modify/Test: `src-tauri/src/services/audio/audio_player_thread.rs`
+- Modify/Test: `src-tauri/src/services/audio/play_queue.rs`
 
 - [ ] **Step 1: 写失败测试：移除非当前项成功**
 
@@ -121,8 +122,6 @@ Expected: PASS
 ```rust
 #[test]
 fn remove_from_queue_removes_non_current_track() {
-    use uuid::Uuid;
-
     let handle = AudioPlayerHandle::new().unwrap();
 
     let track1 = Track { title: "Track 1".to_string(), ..Track::default() };
@@ -172,13 +171,45 @@ cargo test --manifest-path ./src-tauri/Cargo.toml services::audio::audio_player_
 ```
 Expected: PASS
 
-- [ ] **Step 5: 增加两个失败测试：拒绝移除当前项 / 移除不存在**
+- [ ] **Step 5: PlayQueue 移除后清理 history（保证 previous 语义不漂移）**
+
+在 `src-tauri/src/services/audio/play_queue.rs`：
+- 在 `remove_track(...)` 成功移除后，执行 `self.history.clear()`（MVP 采用“清空 history”简化一致性）
+- 增加单测验证：移除前置项后 `previous()` 会回到“逻辑上一首”，而不是因为旧 history index 漂移而卡住。
+
+示例测试（放在现有 tests module，使用 `create_test_track`）：
+```rust
+#[test]
+fn remove_track_clears_history_to_keep_previous_consistent() {
+    let mut queue = PlayQueue::new();
+    let t1 = create_test_track("Track 1");
+    let t2 = create_test_track("Track 2");
+    let t3 = create_test_track("Track 3");
+    queue.set_tracks(vec![t1.clone(), t2.clone(), t3.clone()]);
+
+    queue.next(); // Track 2
+    queue.next(); // Track 3
+
+    queue.remove_track(0); // remove Track 1; history should be cleared
+
+    let prev = queue.previous().unwrap();
+    assert_eq!(prev.id, t2.id);
+}
+```
+
+Run:
+```bash
+cargo test --manifest-path ./src-tauri/Cargo.toml services::audio::play_queue::tests::remove_track_clears_history_to_keep_previous_consistent -- --nocapture
+```
+Expected: PASS
+
+- [ ] **Step 6: 增加两个失败测试：拒绝移除当前项 / 移除不存在**
 
 新增：
 - `remove_from_queue_rejects_current_track()`：remove track1.id 返回 Err，queue 不变
 - `remove_from_queue_rejects_missing_track()`：remove random uuid 返回 Err
 
-- [ ] **Step 6: 运行 backend 全测**
+- [ ] **Step 7: 运行 backend 全测**
 
 Run:
 ```bash
@@ -186,10 +217,10 @@ cargo test --manifest-path ./src-tauri/Cargo.toml -- --nocapture
 ```
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src-tauri/src/services/audio/audio_player_thread.rs
+git add src-tauri/src/services/audio/audio_player_thread.rs src-tauri/src/services/audio/play_queue.rs
 git commit -m "feat(queue): remove tracks from play queue"
 ```
 
@@ -301,8 +332,11 @@ export async function removeFromQueue(trackId: string): Promise<void> {
     - 若 `currentTrack?.id === trackId` → `throw new Error('Cannot remove current track')`
     - 找不到 → `throw new Error('Track not found in queue')`
     - 成功 → 从数组移除
-- 调整 `ensureQueueSeeded()`：避免 `getQueue()` 在 queue 为空时自动回填（否则 clear 立即失效）。
-  - 推荐：为 mock 增加 `let queueCleared = false;`，clear 时置 true；`getQueue()` 遇到 `queueCleared` 不 seed；`pickAndPlayFile()` 需要 seed 时再把 flag 复位。
+- 调整 `ensureQueueSeeded()` / 调用点：保证 clear 之后 **不会被任何入口自动 seed 回填**（否则 clear 立即失效）。
+  - 推荐：为 mock 增加 `let queueCleared = false;`
+    - `clearQueue()`：`queue = []` 并 `queueCleared = true`
+    - `getQueue()` / `playNextTrack()` / `playPreviousTrack()`：若 `queueCleared` 且 `queue.length === 0` → 直接返回（不 seed）
+    - `pickAndPlayFile()`：将 `queueCleared = false` 后再 seed（用于模拟“选文件开始播放”）
 
 - [ ] **Step 4: 运行前端 check**
 
@@ -332,15 +366,12 @@ git commit -m "feat(playback): add clearQueue and removeFromQueue"
 在 `src/tests/playback-store.test.ts` 新增（示意）：
 ```ts
 it('clears queue without stopping playback', async () => {
-  const calls: string[] = [];
   const deps = createDependencies({
-    clearQueue: vi.fn(async () => calls.push('clearQueue')),
-    getQueue: vi.fn(async () => { calls.push('getQueue'); return []; }),
-    getPlaybackState: vi.fn(async () => ({ state: 'playing', position: 1, duration: 10 })),
-    getCurrentTrack: vi.fn(async () => ({ id: 't1' } as any)),
-    getVolume: vi.fn(async () => 0.5),
-    pausePlayback: vi.fn(),
-    stopPlayback: vi.fn(),
+    clearQueue: vi.fn().mockResolvedValue(undefined),
+    getQueue: vi.fn(async () => []),
+    pausePlayback: vi.fn().mockResolvedValue(undefined),
+    playTrack: vi.fn().mockResolvedValue(undefined),
+    pickAndPlayFile: vi.fn().mockResolvedValue(undefined),
   } as any);
 
   const store = createPlaybackStore(deps);
@@ -348,7 +379,9 @@ it('clears queue without stopping playback', async () => {
 
   expect(deps.clearQueue).toHaveBeenCalledTimes(1);
   expect(deps.getQueue).toHaveBeenCalledTimes(1);
-  expect(deps.stopPlayback).not.toHaveBeenCalled();
+  expect(deps.pausePlayback).not.toHaveBeenCalled();
+  expect(deps.playTrack).not.toHaveBeenCalled();
+  expect(deps.pickAndPlayFile).not.toHaveBeenCalled();
 });
 ```
 
@@ -386,6 +419,11 @@ Expected: FAIL（store 方法/依赖未实现）
 - 新增 store 方法：
   - `async function clearQueue()`：调用 deps.clearQueue；成功后 `await refreshQueue()`；必要时 `await refreshState()`
   - `async function removeQueueTrack(trackId)`：调用 deps.removeFromQueue；成功后 `await refreshQueue()`
+- 更新 store 公共类型与导出：
+  - 在 `type PlaybackStore = ...` 增加：`clearQueue()` 与 `removeQueueTrack(trackId)`
+  - 在 `return { ... }` 中导出这两个方法（否则 BottomPlayerBar 无法接线）
+- 更新测试 helper（避免 TS 编译失败）：
+  - 在 `src/tests/playback-store.test.ts` 的 `createDependencies()` 默认 stub 对象中补齐 `clearQueue/removeFromQueue`（默认 `vi.fn().mockResolvedValue(undefined)`）
 
 - [ ] **Step 4: 跑测试确认通过**
 
