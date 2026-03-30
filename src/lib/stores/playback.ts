@@ -39,6 +39,8 @@ export type PlaybackStoreDependencies = {
   setPlayMode: (mode: BackendPlayMode) => Promise<void>;
   getPlaybackState: () => Promise<PlaybackStateInfo>;
   getQueue: () => Promise<Track[]>;
+  clearQueue: () => Promise<void>;
+  removeFromQueue: (trackId: string) => Promise<void>;
   getVolume: () => Promise<number>;
   pausePlayback: () => Promise<void>;
   pickAndPlayFile: () => Promise<void>;
@@ -62,6 +64,8 @@ type PlaybackStore = Writable<PlaybackStoreState> & {
   destroy: () => void;
   refreshState: () => Promise<void>;
   refreshQueue: () => Promise<void>;
+  clearQueue: () => Promise<void>;
+  removeQueueTrack: (trackId: string) => Promise<void>;
   dismissError: () => void;
   togglePlayPause: () => Promise<void>;
   promptAndPlayFile: () => Promise<void>;
@@ -91,6 +95,8 @@ function defaultDependencies(): PlaybackStoreDependencies {
     setPlayMode: playbackApi.setPlayMode,
     getPlaybackState: playbackApi.getPlaybackState,
     getQueue: playbackApi.getQueue,
+    clearQueue: playbackApi.clearQueue,
+    removeFromQueue: playbackApi.removeFromQueue,
     getVolume: playbackApi.getVolume,
     pausePlayback: playbackApi.pausePlayback,
     pickAndPlayFile: playbackApi.pickAndPlayFile,
@@ -246,6 +252,26 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
     } catch (error) {
       console.error('Failed to load queue:', error);
     }
+  }
+
+  async function clearQueue(): Promise<void> {
+    try {
+      await deps.clearQueue();
+    } catch (error) {
+      console.error('Failed to clear queue:', error);
+    }
+
+    await refreshQueue();
+  }
+
+  async function removeQueueTrack(trackId: string): Promise<void> {
+    try {
+      await deps.removeFromQueue(trackId);
+    } catch (error) {
+      console.error('Failed to remove track from queue:', error);
+    }
+
+    await refreshQueue();
   }
 
   async function applyStartupConfig(): Promise<void> {
@@ -591,6 +617,8 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
     destroy,
     refreshState,
     refreshQueue,
+    clearQueue,
+    removeQueueTrack,
     dismissError,
     togglePlayPause,
     promptAndPlayFile,

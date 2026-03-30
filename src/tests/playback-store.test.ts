@@ -57,6 +57,8 @@ function createDependencies(
     setPlayMode: vi.fn().mockResolvedValue(undefined),
     getPlaybackState: vi.fn().mockResolvedValue({ state: 'stopped' } satisfies PlaybackStateInfo),
     getQueue: vi.fn().mockResolvedValue([]),
+    clearQueue: vi.fn().mockResolvedValue(undefined),
+    removeFromQueue: vi.fn().mockResolvedValue(undefined),
     getVolume: vi.fn().mockResolvedValue(0.68),
     pausePlayback: vi.fn().mockResolvedValue(undefined),
     pickAndPlayFile: vi.fn().mockResolvedValue(undefined),
@@ -425,6 +427,58 @@ describe('playback store', () => {
     expect(deps.playNextTrack).toHaveBeenCalledOnce();
     expect(deps.getQueue).toHaveBeenCalledOnce();
     expect(get(store).queueTracks).toEqual([nextTrack]);
+  });
+
+  it('clears queue via deps and refreshes the queue state', async () => {
+    const calls: string[] = [];
+    const refreshedQueue = [createTrack({ id: 'queue-1', title: 'Queue Track' })];
+    const deps = createDependencies({
+      clearQueue: vi.fn(async () => {
+        calls.push('clearQueue');
+      }),
+      getQueue: vi.fn(async () => {
+        calls.push('getQueue');
+        return refreshedQueue;
+      }),
+    });
+    const store = createPlaybackStore(deps);
+
+    await store.clearQueue();
+
+    expect(deps.clearQueue).toHaveBeenCalledOnce();
+    expect(deps.getQueue).toHaveBeenCalledOnce();
+    expect(calls.indexOf('clearQueue')).toBeLessThan(calls.indexOf('getQueue'));
+    expect(deps.pausePlayback).not.toHaveBeenCalled();
+    expect(deps.playTrack).not.toHaveBeenCalled();
+    expect(deps.pickAndPlayFile).not.toHaveBeenCalled();
+    expect(get(store).queueTracks).toEqual(refreshedQueue);
+  });
+
+  it('removes a track from the queue via deps and refreshes the queue state', async () => {
+    const calls: string[] = [];
+    const trackId = 'queue-remove-1';
+    const refreshedQueue = [createTrack({ id: 'remaining-1', title: 'Remaining Track' })];
+    const deps = createDependencies({
+      removeFromQueue: vi.fn(async (id: string) => {
+        calls.push(`removeFromQueue:${id}`);
+      }),
+      getQueue: vi.fn(async () => {
+        calls.push('getQueue');
+        return refreshedQueue;
+      }),
+    });
+    const store = createPlaybackStore(deps);
+
+    await store.removeQueueTrack(trackId);
+
+    expect(deps.removeFromQueue).toHaveBeenCalledOnce();
+    expect(deps.removeFromQueue).toHaveBeenCalledWith(trackId);
+    expect(deps.getQueue).toHaveBeenCalledOnce();
+
+    const removeIndex = calls.findIndex((call) => call.startsWith('removeFromQueue:'));
+    const queueIndex = calls.indexOf('getQueue');
+    expect(removeIndex).toBeLessThan(queueIndex);
+    expect(get(store).queueTracks).toEqual(refreshedQueue);
   });
 
   it('persists output device preference when selecting the default device', async () => {
