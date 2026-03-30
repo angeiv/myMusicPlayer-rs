@@ -57,9 +57,11 @@ export async function getQueue(): Promise<Track[]> {
 
 export async function setQueue(tracks: Track[]): Promise<void> {
   queue = tracks.slice();
+  queueCleared = tracks.length === 0;
 }
 
 export async function addToQueue(tracks: Track[]): Promise<void> {
+  if (tracks.length > 0) queueCleared = false;
   queue = [...queue, ...tracks.map((track) => ({ ...track }))];
 }
 
@@ -79,6 +81,7 @@ export async function removeFromQueue(trackId: string): Promise<void> {
   }
 
   queue = [...queue.slice(0, index), ...queue.slice(index + 1)];
+  if (queue.length === 0) queueCleared = true;
 }
 
 export async function playTrack(track: Track): Promise<void> {
