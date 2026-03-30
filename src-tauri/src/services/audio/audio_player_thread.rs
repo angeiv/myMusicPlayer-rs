@@ -36,7 +36,6 @@ enum PlayerCommand {
     SetQueue(Vec<Track>),
     AddToQueue(Vec<Track>),
     ClearQueue,
-    #[allow(dead_code)]
     RemoveFromQueue {
         track_id: Uuid,
         response_tx: Sender<Result<()>>,
@@ -213,7 +212,6 @@ impl AudioPlayerHandle {
     }
 
     /// Remove a track from the queue by ID.
-    #[allow(dead_code)]
     pub fn remove_from_queue(&self, track_id: Uuid) -> Result<()> {
         let (response_tx, response_rx) = bounded(1);
         self.command_tx

@@ -121,6 +121,13 @@ impl AudioService {
         self.player.clear_queue().map_err(|e| e.to_string())
     }
 
+    /// Remove a track from the queue by ID
+    pub fn remove_from_queue(&self, track_id: uuid::Uuid) -> Result<(), String> {
+        self.player
+            .remove_from_queue(track_id)
+            .map_err(|e| e.to_string())
+    }
+
     /// Get the queue tracks
     pub fn get_queue(&self) -> Result<Vec<Track>, String> {
         self.player.get_queue().map_err(|e| e.to_string())
