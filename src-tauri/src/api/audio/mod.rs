@@ -477,8 +477,8 @@ pub async fn remove_from_queue(
     payload: RemoveFromQueuePayload,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let track_id = uuid::Uuid::parse_str(&payload.track_id)
-        .map_err(|_| "Invalid track id".to_string())?;
+    let track_id =
+        uuid::Uuid::parse_str(&payload.track_id).map_err(|_| "Invalid track id".to_string())?;
 
     let audio = state.audio.lock().map_err(|e| {
         error!("Failed to acquire audio lock: {}", e);

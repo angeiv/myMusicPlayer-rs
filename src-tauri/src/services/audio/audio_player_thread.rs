@@ -11,12 +11,12 @@ use crossbeam_channel::{Receiver, Sender, bounded};
 use log::{error, info};
 use parking_lot::Mutex;
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
-use uuid::Uuid;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::{fs::File, io::BufReader};
+use uuid::Uuid;
 
 /// Commands that can be sent to the audio player thread
 #[derive(Debug)]
@@ -1188,7 +1188,9 @@ mod tests {
             ..Track::default()
         };
 
-        handle.set_queue(vec![track1.clone(), track2.clone()]).unwrap();
+        handle
+            .set_queue(vec![track1.clone(), track2.clone()])
+            .unwrap();
         let _ = handle.get_queue().unwrap();
 
         // Simulate current track without decoding audio.
@@ -1219,7 +1221,9 @@ mod tests {
             ..Track::default()
         };
 
-        handle.set_queue(vec![track1.clone(), track2.clone()]).unwrap();
+        handle
+            .set_queue(vec![track1.clone(), track2.clone()])
+            .unwrap();
         let _ = handle.get_queue().unwrap();
 
         // Simulate current track without decoding audio.
