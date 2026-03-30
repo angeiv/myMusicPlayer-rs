@@ -66,6 +66,7 @@
 ### 4.2 点击队列项 → 跳转播放
 
 - 行为：点击队列项会开始播放该项。
+- 若点击的是当前播放项：无动作（no-op），避免误触重播。
 - 语义约束：
   - 不通过 `set_queue` 来“重置队列 + 播放”，避免重置 `current_index/history` 造成行为偏差。
   - 推荐直接调用既有 `play(track)`（后端会在 `PlayQueue` 中选中该 track_id）；或新增更窄的 `select_queue_track(track_id)` 命令（见 §5）。
@@ -107,7 +108,7 @@
    - 行为：从队列移除该项
    - 若 track_id 不存在：返回 Err
    - 约束：若 track_id == 当前播放 track_id，应返回 Err（保护性拒绝）
-   - 约束（MVP）：队列内 `track.id` 视为唯一；若出现重复，默认删除第一个匹配项（best-effort）
+   - 约束（MVP）：队列内 `track.id` 必须唯一（不支持重复项）；若出现重复，remove 行为为 best-effort（删除第一个匹配项）
    - 输出：`Result<(), String>`
 
 2) `clear_queue()`
