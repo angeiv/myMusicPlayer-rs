@@ -4,6 +4,8 @@
   import Sidebar from './lib/layout/Sidebar.svelte';
   import TopBar from './lib/layout/TopBar.svelte';
   import BottomPlayerBar from './lib/player/BottomPlayerBar.svelte';
+  import NowPlayingOverlay from './lib/player/NowPlayingOverlay.svelte';
+  import { nowPlayingUi } from './lib/player/now-playing';
   import HomeView from './lib/views/HomeView.svelte';
   import SongsView from './lib/views/SongsView.svelte';
   import AlbumsView from './lib/views/AlbumsView.svelte';
@@ -28,6 +30,7 @@
   import type { AppSection, LibraryView } from './lib/types';
 
   const appShell = createAppShellStore();
+  const nowPlayingState = nowPlayingUi.state;
   const {
     tracks,
     albums,
@@ -54,6 +57,7 @@
   let activePlaylistId: string | null = null;
   let searchInput = '';
   let currentPath = '/';
+  let isNowPlayingOpen = false;
 
   $: currentPath = normalizeRoutePath($hashPath);
   $: route = matchRoute(currentPath);
@@ -61,6 +65,7 @@
   $: activeSection = routeState.activeSection;
   $: activeLibraryView = routeState.activeLibraryView;
   $: activePlaylistId = routeState.activePlaylistId;
+  $: isNowPlayingOpen = $nowPlayingState.isOpen;
   $: {
     if (searchInput !== routeState.searchTerm) {
       searchInput = routeState.searchTerm;
@@ -93,76 +98,96 @@
   });
 </script>
 
-<div class="app-container">
-  <TopBar bind:searchTerm={searchInput} on:searchTermChange={handleSearchTermChange} />
+<div class="app-container" class:overlay-open={isNowPlayingOpen}>
+  <div
+    class="app-shell"
+    class:app-shell--inactive={isNowPlayingOpen}
+    inert={isNowPlayingOpen}
+    aria-hidden={isNowPlayingOpen ? 'true' : undefined}
+  >
+    <TopBar bind:searchTerm={searchInput} on:searchTermChange={handleSearchTermChange} />
 
-  <Sidebar
-    {activeSection}
-    {activeLibraryView}
-    {activePlaylistId}
-    playlists={$playlists}
-    counts={$counts}
-    on:navigate={handleSidebarNavigate}
-    on:selectPlaylist={handleSelectPlaylist}
-    on:createPlaylist={createPlaylistFromPrompt}
-  />
+    <Sidebar
+      {activeSection}
+      {activeLibraryView}
+      {activePlaylistId}
+      playlists={$playlists}
+      counts={$counts}
+      on:navigate={handleSidebarNavigate}
+      on:selectPlaylist={handleSelectPlaylist}
+      on:createPlaylist={createPlaylistFromPrompt}
+    />
 
-  <main class="main-content">
-    {#if route.name === "home"}
-      <HomeView tracks={$tracks} albums={$albums} artists={$artists} playlists={$playlists} />
-    {:else if route.name === "songs"}
-      <SongsView
-        tracks={$tracks}
-        playlists={$playlists}
-        refreshPlaylists={loadPlaylists}
-        isLibraryLoading={$isLibraryLoading}
-        searchTerm={searchInput}
-      />
-    {:else if route.name === "albums"}
-      <AlbumsView albums={$albums} isLibraryLoading={$isLibraryLoading} on:openAlbum={handleOpenAlbum} />
-    {:else if route.name === "albumDetail"}
-      <AlbumDetailView albumId={route.id} />
-    {:else if route.name === "artists"}
-      <ArtistsView artists={$artists} isLibraryLoading={$isLibraryLoading} on:openArtist={handleOpenArtist} />
-    {:else if route.name === "artistDetail"}
-      <ArtistDetailView artistId={route.id} on:openAlbum={handleOpenAlbum} />
-    {:else if route.name === "search"}
-      <SearchResultsView
-        searchTerm={searchInput}
-        searchResults={$searchResults}
-        isSearching={$isSearching}
-        on:openAlbum={handleOpenAlbum}
-        on:openArtist={handleOpenArtist}
-      />
-    {:else if route.name === "settings"}
-      <SettingsView
-        {scanStatus}
-        {isScanning}
-        {runLibraryScan}
-        {cancelLibraryScan}
-        on:refreshLibrary={loadLibrary}
-        on:refreshPlaylists={loadPlaylists}
-      />
-    {:else if route.name === "playlistDetail"}
-      <PlaylistDetailView playlistId={route.id} on:refreshPlaylists={loadPlaylists} />
-    {/if}
-  </main>
+    <main class="main-content" class:main-content--locked={isNowPlayingOpen}>
+      {#if route.name === "home"}
+        <HomeView tracks={$tracks} albums={$albums} artists={$artists} playlists={$playlists} />
+      {:else if route.name === "songs"}
+        <SongsView
+          tracks={$tracks}
+          playlists={$playlists}
+          refreshPlaylists={loadPlaylists}
+          isLibraryLoading={$isLibraryLoading}
+          searchTerm={searchInput}
+        />
+      {:else if route.name === "albums"}
+        <AlbumsView albums={$albums} isLibraryLoading={$isLibraryLoading} on:openAlbum={handleOpenAlbum} />
+      {:else if route.name === "albumDetail"}
+        <AlbumDetailView albumId={route.id} />
+      {:else if route.name === "artists"}
+        <ArtistsView artists={$artists} isLibraryLoading={$isLibraryLoading} on:openArtist={handleOpenArtist} />
+      {:else if route.name === "artistDetail"}
+        <ArtistDetailView artistId={route.id} on:openAlbum={handleOpenAlbum} />
+      {:else if route.name === "search"}
+        <SearchResultsView
+          searchTerm={searchInput}
+          searchResults={$searchResults}
+          isSearching={$isSearching}
+          on:openAlbum={handleOpenAlbum}
+          on:openArtist={handleOpenArtist}
+        />
+      {:else if route.name === "settings"}
+        <SettingsView
+          {scanStatus}
+          {isScanning}
+          {runLibraryScan}
+          {cancelLibraryScan}
+          on:refreshLibrary={loadLibrary}
+          on:refreshPlaylists={loadPlaylists}
+        />
+      {:else if route.name === "playlistDetail"}
+        <PlaylistDetailView playlistId={route.id} on:refreshPlaylists={loadPlaylists} />
+      {/if}
+    </main>
+  </div>
 
   <BottomPlayerBar />
+  <NowPlayingOverlay />
 </div>
 
 <style>
   .app-container {
     display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
-    grid-template-rows: 64px minmax(0, 1fr) auto;
-    grid-template-areas:
-      "sidebar topbar"
-      "sidebar main"
-      "player player";
+    grid-template-rows: minmax(0, 1fr) auto;
     height: 100dvh;
     background-color: var(--app-bg);
     color: var(--app-fg);
+  }
+
+  .app-shell {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-rows: 64px minmax(0, 1fr);
+    grid-template-areas:
+      "sidebar topbar"
+      "sidebar main";
+    overflow: hidden;
+  }
+
+  .app-shell--inactive {
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
   }
 
   :global(header.top-bar) {
@@ -182,7 +207,12 @@
     padding: 20px;
   }
 
+  .main-content--locked {
+    overflow: hidden;
+  }
+
   :global(.player-bar) {
-    grid-area: player;
+    position: relative;
+    z-index: 10;
   }
 </style>
