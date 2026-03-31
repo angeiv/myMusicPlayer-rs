@@ -242,20 +242,26 @@ git commit -m "feat(playback): add lyric seek action"
 - Test: `src/tests/now-playing-overlay.test.ts`
 - Modify (如需要): `src/tests/app-shell-wiring.test.ts`
 
-- [ ] **Step 1: 写失败测试：overlay 默认关闭、open 后默认 lyrics tab、Esc 关闭**
+- [ ] **Step 1: 写失败测试：overlay 默认关闭、open 后默认 lyrics tab、focus 进入 Header、Queue tab 激活时会 refreshQueue**
 
 在 `src/tests/now-playing-overlay.test.ts` 新增（示意）：
 ```ts
-it('opens on lyrics tab and closes on Escape', async () => {
+it('opens on lyrics tab, moves focus into overlay, and refreshes queue when queue tab is activated', async () => {
   // render overlay with mocked nowPlaying store open state + sharedPlayback state
-  // assert lyrics tab selected by default
-  // dispatch Escape and assert close called
+  // assert dialog/overlay has accessible name
+  // assert default tab is lyrics
+  // assert focus lands on back button or active tab button
+  // switch to queue tab and assert sharedPlayback.refreshQueue() called
 });
 ```
 
 > 测试重点：
 - `isOpen=false` 时 overlay 不渲染
 - `isOpen=true` 时默认激活 `lyrics`
+- overlay 具备稳定可访问名称
+- 打开时焦点进入 overlay Header
+- 激活 Queue tab 时调用 `sharedPlayback.refreshQueue()`，避免队列为空/陈旧
+- 背景 shell 进入 inert / 不可滚动，而 BottomPlayerBar 仍保持可交互
 - `Esc` 触发 `close()`
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -266,7 +272,7 @@ npm --prefix ./src run test -- --run tests/now-playing-overlay.test.ts
 ```
 Expected: FAIL（component 不存在）
 
-- [ ] **Step 3: 实现 NowPlayingOverlay.svelte（先做外壳）**
+- [ ] **Step 3: 实现 NowPlayingOverlay.svelte（外壳 + 两栏布局 + queue freshness）**
 
 要求：
 - Header：返回按钮 + 标题信息 + Tab（lyrics/queue）
@@ -275,8 +281,11 @@ Expected: FAIL（component 不存在）
 - `onMount` / action 或事件监听支持 `Esc` 关闭
 - `isOpen=false` 不渲染
 - `isOpen=true` 时：
+  - 外壳使用 **两栏桌面布局**：左侧封面/元信息，右侧内容区（歌词/队列）
   - 歌词 tab 先用占位容器 / 简单组件位点（Task 5 再补全复杂逻辑）
   - Queue tab 先用 `<QueueList ...>` 占位接线
+  - 在 Queue tab 首次激活时调用 `sharedPlayback.refreshQueue()`
+- overlay 容器具备可访问名称（例如 `aria-labelledby` 绑定标题）
 
 - [ ] **Step 4: App.svelte 集成 overlay 与 inert 契约**
 
@@ -287,6 +296,7 @@ Expected: FAIL（component 不存在）
 - 当 overlay 打开时：
   - shell 背景不可点击 / 不可滚动
   - BottomPlayerBar 继续可见且可交互
+  - 明确保持 **非模态** 行为（不使用会屏蔽底栏的严格 modal 处理）
 
 > 不要求此任务就完全完成 focus return，可在 Task 4 配合 trigger 一起打通。
 
@@ -372,10 +382,11 @@ git commit -m "refactor(player): move lyrics entry into now playing trigger"
 - Create: `src/tests/now-playing-lyrics-tab.test.ts`
 - Modify: `src/lib/player/NowPlayingOverlay.svelte`
 
-- [ ] **Step 1: 写失败测试：timed / plain / empty 三种状态**
+- [ ] **Step 1: 写失败测试：timed / plain / empty 三种状态 + Follow Mode 自动跟随**
 
 在 `src/tests/now-playing-lyrics-tab.test.ts` 新增：
 - timed lyrics：显示 active line
+- timed lyrics：progress 前进时，当前行高亮发生变化，并尝试把当前行保持在可读区域（可通过 `scrollIntoView` spy 或等价方式断言）
 - plain lyrics：展示全文，不显示 guide line / seek pill
 - no lyrics：显示空态提示
 
@@ -387,22 +398,27 @@ npm --prefix ./src run test -- --run tests/now-playing-lyrics-tab.test.ts
 ```
 Expected: FAIL（component 不存在）
 
-- [ ] **Step 3: 最小实现 LyricsTab 基础渲染**
+- [ ] **Step 3: 最小实现 LyricsTab 基础渲染 + Follow Mode**
 
 在 `src/lib/player/NowPlayingLyricsTab.svelte`：
 - 输入：`track`, `progress`, `playbackState`, `onSeekToTimestamp`
 - 复用 `buildLyricsPanelState()`
 - 先实现：timed/plain/empty 三种展示
 - 当前播放行高亮
+- 在 timed lyrics + 非 Browse Mode 下：
+  - progress 更新时自动跟随当前播放行
+  - paused 时保持当前高亮但不继续滚动
+  - resumed 后恢复跟随
 
-- [ ] **Step 4: 新增失败测试：Browse Mode + seek pill + 5 秒自动恢复**
+- [ ] **Step 4: 新增失败测试：Browse Mode + seek pill + 5 秒自动恢复 + 切歌重置**
 
 新增测试（使用 fake timers）：
 - 滚动歌词区 → 显示 guide line + seek pill
 - 点击 seek pill → 调用 `playFromLyricsTimestamp(floor(timestamp))`
 - 5 秒无继续滚动 → 自动恢复 Follow Mode（seek pill 消失 / 回到 active line）
+- track 改变时：清除 Browse Mode / selected line，并恢复到新歌的 Follow Mode
 
-- [ ] **Step 5: 实现 Browse Mode 逻辑**
+- [ ] **Step 5: 实现 Browse Mode 与 track-change reset**
 
 实现要求：
 - 滚轮/滚动进入 Browse Mode
@@ -411,6 +427,9 @@ Expected: FAIL（component 不存在）
 - 右侧显示 `▶︎ + timestamp` 胶囊
 - 点击胶囊：调用 `playFromLyricsTimestamp()`；退出 Browse Mode；恢复 Follow Mode
 - 5 秒无新滚动/选择：自动恢复
+- `track.id` 改变时：
+  - 清除 Browse Mode / selected line / timer
+  - 自动回到新歌的 Follow Mode
 
 > MVP 可以使用“固定 guide line + 逐次计算最近 timed line”实现；不需要过度优化。
 
