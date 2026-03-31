@@ -187,9 +187,7 @@ describe('NowPlayingLyricsTab', () => {
     const scrollRegion = screen.getByTestId('lyrics-scroll-region');
     configureTimedLayout(scrollRegion, ['第一句', '第二句', '第三句']);
 
-    await fireEvent.scroll(scrollRegion);
-
-    expect(screen.getByTestId('lyrics-guide-line')).toBeTruthy();
+    await fireEvent.wheel(scrollRegion);
     const seekButton = screen.getByRole('button', { name: '跳转到 0:04' });
     expect(seekButton).toBeTruthy();
 
@@ -198,7 +196,7 @@ describe('NowPlayingLyricsTab', () => {
     expect(onSeekToTimestamp).toHaveBeenCalledWith(4);
     expect(screen.queryByRole('button', { name: '跳转到 0:04' })).toBeNull();
 
-    await fireEvent.scroll(scrollRegion);
+    await fireEvent.wheel(scrollRegion);
     expect(screen.getByRole('button', { name: '跳转到 0:04' })).toBeTruthy();
 
     scrollIntoViewSpy.mockClear();

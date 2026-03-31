@@ -93,12 +93,21 @@
     return nearestIndex;
   }
 
-  function handleScroll(): void {
+  function enterBrowseMode(): void {
     if (!hasTimedLyrics) {
       return;
     }
 
     isBrowseMode = true;
+    selectedIndex = resolveSelectedIndex();
+    scheduleBrowseReset();
+  }
+
+  function handleScroll(): void {
+    if (!hasTimedLyrics || !isBrowseMode) {
+      return;
+    }
+
     selectedIndex = resolveSelectedIndex();
     scheduleBrowseReset();
   }
@@ -183,6 +192,7 @@
       bind:this={scrollRegion}
       class="lyrics-scroll timed-lyrics"
       data-testid="lyrics-scroll-region"
+      on:wheel={enterBrowseMode}
       on:scroll={handleScroll}
     >
       {#each lines as line, index (line.id)}
