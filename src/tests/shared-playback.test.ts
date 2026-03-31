@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 describe('shared playback lifecycle', () => {
-  it('rejects canceled startup and allows a clean restart', async () => {
+  it('destroys playback if startup settles after destroy is requested with no remount', async () => {
     const { module, start, destroy, startDeferreds, isIntervalRunning } =
       await importSharedPlaybackModule();
 
@@ -61,13 +61,9 @@ describe('shared playback lifecycle', () => {
     expect(destroy).not.toHaveBeenCalled();
 
     expect(startDeferreds).toHaveLength(1);
-    const firstDeferred = startDeferreds[0]!;
-    const firstRejection = expect(firstStart).rejects.toThrow('Shared playback startup cancelled');
-    const secondRejection = expect(secondStart).rejects.toThrow(
-      'Shared playback startup cancelled'
-    );
-    firstDeferred.resolve();
-    await Promise.all([firstRejection, secondRejection]);
+    startDeferreds[0]!.resolve();
+    await expect(firstStart).resolves.toBeUndefined();
+    await expect(secondStart).resolves.toBeUndefined();
 
     expect(destroy).toHaveBeenCalledTimes(1);
     expect(isIntervalRunning()).toBe(false);
@@ -75,15 +71,38 @@ describe('shared playback lifecycle', () => {
     const restart = module.ensureSharedPlaybackStarted();
     expect(start).toHaveBeenCalledTimes(2);
 
-    expect(startDeferreds).toHaveLength(2);
-    const restartDeferred = startDeferreds[1]!;
-    restartDeferred.resolve();
+    startDeferreds[1]!.resolve();
     await expect(restart).resolves.toBeUndefined();
-
     expect(isIntervalRunning()).toBe(true);
 
     module.destroySharedPlayback();
     expect(destroy).toHaveBeenCalledTimes(2);
+    expect(isIntervalRunning()).toBe(false);
+  });
+
+  it('keeps playback started when startup is desired again before the first startup settles', async () => {
+    const { module, start, destroy, startDeferreds, isIntervalRunning } =
+      await importSharedPlaybackModule();
+
+    const firstStart = module.ensureSharedPlaybackStarted();
+    expect(start).toHaveBeenCalledTimes(1);
+
+    module.destroySharedPlayback();
+    expect(destroy).not.toHaveBeenCalled();
+
+    const remountStart = module.ensureSharedPlaybackStarted();
+    expect(start).toHaveBeenCalledTimes(1);
+
+    expect(startDeferreds).toHaveLength(1);
+    startDeferreds[0]!.resolve();
+    await expect(firstStart).resolves.toBeUndefined();
+    await expect(remountStart).resolves.toBeUndefined();
+
+    expect(destroy).not.toHaveBeenCalled();
+    expect(isIntervalRunning()).toBe(true);
+
+    module.destroySharedPlayback();
+    expect(destroy).toHaveBeenCalledTimes(1);
     expect(isIntervalRunning()).toBe(false);
   });
 });
