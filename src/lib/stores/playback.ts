@@ -467,18 +467,21 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
 
   async function playFromLyricsTimestamp(seconds: number): Promise<void> {
     try {
-      const currentTrack = await deps.getCurrentTrack();
+      const { currentTrack, playbackState } = get(store);
       if (!currentTrack) {
         console.warn('Ignoring lyrics seek because no current track is loaded.');
         return;
       }
 
-      const playbackState = await deps.getPlaybackState();
       const target = Math.max(0, Math.floor(seconds));
-
       await deps.seekTo(target);
-      if (playbackState.state !== 'playing') {
+
+      if (playbackState.state === 'paused') {
         await deps.resumePlayback();
+      } else if (playbackState.state !== 'playing') {
+        console.warn(
+          `Skipping playback resume after lyrics seek because playback is ${playbackState.state}.`
+        );
       }
     } catch (error) {
       console.error('Failed to play from lyrics timestamp:', error);
