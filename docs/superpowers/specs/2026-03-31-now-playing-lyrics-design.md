@@ -118,6 +118,15 @@ Now Playing 覆盖层从视觉上分为三部分：
 - 键盘 `Esc`
 - 再次点击底栏左下角当前播放歌曲区（toggle）
 
+## 4.4 与现有 BottomPlayerBar 表面的关系
+
+为了避免交互重复与嵌套控件冲突，本期约定如下：
+
+- **当前歌曲区（封面 / 标题 / 艺人）**：升级为 Now Playing 入口 trigger。
+- **favorite 按钮**：保留为独立按钮；点击 favorite 不打开 Now Playing。
+- **底栏歌词按钮 / 旧歌词面板**：本期移除，Now Playing 成为唯一歌词主入口。
+- **底栏队列 popover**：在 Now Playing 关闭时继续保留（#21 已交付的 quick access）；在 Now Playing 打开时，不再额外弹出底栏队列 popover，用户改用覆盖层里的 Queue Tab。
+
 ---
 
 ## 5. 状态与组件边界
@@ -294,7 +303,19 @@ BottomPlayerBar 与 App/Overlay 共同依赖该 UI store。
 - BottomPlayerBar 通过更高 z-index 保持在 overlay 之上
 - Overlay 内容区需设置底部安全间距（至少 >= 底栏高度）
 
-## 7.4 Queue Tab
+## 7.4 覆盖层可访问性与交互约束
+
+Now Playing 不是完整路由，而是覆盖层；其可访问性合同如下：
+
+- 覆盖层打开时：
+  - Sidebar / TopBar / Main content 进入 inert 状态，不可点击、不可滚动。
+  - BottomPlayerBar **保留可见且可交互**（这是已确认的产品决策），因此覆盖层不应使用 `aria-modal="true"` 的严格模态语义。
+- 覆盖层本身应具备明确可访问名称（例如通过标题 `aria-labelledby` 关联），并作为独立对话/面板容器实现。
+- 打开时焦点进入覆盖层 Header（推荐落在返回按钮或当前激活的 Tab 按钮）。
+- 按 `Esc` 时关闭覆盖层。
+- 关闭后焦点返回到底栏“当前歌曲区” trigger。
+
+## 7.5 Queue Tab
 
 - Queue Tab 直接复用 #21 的 `QueueList`
 - 不新增队列能力，只做集成
@@ -319,7 +340,7 @@ BottomPlayerBar 与 App/Overlay 共同依赖该 UI store。
    - 显示辅助线 + seek 胶囊
    - 5 秒后自动恢复
 5. **seek 胶囊**
-   - 点击后调用 seekToPosition(timestamp)
+   - 点击后调用 `playFromLyricsTimestamp(floor(selected.timestamp))`
 6. **切歌**
    - Browse Mode 退出
    - 新歌歌词加载并恢复 Follow Mode
