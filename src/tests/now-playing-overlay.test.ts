@@ -61,17 +61,36 @@ const overlayMock = vi.hoisted(() => {
     date_added: '2026-03-02T00:00:00.000Z',
   };
 
+  const createPlaybackSnapshot = (track: typeof currentTrack | null) => ({
+    currentTrack: track,
+    playbackState: { state: track ? 'paused' : 'stopped' },
+    volume: 1,
+    progress: 0,
+    duration: track?.duration ?? 0,
+    queueTracks: [queuedTrack],
+    outputDevices: [],
+    selectedDeviceId: 'default',
+    shuffleEnabled: false,
+    repeatMode: 'off' as const,
+    uiError: '',
+  });
+
   const nowPlayingState = createStore<{ isOpen: boolean; activeTab: 'lyrics' | 'queue' }>({
     isOpen: false,
     activeTab: 'lyrics',
   });
-  const playbackState = createStore({
-    currentTrack,
-    queueTracks: [queuedTrack],
-  });
+  const playbackState = createStore(createPlaybackSnapshot(currentTrack));
 
+  const open = vi.fn(() => {
+    nowPlayingState.set({ isOpen: true, activeTab: 'lyrics' });
+  });
   const close = vi.fn(() => {
     nowPlayingState.update((state) => ({ ...state, isOpen: false }));
+  });
+  const toggle = vi.fn(() => {
+    nowPlayingState.update((state) =>
+      state.isOpen ? { ...state, isOpen: false } : { isOpen: true, activeTab: 'lyrics' }
+    );
   });
   const setActiveTab = vi.fn((tab: 'lyrics' | 'queue') => {
     nowPlayingState.update((state) => ({ ...state, activeTab: tab }));
@@ -80,27 +99,81 @@ const overlayMock = vi.hoisted(() => {
   const clearQueue = vi.fn(async () => undefined);
   const removeQueueTrack = vi.fn(async () => undefined);
   const playQueueTrack = vi.fn(async () => undefined);
+  const togglePlayPause = vi.fn(async () => undefined);
+  const promptAndPlayFile = vi.fn(async () => undefined);
+  const beginSeek = vi.fn(() => undefined);
+  const previewSeek = vi.fn(() => undefined);
+  const commitSeek = vi.fn(async () => undefined);
+  const setVolume = vi.fn(async () => undefined);
+  const toggleMute = vi.fn(async () => undefined);
+  const toggleShuffle = vi.fn(async () => undefined);
+  const cycleRepeatMode = vi.fn(async () => undefined);
+  const playPrevious = vi.fn(async () => undefined);
+  const playNext = vi.fn(async () => undefined);
+  const selectOutputDevice = vi.fn(async () => undefined);
+  const dismissError = vi.fn(() => undefined);
+
+  function setCurrentTrack(track: typeof currentTrack | null) {
+    playbackState.update((state) => ({
+      ...state,
+      currentTrack: track,
+      playbackState: { state: track ? 'paused' : 'stopped' },
+      duration: track?.duration ?? 0,
+    }));
+  }
 
   function reset() {
     nowPlayingState.set({ isOpen: false, activeTab: 'lyrics' });
-    playbackState.set({ currentTrack, queueTracks: [queuedTrack] });
+    playbackState.set(createPlaybackSnapshot(currentTrack));
+    open.mockClear();
     close.mockClear();
+    toggle.mockClear();
     setActiveTab.mockClear();
     refreshQueue.mockClear();
     clearQueue.mockClear();
     removeQueueTrack.mockClear();
     playQueueTrack.mockClear();
+    togglePlayPause.mockClear();
+    promptAndPlayFile.mockClear();
+    beginSeek.mockClear();
+    previewSeek.mockClear();
+    commitSeek.mockClear();
+    setVolume.mockClear();
+    toggleMute.mockClear();
+    toggleShuffle.mockClear();
+    cycleRepeatMode.mockClear();
+    playPrevious.mockClear();
+    playNext.mockClear();
+    selectOutputDevice.mockClear();
+    dismissError.mockClear();
   }
 
   return {
+    currentTrack,
     nowPlayingState,
     playbackState,
+    open,
     close,
+    toggle,
     setActiveTab,
     refreshQueue,
     clearQueue,
     removeQueueTrack,
     playQueueTrack,
+    togglePlayPause,
+    promptAndPlayFile,
+    beginSeek,
+    previewSeek,
+    commitSeek,
+    setVolume,
+    toggleMute,
+    toggleShuffle,
+    cycleRepeatMode,
+    playPrevious,
+    playNext,
+    selectOutputDevice,
+    dismissError,
+    setCurrentTrack,
     reset,
   };
 });
@@ -108,7 +181,9 @@ const overlayMock = vi.hoisted(() => {
 vi.mock('../lib/player/now-playing', () => ({
   nowPlayingUi: {
     state: overlayMock.nowPlayingState,
+    open: overlayMock.open,
     close: overlayMock.close,
+    toggle: overlayMock.toggle,
     setActiveTab: overlayMock.setActiveTab,
   },
 }));
@@ -120,10 +195,29 @@ vi.mock('../lib/player/sharedPlayback', () => ({
     clearQueue: overlayMock.clearQueue,
     removeQueueTrack: overlayMock.removeQueueTrack,
     playQueueTrack: overlayMock.playQueueTrack,
+    togglePlayPause: overlayMock.togglePlayPause,
+    promptAndPlayFile: overlayMock.promptAndPlayFile,
+    beginSeek: overlayMock.beginSeek,
+    previewSeek: overlayMock.previewSeek,
+    commitSeek: overlayMock.commitSeek,
+    setVolume: overlayMock.setVolume,
+    toggleMute: overlayMock.toggleMute,
+    toggleShuffle: overlayMock.toggleShuffle,
+    cycleRepeatMode: overlayMock.cycleRepeatMode,
+    playPrevious: overlayMock.playPrevious,
+    playNext: overlayMock.playNext,
+    selectOutputDevice: overlayMock.selectOutputDevice,
+    dismissError: overlayMock.dismissError,
   },
 }));
 
+import BottomPlayerBar from '../lib/player/BottomPlayerBar.svelte';
 import NowPlayingOverlay from '../lib/player/NowPlayingOverlay.svelte';
+
+function renderPlayerShell() {
+  render(BottomPlayerBar);
+  render(NowPlayingOverlay);
+}
 
 describe('NowPlayingOverlay', () => {
   beforeEach(() => {
@@ -189,6 +283,71 @@ describe('NowPlayingOverlay', () => {
 
     await waitFor(() => {
       expect(screen.queryByRole('region', { name: '正在播放' })).toBeNull();
+    });
+  });
+
+  it('does not open the overlay from the bottom bar when there is no current track', async () => {
+    overlayMock.setCurrentTrack(null);
+    renderPlayerShell();
+
+    const trigger = screen.getByRole('button', { name: '当前没有正在播放内容' });
+    expect((trigger as HTMLButtonElement).disabled).toBe(true);
+
+    await fireEvent.click(trigger);
+
+    expect(overlayMock.toggle).not.toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: '正在播放' })).toBeNull();
+  });
+
+  it('opens the overlay when the bottom bar trigger is clicked with a current track', async () => {
+    renderPlayerShell();
+
+    const trigger = screen.getByRole('button', { name: /^打开正在播放：/ });
+    await fireEvent.click(trigger);
+
+    expect(overlayMock.toggle).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole('region', { name: '正在播放' })).toBeTruthy();
+  });
+
+  it('disables the bottom bar queue trigger while the overlay is open', async () => {
+    renderPlayerShell();
+
+    const trigger = screen.getByRole('button', { name: /^打开正在播放：/ });
+    await fireEvent.click(trigger);
+    await screen.findByRole('region', { name: '正在播放' });
+
+    const queueButton = screen.getByRole('button', { name: '队列' });
+    overlayMock.refreshQueue.mockClear();
+
+    expect((queueButton as HTMLButtonElement).disabled).toBe(true);
+
+    await fireEvent.click(queueButton);
+
+    expect(overlayMock.refreshQueue).not.toHaveBeenCalled();
+    expect(screen.queryByText('接下来播放')).toBeNull();
+  });
+
+  it('returns focus to the bottom bar trigger when the overlay closes', async () => {
+    renderPlayerShell();
+
+    const trigger = screen.getByRole('button', { name: /^打开正在播放：/ });
+    const focusSpy = vi.spyOn(trigger, 'focus');
+
+    await fireEvent.click(trigger);
+
+    const backButton = await screen.findByRole('button', { name: '返回播放器' });
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(backButton);
+    });
+
+    await fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(overlayMock.close).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: '正在播放' })).toBeNull();
+      expect(focusSpy).toHaveBeenCalledTimes(1);
     });
   });
 });
