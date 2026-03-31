@@ -17,6 +17,7 @@
   let hasTimedLyrics = false;
   let isBrowseMode = false;
   let selectedIndex: number | null = null;
+  let pendingManualScroll = false;
   let browseTimer: ReturnType<typeof setTimeout> | null = null;
   let lastTrackId: string | null = null;
   let lastFollowSignature = '';
@@ -38,6 +39,7 @@
 
   function resetBrowseMode(): void {
     clearBrowseTimer();
+    pendingManualScroll = false;
     isBrowseMode = false;
     selectedIndex = null;
   }
@@ -98,14 +100,38 @@
       return;
     }
 
+    pendingManualScroll = false;
     isBrowseMode = true;
     selectedIndex = resolveSelectedIndex();
     scheduleBrowseReset();
   }
 
+  function capturePointerIntent(node: HTMLElement) {
+    const handlePointerDown = () => {
+      pendingManualScroll = true;
+    };
+
+    node.addEventListener('pointerdown', handlePointerDown);
+
+    return {
+      destroy() {
+        node.removeEventListener('pointerdown', handlePointerDown);
+      },
+    };
+  }
+
   function handleScroll(): void {
-    if (!hasTimedLyrics || !isBrowseMode) {
+    if (!hasTimedLyrics) {
       return;
+    }
+
+    if (!isBrowseMode) {
+      if (!pendingManualScroll) {
+        return;
+      }
+
+      pendingManualScroll = false;
+      isBrowseMode = true;
     }
 
     selectedIndex = resolveSelectedIndex();
@@ -192,6 +218,7 @@
       bind:this={scrollRegion}
       class="lyrics-scroll timed-lyrics"
       data-testid="lyrics-scroll-region"
+      use:capturePointerIntent
       on:wheel={enterBrowseMode}
       on:scroll={handleScroll}
     >
