@@ -213,9 +213,10 @@ BottomPlayerBar 与 App/Overlay 共同依赖该 UI store。
 在 Browse Mode 且当前所选行为 timed lyric 时：
 - 在歌词区右侧显示一个“▶︎ + timestamp”胶囊
 - timestamp 来自所选歌词行的时间戳
+- **MVP 精度规则：seek 采用整秒精度**。对于带小数的 LRC timestamp，前端在触发 seek 前按 **向下取整到秒** 处理（例如 `01:23.87` → `83` 秒）。
 - 用户点击该胶囊：
   - 调用 playback seek 到该时间
-  - 播放从该时间继续
+  - **无论当前是 paused 还是 playing，都按“明确播放意图”处理：从该时间开始播放（进入 playing）**
   - 退出 Browse Mode
   - 自动回到 Follow Mode
 
@@ -275,10 +276,12 @@ BottomPlayerBar 与 App/Overlay 共同依赖该 UI store。
 当前 PlaybackStore 已有 `commitSeek(position)`，但它语义偏向进度条拖拽。
 
 推荐新增更直接的方法，例如：
-- `seekToPosition(seconds: number)`
+- `playFromLyricsTimestamp(seconds: number)`
 
 职责：
+- 将传入的歌词 timestamp 先按 MVP 规则规范为整秒（向下取整）
 - 调用底层 `deps.seekTo(seconds)`
+- 若当前不是 `playing`，则显式恢复/开始播放（因为点击胶囊代表“播放当前所选行”）
 - 刷新 playback state
 - 不依赖 `beginSeek/previewSeek` 那套 slider 状态
 
