@@ -281,6 +281,24 @@ describe('playback store', () => {
     expect(deps.setLastSession).not.toHaveBeenCalledWith(null, 0);
   });
 
+  it('plays from lyrics timestamp by flooring seconds and forcing playing', async () => {
+    const deps = createDependencies({
+      seekTo: vi.fn().mockResolvedValue(undefined),
+      resumePlayback: vi.fn().mockResolvedValue(undefined),
+      getPlaybackState: vi
+        .fn()
+        .mockResolvedValue({ state: 'paused', position: 10, duration: 100 } satisfies PlaybackStateInfo),
+      getCurrentTrack: vi.fn().mockResolvedValue({ id: 't1' } as any),
+      getVolume: vi.fn().mockResolvedValue(0.5),
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.playFromLyricsTimestamp(83.87);
+
+    expect(deps.seekTo).toHaveBeenCalledWith(83);
+    expect(deps.resumePlayback).toHaveBeenCalledTimes(1);
+  });
+
   it('clears last session when configured last track is missing', async () => {
     const deps = createDependencies({
       getConfig: vi.fn(async () =>
