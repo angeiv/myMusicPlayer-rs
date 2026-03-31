@@ -4,6 +4,7 @@ export const sharedPlayback = createPlaybackStore();
 
 let sharedPlaybackStarted = false;
 let sharedPlaybackStartPromise: Promise<void> | null = null;
+let destroyRequested = false;
 
 // App/root owns the shared playback lifecycle; leaf components should use the store
 // without calling sharedPlayback.start()/destroy() directly.
@@ -14,6 +15,14 @@ export async function ensureSharedPlaybackStarted(): Promise<void> {
 
   if (!sharedPlaybackStartPromise) {
     sharedPlaybackStartPromise = sharedPlayback.start().then(() => {
+      if (destroyRequested) {
+        sharedPlayback.destroy();
+        destroyRequested = false;
+        sharedPlaybackStarted = false;
+        sharedPlaybackStartPromise = null;
+        return;
+      }
+
       sharedPlaybackStarted = true;
     });
   }
@@ -21,17 +30,24 @@ export async function ensureSharedPlaybackStarted(): Promise<void> {
   try {
     await sharedPlaybackStartPromise;
   } catch (error) {
+    destroyRequested = false;
     sharedPlaybackStartPromise = null;
     throw error;
   }
 }
 
 export function destroySharedPlayback(): void {
+  if (sharedPlaybackStartPromise && !sharedPlaybackStarted) {
+    destroyRequested = true;
+    return;
+  }
+
   if (!sharedPlaybackStarted) {
     return;
   }
 
   sharedPlayback.destroy();
+  destroyRequested = false;
   sharedPlaybackStarted = false;
   sharedPlaybackStartPromise = null;
 }
