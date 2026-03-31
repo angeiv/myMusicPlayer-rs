@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
 
   import Sidebar from './lib/layout/Sidebar.svelte';
   import TopBar from './lib/layout/TopBar.svelte';
   import BottomPlayerBar from './lib/player/BottomPlayerBar.svelte';
   import NowPlayingOverlay from './lib/player/NowPlayingOverlay.svelte';
   import { nowPlayingUi } from './lib/player/now-playing';
+  import { destroySharedPlayback, ensureSharedPlaybackStarted } from './lib/player/sharedPlayback';
   import HomeView from './lib/views/HomeView.svelte';
   import SongsView from './lib/views/SongsView.svelte';
   import AlbumsView from './lib/views/AlbumsView.svelte';
@@ -95,6 +96,11 @@
 
   onMount(() => {
     void bootstrap();
+    void ensureSharedPlaybackStarted();
+  });
+
+  onDestroy(() => {
+    destroySharedPlayback();
   });
 </script>
 

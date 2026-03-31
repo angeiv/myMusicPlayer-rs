@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
 
   import { buildLyricsPanelState, type LyricsLine } from './lyrics';
   import QueueList from './QueueList.svelte';
-  import { createPlaybackStore } from '../stores/playback';
+  import { sharedPlayback } from './sharedPlayback';
   import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
 
-  const playback = createPlaybackStore();
+  const playback = sharedPlayback;
 
   let currentTrack: Track | null = null;
   let playbackState: PlaybackStateInfo = { state: 'stopped' };
@@ -61,14 +61,6 @@
   ));
   $: remainingTime = duration > 0 ? Math.max(duration - progress, 0) : 0;
   $: progressPercent = duration ? Math.min(Math.max((progress / duration) * 100, 0), 100) : 0;
-
-  onMount(() => {
-    void playback.start();
-
-    return () => {
-      playback.destroy();
-    };
-  });
 
   onDestroy(() => {
     if (volumeAdjustTimer) {
