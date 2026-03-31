@@ -119,6 +119,8 @@ impl PlayQueue {
                 }
             }
 
+            // Removing a track invalidates stored indices, so reset history.
+            self.history.clear();
             self.regenerate_shuffle();
             Some(track)
         } else {
@@ -513,5 +515,22 @@ mod tests {
         queue.remove_track(0);
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.current_track().unwrap().title, "Track 2");
+    }
+
+    #[test]
+    fn remove_track_clears_history_to_keep_previous_consistent() {
+        let mut queue = PlayQueue::new();
+        let t1 = create_test_track("Track 1");
+        let t2 = create_test_track("Track 2");
+        let t3 = create_test_track("Track 3");
+        queue.set_tracks(vec![t1.clone(), t2.clone(), t3.clone()]);
+
+        queue.next(); // Track 2
+        queue.next(); // Track 3
+
+        queue.remove_track(0); // remove Track 1; history should be cleared
+
+        let prev = queue.previous().unwrap();
+        assert_eq!(prev.id, t2.id);
     }
 }

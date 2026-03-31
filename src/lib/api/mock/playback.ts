@@ -3,6 +3,7 @@ import { resolveBackendPlayMode, type BackendPlayMode, type RepeatMode } from '.
 import { getMockTracks } from '../../mocks/library';
 
 let queue: Track[] = [];
+let queueCleared = false;
 let currentTrack: Track | null = null;
 let playbackState: PlaybackStateInfo = { state: 'stopped' };
 let volume = 0.7;
@@ -49,16 +50,38 @@ export async function setPlayModeFromUi(shuffleEnabled: boolean, repeatMode: Rep
 }
 
 export async function getQueue(): Promise<Track[]> {
+  if (queueCleared && queue.length === 0) return queue;
   ensureQueueSeeded();
   return queue;
 }
 
 export async function setQueue(tracks: Track[]): Promise<void> {
   queue = tracks.slice();
+  queueCleared = tracks.length === 0;
 }
 
 export async function addToQueue(tracks: Track[]): Promise<void> {
+  if (tracks.length > 0) queueCleared = false;
   queue = [...queue, ...tracks.map((track) => ({ ...track }))];
+}
+
+export async function clearQueue(): Promise<void> {
+  queue = [];
+  queueCleared = true;
+}
+
+export async function removeFromQueue(trackId: string): Promise<void> {
+  if (currentTrack?.id === trackId) {
+    throw new Error(`Cannot remove current track (${trackId}) from queue`);
+  }
+
+  const index = queue.findIndex((track) => track.id === trackId);
+  if (index === -1) {
+    throw new Error(`Track ${trackId} not found in queue`);
+  }
+
+  queue = [...queue.slice(0, index), ...queue.slice(index + 1)];
+  if (queue.length === 0) queueCleared = true;
 }
 
 export async function playTrack(track: Track): Promise<void> {
@@ -96,6 +119,7 @@ export async function getCurrentTrack(): Promise<Track | null> {
 }
 
 export async function pickAndPlayFile(): Promise<void> {
+  queueCleared = false;
   ensureQueueSeeded();
   const first = queue[0];
   if (first) {
@@ -104,7 +128,10 @@ export async function pickAndPlayFile(): Promise<void> {
 }
 
 export async function playNextTrack(): Promise<void> {
+  if (queueCleared && queue.length === 0) return;
   ensureQueueSeeded();
+  if (queue.length === 0) return;
+
   if (!currentTrack) {
     const first = queue[0];
     if (first) await playTrack(first);
@@ -117,7 +144,10 @@ export async function playNextTrack(): Promise<void> {
 }
 
 export async function playPreviousTrack(): Promise<void> {
+  if (queueCleared && queue.length === 0) return;
   ensureQueueSeeded();
+  if (queue.length === 0) return;
+
   if (!currentTrack) {
     const first = queue[0];
     if (first) await playTrack(first);
@@ -144,4 +174,3 @@ export async function togglePlayPause(): Promise<boolean> {
   await pickAndPlayFile();
   return true;
 }
-

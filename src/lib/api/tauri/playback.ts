@@ -54,6 +54,14 @@ export async function addToQueue(tracks: Track[]): Promise<void> {
   await invoke('add_to_queue', { tracks });
 }
 
+export async function clearQueue(): Promise<void> {
+  await invoke('clear_queue');
+}
+
+export async function removeFromQueue(trackId: string): Promise<void> {
+  await invoke('remove_from_queue', { trackId });
+}
+
 export async function playTrack(track: Track): Promise<void> {
   await invoke('play', { track });
 }

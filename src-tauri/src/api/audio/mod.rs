@@ -465,6 +465,32 @@ pub async fn clear_queue(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RemoveFromQueuePayload {
+    #[serde(alias = "trackId")]
+    pub track_id: String,
+}
+
+/// Remove a track from the play queue
+#[tauri::command]
+pub async fn remove_from_queue(
+    payload: RemoveFromQueuePayload,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let track_id =
+        uuid::Uuid::parse_str(&payload.track_id).map_err(|_| "Invalid track id".to_string())?;
+
+    let audio = state.audio.lock().map_err(|e| {
+        error!("Failed to acquire audio lock: {}", e);
+        "Failed to access audio service".to_string()
+    })?;
+
+    audio.remove_from_queue(track_id).map_err(|e| {
+        error!("Failed to remove from queue: {}", e);
+        e
+    })
+}
+
 /// Get the current playback position in seconds
 #[tauri::command]
 pub async fn get_position(state: State<'_, AppState>) -> Result<u64, String> {

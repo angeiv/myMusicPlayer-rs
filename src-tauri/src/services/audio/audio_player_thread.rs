@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::{fs::File, io::BufReader};
+use uuid::Uuid;
 
 /// Commands that can be sent to the audio player thread
 #[derive(Debug)]
@@ -35,6 +36,10 @@ enum PlayerCommand {
     SetQueue(Vec<Track>),
     AddToQueue(Vec<Track>),
     ClearQueue,
+    RemoveFromQueue {
+        track_id: Uuid,
+        response_tx: Sender<Result<()>>,
+    },
     GetQueue {
         response_tx: Sender<Vec<Track>>,
     },
@@ -204,6 +209,21 @@ impl AudioPlayerHandle {
         self.command_tx
             .send(PlayerCommand::ClearQueue)
             .map_err(|e| anyhow!("Failed to send clear queue command: {}", e))
+    }
+
+    /// Remove a track from the queue by ID.
+    pub fn remove_from_queue(&self, track_id: Uuid) -> Result<()> {
+        let (response_tx, response_rx) = bounded(1);
+        self.command_tx
+            .send(PlayerCommand::RemoveFromQueue {
+                track_id,
+                response_tx,
+            })
+            .map_err(|e| anyhow!("Failed to send remove from queue command: {e}"))?;
+
+        response_rx
+            .recv()
+            .map_err(|e| anyhow!("Failed to receive remove from queue result: {e}"))?
     }
 
     pub fn get_queue(&self) -> Result<Vec<Track>> {
@@ -517,6 +537,26 @@ fn run_player_thread(
                     queue.clear();
                     state.lock().queue_length = 0;
                     info!("Queue cleared");
+                }
+                PlayerCommand::RemoveFromQueue {
+                    track_id,
+                    response_tx,
+                } => {
+                    let remove_result = if state
+                        .lock()
+                        .current_track
+                        .as_ref()
+                        .is_some_and(|track| track.id == track_id)
+                    {
+                        Err(anyhow!("Cannot remove the current track from the queue"))
+                    } else if queue.remove_track_by_id(track_id).is_none() {
+                        Err(anyhow!("Track not found in the queue"))
+                    } else {
+                        state.lock().queue_length = queue.len();
+                        Ok(())
+                    };
+
+                    let _ = response_tx.send(remove_result);
                 }
                 PlayerCommand::GetQueue { response_tx } => {
                     let _ = response_tx.send(queue.tracks().to_vec());
@@ -1133,5 +1173,105 @@ mod tests {
         let enriched = prepare_track_for_playback(&track, 120, 44_100, 2);
 
         assert_eq!(enriched.lyrics, None);
+    }
+
+    #[test]
+    fn remove_from_queue_removes_non_current_track() {
+        let handle = AudioPlayerHandle::new().unwrap();
+
+        let track1 = Track {
+            title: "Track 1".to_string(),
+            ..Track::default()
+        };
+        let track2 = Track {
+            title: "Track 2".to_string(),
+            ..Track::default()
+        };
+
+        handle
+            .set_queue(vec![track1.clone(), track2.clone()])
+            .unwrap();
+        let _ = handle.get_queue().unwrap();
+
+        // Simulate current track without decoding audio.
+        handle.state.lock().current_track = Some(track1.clone());
+
+        handle.remove_from_queue(track2.id).unwrap();
+
+        let queue = handle.get_queue().unwrap();
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].id, track1.id);
+        assert_eq!(handle.state.lock().queue_length, 1);
+        assert_eq!(
+            handle.state.lock().current_track.as_ref().map(|t| t.id),
+            Some(track1.id)
+        );
+    }
+
+    #[test]
+    fn remove_from_queue_rejects_current_track() {
+        let handle = AudioPlayerHandle::new().unwrap();
+
+        let track1 = Track {
+            title: "Track 1".to_string(),
+            ..Track::default()
+        };
+        let track2 = Track {
+            title: "Track 2".to_string(),
+            ..Track::default()
+        };
+
+        handle
+            .set_queue(vec![track1.clone(), track2.clone()])
+            .unwrap();
+        let _ = handle.get_queue().unwrap();
+
+        // Simulate current track without decoding audio.
+        handle.state.lock().current_track = Some(track1.clone());
+
+        let result = handle.remove_from_queue(track1.id);
+        assert!(result.is_err());
+
+        let queue = handle.get_queue().unwrap();
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue[0].id, track1.id);
+        assert_eq!(queue[1].id, track2.id);
+        assert_eq!(handle.state.lock().queue_length, 2);
+        assert_eq!(
+            handle.state.lock().current_track.as_ref().map(|t| t.id),
+            Some(track1.id)
+        );
+    }
+
+    #[test]
+    fn remove_from_queue_rejects_missing_track() {
+        let handle = AudioPlayerHandle::new().unwrap();
+
+        let track1 = Track {
+            title: "Track 1".to_string(),
+            ..Track::default()
+        };
+        let missing_track = Track {
+            title: "Missing".to_string(),
+            ..Track::default()
+        };
+
+        handle.set_queue(vec![track1.clone()]).unwrap();
+        let _ = handle.get_queue().unwrap();
+
+        // Simulate current track without decoding audio.
+        handle.state.lock().current_track = Some(track1.clone());
+
+        let result = handle.remove_from_queue(missing_track.id);
+        assert!(result.is_err());
+
+        let queue = handle.get_queue().unwrap();
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].id, track1.id);
+        assert_eq!(handle.state.lock().queue_length, 1);
+        assert_eq!(
+            handle.state.lock().current_track.as_ref().map(|t| t.id),
+            Some(track1.id)
+        );
     }
 }

@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
 
   import { buildLyricsPanelState, type LyricsLine } from './lyrics';
+  import QueueList from './QueueList.svelte';
   import { createPlaybackStore } from '../stores/playback';
   import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
 
@@ -165,10 +166,6 @@
     if (showQueue) {
       void playback.refreshQueue();
     }
-  }
-
-  function asTrack(value: unknown): Track {
-    return value as Track;
   }
 
   function asDevice(value: unknown): OutputDeviceInfo {
@@ -344,24 +341,13 @@
       {#if showQueue}
         <div class="popover queue-popover">
           <p class="heading">接下来播放</p>
-          {#if queueTracks.length === 0}
-            <p class="muted">队列信息即将推出。</p>
-          {:else}
-            <ul>
-              {#each queueTracks as track, index (asTrack(track).id)}
-                <li class:active={currentTrack?.id === asTrack(track).id}>
-                  <button type="button" on:click={() => handleQueuePlay(asTrack(track))}>
-                    <span class="index">{index + 1}</span>
-                    <div>
-                      <p class="queue-title">{asTrack(track).title}</p>
-                      <p class="queue-artist">{asTrack(track).artist_name ?? 'Unknown Artist'}</p>
-                    </div>
-                    <span class="queue-time">{formatDuration(asTrack(track).duration)}</span>
-                  </button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
+          <QueueList
+            tracks={queueTracks}
+            currentTrackId={currentTrack?.id ?? null}
+            onSelect={handleQueuePlay}
+            onRemove={(track) => void playback.removeQueueTrack(track.id)}
+            onClear={() => void playback.clearQueue()}
+          />
         </div>
       {/if}
     </div>
@@ -896,12 +882,6 @@
     color: #e2e8f0;
   }
 
-  .muted {
-    font-size: 0.8rem;
-    color: rgba(148, 163, 184, 0.8);
-  }
-
-  .queue-popover ul,
   .device-popover ul {
     list-style: none;
     margin: 0;
@@ -911,49 +891,6 @@
     gap: 6px;
     max-height: 240px;
     overflow-y: auto;
-  }
-
-  .queue-popover li button {
-    width: 100%;
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 10px;
-    align-items: center;
-    border: none;
-    background: color-mix(in srgb, var(--player-border) 55%, transparent);
-    border-radius: 10px;
-    padding: 8px 10px;
-    color: inherit;
-    cursor: pointer;
-  }
-
-  .queue-popover li button:hover {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-  }
-
-  .queue-popover li.active button {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
-  }
-
-  .queue-title {
-    font-size: 0.85rem;
-    font-weight: 600;
-  }
-
-  .queue-artist {
-    font-size: 0.75rem;
-    color: var(--player-muted);
-  }
-
-  .queue-time {
-    font-size: 0.75rem;
-    color: var(--player-muted);
-  }
-
-  .index {
-    font-variant-numeric: tabular-nums;
-    font-size: 0.8rem;
-    width: 1.5rem;
   }
 
   .volume-header {
