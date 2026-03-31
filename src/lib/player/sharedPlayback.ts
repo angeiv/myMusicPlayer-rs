@@ -14,26 +14,31 @@ export async function ensureSharedPlaybackStarted(): Promise<void> {
   }
 
   if (!sharedPlaybackStartPromise) {
-    sharedPlaybackStartPromise = sharedPlayback.start().then(() => {
-      if (destroyRequested) {
-        sharedPlayback.destroy();
-        destroyRequested = false;
+    sharedPlaybackStartPromise = (async () => {
+      try {
+        await sharedPlayback.start();
+
+        if (destroyRequested) {
+          sharedPlayback.destroy();
+          destroyRequested = false;
+          sharedPlaybackStarted = false;
+          throw new Error('Shared playback startup cancelled');
+        }
+
+        sharedPlaybackStarted = true;
+      } catch (error) {
         sharedPlaybackStarted = false;
+        throw error;
+      } finally {
+        if (!sharedPlaybackStarted) {
+          destroyRequested = false;
+        }
         sharedPlaybackStartPromise = null;
-        return;
       }
-
-      sharedPlaybackStarted = true;
-    });
+    })();
   }
 
-  try {
-    await sharedPlaybackStartPromise;
-  } catch (error) {
-    destroyRequested = false;
-    sharedPlaybackStartPromise = null;
-    throw error;
-  }
+  await sharedPlaybackStartPromise;
 }
 
 export function destroySharedPlayback(): void {

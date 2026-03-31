@@ -49,11 +49,12 @@ afterEach(() => {
 });
 
 describe('shared playback lifecycle', () => {
-  it('destroys pending startup immediately after start resolves when destroy was requested', async () => {
+  it('rejects canceled startup and allows a clean restart', async () => {
     const { module, start, destroy, startDeferreds, isIntervalRunning } =
       await importSharedPlaybackModule();
 
     const firstStart = module.ensureSharedPlaybackStarted();
+    const secondStart = module.ensureSharedPlaybackStarted();
     expect(start).toHaveBeenCalledTimes(1);
 
     module.destroySharedPlayback();
@@ -61,8 +62,12 @@ describe('shared playback lifecycle', () => {
 
     expect(startDeferreds).toHaveLength(1);
     const firstDeferred = startDeferreds[0]!;
+    const firstRejection = expect(firstStart).rejects.toThrow('Shared playback startup cancelled');
+    const secondRejection = expect(secondStart).rejects.toThrow(
+      'Shared playback startup cancelled'
+    );
     firstDeferred.resolve();
-    await firstStart;
+    await Promise.all([firstRejection, secondRejection]);
 
     expect(destroy).toHaveBeenCalledTimes(1);
     expect(isIntervalRunning()).toBe(false);
@@ -73,7 +78,7 @@ describe('shared playback lifecycle', () => {
     expect(startDeferreds).toHaveLength(2);
     const restartDeferred = startDeferreds[1]!;
     restartDeferred.resolve();
-    await restart;
+    await expect(restart).resolves.toBeUndefined();
 
     expect(isIntervalRunning()).toBe(true);
 
