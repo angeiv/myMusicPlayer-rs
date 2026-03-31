@@ -1,10 +1,11 @@
 <script lang="ts">
   import { afterUpdate, tick } from 'svelte';
 
+  import NowPlayingLyricsTab from './NowPlayingLyricsTab.svelte';
   import QueueList from './QueueList.svelte';
   import { nowPlayingUi, type NowPlayingTab } from './now-playing';
   import { sharedPlayback } from './sharedPlayback';
-  import type { Track } from '../types';
+  import type { PlaybackStateInfo, Track } from '../types';
 
   const overlayTitleId = 'now-playing-overlay-title';
   const lyricsTabId = 'now-playing-overlay-tab-lyrics';
@@ -17,6 +18,8 @@
   let isOpen = false;
   let activeTab: NowPlayingTab = 'lyrics';
   let currentTrack: Track | null = null;
+  let playbackState: PlaybackStateInfo = { state: 'stopped' };
+  let progress = 0;
   let queueTracks: Track[] = [];
   let backButton: HTMLButtonElement | null = null;
   let lyricsTabButton: HTMLButtonElement | null = null;
@@ -26,6 +29,8 @@
   $: isOpen = $nowPlayingState.isOpen;
   $: activeTab = $nowPlayingState.activeTab;
   $: currentTrack = $sharedPlayback.currentTrack;
+  $: playbackState = $sharedPlayback.playbackState;
+  $: progress = $sharedPlayback.progress;
   $: queueTracks = $sharedPlayback.queueTracks;
 
   afterUpdate(async () => {
@@ -177,17 +182,12 @@
             aria-labelledby={lyricsTabId}
             class="panel-card lyrics-panel"
           >
-            <div class="panel-copy">
-              <p class="panel-eyebrow">歌词</p>
-              <h3>{currentTrack?.title ?? '歌词内容'}</h3>
-              <p>
-                Task 5 将在这里接入完整歌词组件。当前阶段先提供 overlay 外壳、焦点、和
-                tab 契约。
-              </p>
-            </div>
-            <div class="panel-placeholder" aria-hidden="true">
-              <span>♪</span>
-            </div>
+            <NowPlayingLyricsTab
+              track={currentTrack}
+              progress={progress}
+              playbackState={playbackState}
+              onSeekToTimestamp={(seconds) => void sharedPlayback.playFromLyricsTimestamp(seconds)}
+            />
           </div>
         {:else}
           <div id={queuePanelId} role="tabpanel" aria-labelledby={queueTabId} class="panel-card queue-panel">
@@ -277,14 +277,12 @@
   .overlay-heading h2,
   .overlay-heading p,
   .track-copy p,
-  .panel-copy p,
   .track-meta-grid dt,
   .track-meta-grid dd {
     margin: 0;
   }
 
-  .overlay-eyebrow,
-  .panel-eyebrow {
+  .overlay-eyebrow {
     font-size: 0.75rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -417,39 +415,7 @@
   }
 
   .lyrics-panel {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 18px;
-    align-items: stretch;
-  }
-
-  .panel-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    justify-content: center;
-  }
-
-  .panel-copy h3 {
-    margin: 0;
-    font-size: 1.3rem;
-    color: rgba(248, 250, 252, 0.98);
-  }
-
-  .panel-copy p:last-child {
-    line-height: 1.7;
-    color: rgba(203, 213, 225, 0.86);
-  }
-
-  .panel-placeholder {
-    width: clamp(110px, 18vw, 180px);
-    min-height: 100%;
-    border-radius: 22px;
-    display: grid;
-    place-items: center;
-    background: linear-gradient(180deg, rgba(37, 99, 235, 0.18), rgba(15, 23, 42, 0.3));
-    color: rgba(191, 219, 254, 0.92);
-    font-size: clamp(2rem, 6vw, 3.2rem);
+    min-height: 0;
   }
 
   .queue-panel {
@@ -464,8 +430,7 @@
     }
 
     .overlay-header,
-    .overlay-body,
-    .lyrics-panel {
+    .overlay-body {
       grid-template-columns: 1fr;
     }
 
@@ -478,9 +443,5 @@
       width: min(100%, 240px);
     }
 
-    .panel-placeholder {
-      width: 100%;
-      min-height: 120px;
-    }
   }
 </style>

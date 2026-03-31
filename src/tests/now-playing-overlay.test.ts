@@ -99,6 +99,7 @@ const overlayMock = vi.hoisted(() => {
   const clearQueue = vi.fn(async () => undefined);
   const removeQueueTrack = vi.fn(async () => undefined);
   const playQueueTrack = vi.fn(async () => undefined);
+  const playFromLyricsTimestamp = vi.fn(async () => undefined);
   const togglePlayPause = vi.fn(async () => undefined);
   const promptAndPlayFile = vi.fn(async () => undefined);
   const beginSeek = vi.fn(() => undefined);
@@ -133,6 +134,7 @@ const overlayMock = vi.hoisted(() => {
     clearQueue.mockClear();
     removeQueueTrack.mockClear();
     playQueueTrack.mockClear();
+    playFromLyricsTimestamp.mockClear();
     togglePlayPause.mockClear();
     promptAndPlayFile.mockClear();
     beginSeek.mockClear();
@@ -160,6 +162,7 @@ const overlayMock = vi.hoisted(() => {
     clearQueue,
     removeQueueTrack,
     playQueueTrack,
+    playFromLyricsTimestamp,
     togglePlayPause,
     promptAndPlayFile,
     beginSeek,
@@ -195,6 +198,7 @@ vi.mock('../lib/player/sharedPlayback', () => ({
     clearQueue: overlayMock.clearQueue,
     removeQueueTrack: overlayMock.removeQueueTrack,
     playQueueTrack: overlayMock.playQueueTrack,
+    playFromLyricsTimestamp: overlayMock.playFromLyricsTimestamp,
     togglePlayPause: overlayMock.togglePlayPause,
     promptAndPlayFile: overlayMock.promptAndPlayFile,
     beginSeek: overlayMock.beginSeek,
