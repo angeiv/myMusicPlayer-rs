@@ -23,6 +23,7 @@ toml = "1.0.6"
 [dependencies]
 # Tauri
 tauri = { version = "2.10.3", features = [
+    "protocol-asset",
     "tray-icon",
     "wry",
 ], default-features = false }
