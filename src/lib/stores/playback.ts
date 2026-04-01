@@ -59,7 +59,7 @@ export type PlaybackStoreDependencies = {
   clearTimeout: typeof globalThis.clearTimeout;
 };
 
-type PlaybackStore = Writable<PlaybackStoreState> & {
+export type PlaybackStore = Writable<PlaybackStoreState> & {
   start: () => Promise<void>;
   destroy: () => void;
   refreshState: () => Promise<void>;
@@ -72,6 +72,7 @@ type PlaybackStore = Writable<PlaybackStoreState> & {
   beginSeek: () => void;
   previewSeek: (position: number) => void;
   commitSeek: (position: number) => Promise<void>;
+  playFromLyricsTimestamp: (seconds: number) => Promise<void>;
   setVolume: (volume: number) => Promise<void>;
   toggleMute: () => Promise<void>;
   toggleShuffle: () => Promise<void>;
@@ -464,6 +465,31 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
     await refreshState();
   }
 
+  async function playFromLyricsTimestamp(seconds: number): Promise<void> {
+    try {
+      const { currentTrack, playbackState } = get(store);
+      if (!currentTrack) {
+        console.warn('Ignoring lyrics seek because no current track is loaded.');
+        return;
+      }
+
+      const target = Math.max(0, Math.floor(seconds));
+      await deps.seekTo(target);
+
+      if (playbackState.state === 'paused') {
+        await deps.resumePlayback();
+      } else if (playbackState.state !== 'playing') {
+        console.warn(
+          `Skipping playback resume after lyrics seek because playback is ${playbackState.state}.`
+        );
+      }
+    } catch (error) {
+      console.error('Failed to play from lyrics timestamp:', error);
+    }
+
+    await refreshState();
+  }
+
   async function setVolume(volume: number): Promise<void> {
     const clamped = Math.min(Math.max(volume, 0), 1);
     if (clamped > 0) {
@@ -625,6 +651,7 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
     beginSeek,
     previewSeek,
     commitSeek,
+    playFromLyricsTimestamp,
     setVolume,
     toggleMute,
     toggleShuffle,

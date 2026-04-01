@@ -12,13 +12,15 @@ async function readPlayerBar(): Promise<string> {
 }
 
 describe('player utility controls styling', () => {
-  it('renders queue, volume, device, and lyrics as unified icon buttons without emoji labels', async () => {
+  it('renders queue, volume, and device as unified icon buttons without emoji labels', async () => {
     const source = await readPlayerBar();
 
     expect(source).toMatch(/class=\"utility-trigger utility-icon-button\"[^>]*aria-label=\"队列\"/);
     expect(source).toMatch(/class=\"utility-trigger utility-icon-button volume-trigger\"/);
     expect(source).toMatch(/class=\"utility-trigger utility-icon-button\"[^>]*aria-label=\"输出设备\"/);
-    expect(source).toMatch(/class=\"utility-trigger utility-icon-button\"[^>]*aria-label=\"歌词\"/);
+    expect(source).not.toMatch(/class=\"utility-trigger utility-icon-button\"[^>]*aria-label=\"歌词\"/);
+    expect(source).not.toContain('showLyricsPanel');
+    expect(source).not.toContain('lyrics-panel');
     expect(source).not.toContain('📃');
     expect(source).not.toContain('🎧');
     expect(source).not.toContain('📝');

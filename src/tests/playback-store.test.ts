@@ -281,6 +281,152 @@ describe('playback store', () => {
     expect(deps.setLastSession).not.toHaveBeenCalledWith(null, 0);
   });
 
+  it('plays from lyrics timestamp by resuming when the store snapshot is paused', async () => {
+    const track = createTrack({ id: 'lyrics-paused', duration: 100 });
+    const calls: string[] = [];
+    const getPlaybackState = vi.fn<() => Promise<PlaybackStateInfo>>().mockImplementation(async () => {
+      calls.push('getPlaybackState');
+      return { state: 'paused', position: 10, duration: track.duration };
+    });
+    const getCurrentTrack = vi.fn<() => Promise<Track | null>>().mockImplementation(async () => {
+      calls.push('getCurrentTrack');
+      return track;
+    });
+    const getVolume = vi.fn<() => Promise<number>>().mockImplementation(async () => {
+      calls.push('getVolume');
+      return 0.5;
+    });
+    const seekTo = vi.fn<(position: number) => Promise<void>>().mockImplementation(async () => {
+      calls.push('seekTo');
+    });
+    const resumePlayback = vi.fn<() => Promise<void>>().mockImplementation(async () => {
+      calls.push('resumePlayback');
+    });
+    const deps = createDependencies({
+      seekTo,
+      resumePlayback,
+      getPlaybackState,
+      getCurrentTrack,
+      getVolume,
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.refreshState();
+
+    getPlaybackState.mockImplementation(async () => {
+      calls.push('getPlaybackState');
+      return { state: 'playing', position: 10, duration: track.duration };
+    });
+    getCurrentTrack.mockImplementation(async () => {
+      calls.push('getCurrentTrack');
+      return null;
+    });
+    calls.length = 0;
+
+    await store.playFromLyricsTimestamp(83.87);
+
+    expect(calls).toEqual(['seekTo', 'resumePlayback', 'getPlaybackState', 'getCurrentTrack', 'getVolume']);
+    expect(seekTo).toHaveBeenCalledWith(83);
+    expect(resumePlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it('plays from lyrics timestamp without resuming when the store snapshot is already playing', async () => {
+    const track = createTrack({ id: 'lyrics-playing', duration: 120 });
+    const calls: string[] = [];
+    const getPlaybackState = vi.fn<() => Promise<PlaybackStateInfo>>().mockImplementation(async () => {
+      calls.push('getPlaybackState');
+      return { state: 'playing', position: 12, duration: track.duration };
+    });
+    const getCurrentTrack = vi.fn<() => Promise<Track | null>>().mockImplementation(async () => {
+      calls.push('getCurrentTrack');
+      return track;
+    });
+    const getVolume = vi.fn<() => Promise<number>>().mockImplementation(async () => {
+      calls.push('getVolume');
+      return 0.5;
+    });
+    const seekTo = vi.fn<(position: number) => Promise<void>>().mockImplementation(async () => {
+      calls.push('seekTo');
+    });
+    const resumePlayback = vi.fn<() => Promise<void>>().mockImplementation(async () => {
+      calls.push('resumePlayback');
+    });
+    const deps = createDependencies({
+      seekTo,
+      resumePlayback,
+      getPlaybackState,
+      getCurrentTrack,
+      getVolume,
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.refreshState();
+
+    getPlaybackState.mockImplementation(async () => {
+      calls.push('getPlaybackState');
+      return { state: 'paused', position: 12, duration: track.duration };
+    });
+    calls.length = 0;
+
+    await store.playFromLyricsTimestamp(14.6);
+
+    expect(calls).toEqual(['seekTo', 'getPlaybackState', 'getCurrentTrack', 'getVolume']);
+    expect(seekTo).toHaveBeenCalledWith(14);
+    expect(resumePlayback).not.toHaveBeenCalled();
+  });
+
+  it('does not seek or resume from lyrics when no current track is loaded in the store snapshot', async () => {
+    const getPlaybackState = vi
+      .fn<() => Promise<PlaybackStateInfo>>()
+      .mockResolvedValue({ state: 'paused', position: 10, duration: 100 });
+    const getCurrentTrack = vi.fn<() => Promise<Track | null>>().mockResolvedValue(createTrack());
+    const seekTo = vi.fn<(position: number) => Promise<void>>().mockResolvedValue(undefined);
+    const resumePlayback = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const deps = createDependencies({
+      seekTo,
+      resumePlayback,
+      getPlaybackState,
+      getCurrentTrack,
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.playFromLyricsTimestamp(14.2);
+
+    expect(console.warn).toHaveBeenCalledWith('Ignoring lyrics seek because no current track is loaded.');
+    expect(getCurrentTrack).not.toHaveBeenCalled();
+    expect(getPlaybackState).not.toHaveBeenCalled();
+    expect(seekTo).not.toHaveBeenCalled();
+    expect(resumePlayback).not.toHaveBeenCalled();
+  });
+
+  it('warns and does not resume from lyrics when the store snapshot is stopped', async () => {
+    const track = createTrack({ id: 'lyrics-stopped', duration: 140 });
+    const getPlaybackState = vi
+      .fn<() => Promise<PlaybackStateInfo>>()
+      .mockResolvedValue({ state: 'stopped' } satisfies PlaybackStateInfo);
+    const getCurrentTrack = vi.fn<() => Promise<Track | null>>().mockResolvedValue(track);
+    const seekTo = vi.fn<(position: number) => Promise<void>>().mockResolvedValue(undefined);
+    const resumePlayback = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const deps = createDependencies({
+      seekTo,
+      resumePlayback,
+      getPlaybackState,
+      getCurrentTrack,
+      getVolume: vi.fn<() => Promise<number>>().mockResolvedValue(0.5),
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.refreshState();
+
+    await store.playFromLyricsTimestamp(22.9);
+
+    expect(seekTo).toHaveBeenCalledWith(22);
+    expect(resumePlayback).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(
+      'Skipping playback resume after lyrics seek because playback is stopped.'
+    );
+  });
+
   it('clears last session when configured last track is missing', async () => {
     const deps = createDependencies({
       getConfig: vi.fn(async () =>

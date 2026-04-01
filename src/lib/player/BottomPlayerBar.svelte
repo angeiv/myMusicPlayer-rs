@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
 
-  import { buildLyricsPanelState, type LyricsLine } from './lyrics';
   import QueueList from './QueueList.svelte';
-  import { createPlaybackStore } from '../stores/playback';
+  import { nowPlayingUi } from './now-playing';
+  import { sharedPlayback } from './sharedPlayback';
   import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
 
-  const playback = createPlaybackStore();
+  const playback = sharedPlayback;
+  const nowPlayingState = nowPlayingUi.state;
 
   let currentTrack: Track | null = null;
   let playbackState: PlaybackStateInfo = { state: 'stopped' };
@@ -22,18 +23,17 @@
   let uiError = '';
   let showQueue = false;
   let showDevicePicker = false;
-  let showLyricsPanel = false;
   let queueTracks: Track[] = [];
   let outputDevices: OutputDeviceInfo[] = [];
   let selectedDeviceId = 'default';
   let isPlaying = false;
   let isMuted = false;
-  let lyricsLines: LyricsLine[] = [];
-  let activeLyricIndex = -1;
-  let hasTimedLyrics = false;
+  let isNowPlayingOpen = false;
+  let wasNowPlayingOpen = false;
   let remainingTime = 0;
   let progressPercent = 0;
   let playingClass = '';
+  let nowPlayingTrigger: HTMLButtonElement | null = null;
 
   $: currentTrack = $playback.currentTrack;
   $: playbackState = $playback.playbackState;
@@ -55,22 +55,22 @@
 
   $: isPlaying = playbackState.state === 'playing';
   $: isMuted = volume <= 0;
-  $: ({ lines: lyricsLines, activeIndex: activeLyricIndex, hasTimedLyrics } = buildLyricsPanelState(
-    currentTrack?.lyrics,
-    progress
-  ));
   $: remainingTime = duration > 0 ? Math.max(duration - progress, 0) : 0;
   $: progressPercent = duration ? Math.min(Math.max((progress / duration) * 100, 0), 100) : 0;
 
-  onMount(() => {
-    void playback.start();
+  const unsubscribeNowPlaying = nowPlayingState.subscribe(({ isOpen }) => {
+    if (isOpen) {
+      closeTransientPopovers();
+    } else if (wasNowPlayingOpen) {
+      nowPlayingTrigger?.focus();
+    }
 
-    return () => {
-      playback.destroy();
-    };
+    isNowPlayingOpen = isOpen;
+    wasNowPlayingOpen = isOpen;
   });
 
   onDestroy(() => {
+    unsubscribeNowPlaying();
     if (volumeAdjustTimer) {
       clearTimeout(volumeAdjustTimer);
       volumeAdjustTimer = null;
@@ -150,8 +150,13 @@
     await playback.selectOutputDevice(deviceId);
   }
 
-  function toggleLyrics() {
-    showLyricsPanel = !showLyricsPanel;
+  function toggleNowPlaying() {
+    if (!currentTrack) {
+      return;
+    }
+
+    closeTransientPopovers();
+    nowPlayingUi.toggle();
   }
 
   function closeTransientPopovers(except?: 'queue' | 'device') {
@@ -160,6 +165,11 @@
   }
 
   function toggleQueuePopover() {
+    if (isNowPlayingOpen) {
+      showQueue = false;
+      return;
+    }
+
     const next = !showQueue;
     closeTransientPopovers(next ? 'queue' : undefined);
     showQueue = next;
@@ -197,34 +207,46 @@
   {#if uiError}
     <div class="error-banner" role="status">
       <span>{uiError}</span>
-      <button type="button" on:click={() => playback.dismissError()} aria-label="Dismiss error">✕</button>
+      <button type="button" on:click={() => playback.dismissError()} aria-label="关闭错误提示">✕</button>
     </div>
   {/if}
   <div class="now-playing">
-    <div class="artwork" aria-hidden="true">
-      <span>{currentTrack ? currentTrack.title.charAt(0) : '♪'}</span>
-    </div>
-    <div class="track-meta">
-      <div class="title">{currentTrack ? currentTrack.title : 'Nothing playing'}</div>
-      <div class="artist">
-        {#if currentTrack}
-          {currentTrack.artist_name ?? 'Unknown Artist'} • {currentTrack.album_title ?? 'Single'}
-        {:else}
-          Choose a track to start listening
-        {/if}
-      </div>
-      <div class="badges">
-        <span class="badge">{currentTrack?.genre ?? 'Uncategorized'}</span>
-        {#if currentTrack?.year}
-          <span class="badge subtle">{currentTrack.year}</span>
-        {/if}
-      </div>
-    </div>
     <button
+      bind:this={nowPlayingTrigger}
+      type="button"
+      class="now-playing-trigger"
+      class:active={isNowPlayingOpen}
+      on:click={toggleNowPlaying}
+      disabled={!currentTrack}
+      aria-label={currentTrack ? `打开正在播放：${currentTrack.title}` : '当前没有正在播放内容'}
+      aria-pressed={currentTrack ? isNowPlayingOpen : undefined}
+    >
+      <div class="artwork" aria-hidden="true">
+        <span>{currentTrack ? currentTrack.title.charAt(0) : '♪'}</span>
+      </div>
+      <div class="track-meta">
+        <div class="title">{currentTrack ? currentTrack.title : '暂无播放'}</div>
+        <div class="artist">
+          {#if currentTrack}
+            {currentTrack.artist_name ?? '未知艺术家'} • {currentTrack.album_title ?? '单曲'}
+          {:else}
+            选择歌曲后即可在这里查看播放详情
+          {/if}
+        </div>
+        <div class="badges">
+          <span class="badge">{currentTrack?.genre ?? '未分类'}</span>
+          {#if currentTrack?.year}
+            <span class="badge subtle">{currentTrack.year}</span>
+          {/if}
+        </div>
+      </div>
+    </button>
+    <button
+      type="button"
       class="favorite"
       class:active={currentTrack && favorites.has(currentTrack.id)}
       on:click={toggleFavorite}
-      aria-label="Toggle favorite"
+      aria-label={currentTrack && favorites.has(currentTrack.id) ? '取消收藏' : '收藏'}
     >
       {#if currentTrack && favorites.has(currentTrack.id)}❤{:else}♡{/if}
     </button>
@@ -245,7 +267,7 @@
           on:touchstart={handleSeekStart}
           on:input={handleSeekMove}
           on:change={handleSeek}
-          aria-label="Seek"
+          aria-label="拖动进度"
         />
       </div>
       <span class="time">-{formatDuration(remainingTime)}</span>
@@ -326,6 +348,7 @@
         type="button"
         class="utility-trigger utility-icon-button"
         on:click={toggleQueuePopover}
+        disabled={isNowPlayingOpen}
         aria-expanded={showQueue}
         aria-label="队列"
       >
@@ -410,8 +433,8 @@
                 class:selected={selectedDeviceId === 'default'}
                 on:click={() => handleSelectDevice('default')}
               >
-                <span class="device-name">System default</span>
-                <span class="device-desc">Use the OS default output</span>
+                <span class="device-name">系统默认</span>
+                <span class="device-desc">使用系统默认输出</span>
               </button>
             </li>
             {#each outputDevices as device (asDevice(device).id)}
@@ -422,7 +445,7 @@
                   on:click={() => handleSelectDevice(asDevice(device).id)}
                 >
                   <span class="device-name">{asDevice(device).name}</span>
-                  <span class="device-desc">{asDevice(device).is_default ? 'Default device' : 'Output device'}</span>
+                  <span class="device-desc">{asDevice(device).is_default ? '默认设备' : '输出设备'}</span>
                 </button>
               </li>
             {/each}
@@ -431,52 +454,8 @@
       {/if}
     </div>
 
-    <button
-      type="button"
-      class="utility-trigger utility-icon-button"
-      class:active={showLyricsPanel}
-      on:click={toggleLyrics}
-      aria-label="歌词"
-      aria-pressed={showLyricsPanel}
-    >
-      <span class="utility-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none">
-          <path d="M5.75 7h12.5M5.75 11h12.5M5.75 15h8.5M5.75 19h6.5" />
-        </svg>
-      </span>
-    </button>
   </div>
 </div>
-
-{#if showLyricsPanel}
-  <section class="lyrics-panel">
-    <div class="lyrics-header">
-      <div>
-        <p class="eyebrow">{hasTimedLyrics ? '实时歌词' : '本地歌词'}</p>
-        <p class="lyrics-title">{currentTrack ? currentTrack.title : '歌词'}</p>
-      </div>
-      <button on:click={toggleLyrics} aria-label="Close lyrics">✕</button>
-    </div>
-    <div class="lyrics-body">
-      {#if lyricsLines.length === 0}
-        <div class="lyrics-empty">
-          <p class="lyrics-empty-title">{currentTrack ? '未找到本地歌词' : '播放歌曲后可在这里查看本地歌词'}</p>
-          <p class="lyrics-empty-hint">
-            {#if currentTrack}
-              当前歌曲未找到同名 `.lrc` 文件。
-            {:else}
-              当前面板会显示正在播放歌曲的本地歌词。
-            {/if}
-          </p>
-        </div>
-      {:else}
-        {#each lyricsLines as line, index (line.id)}
-          <p class:active={index === activeLyricIndex}>{line.text}</p>
-        {/each}
-      {/if}
-    </div>
-  </section>
-{/if}
 
 <style>
   .player-bar {
@@ -533,8 +512,40 @@
   .now-playing {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
     min-width: 0;
+  }
+
+  .now-playing-trigger {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 20px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition:
+      background 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.16s ease;
+  }
+
+  .now-playing-trigger:hover:not(:disabled),
+  .now-playing-trigger:focus-visible,
+  .now-playing-trigger.active {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+    outline: none;
+    transform: translateY(-1px);
+  }
+
+  .now-playing-trigger:disabled {
+    cursor: not-allowed;
   }
 
   .artwork {
@@ -605,6 +616,11 @@
   .favorite.active {
     color: rgba(248, 113, 113, 0.95);
     transform: scale(1.05);
+  }
+
+  .favorite:focus-visible {
+    outline: none;
+    transform: translateY(-1px);
   }
 
   .playback {
@@ -816,7 +832,12 @@
       0 12px 28px rgba(37, 99, 235, 0.22);
   }
 
-  .utility-trigger:hover,
+  .utility-trigger:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .utility-trigger:hover:not(:disabled),
   .utility-trigger:focus-visible {
     background: rgba(37, 99, 235, 0.22);
     border-color: rgba(96, 165, 250, 0.28);
@@ -978,92 +999,6 @@
     color: rgba(148, 163, 184, 0.85);
   }
 
-  .lyrics-panel {
-    position: fixed;
-    right: 32px;
-    bottom: 132px;
-    width: min(420px, 32vw);
-    background: rgba(15, 23, 42, 0.98);
-    border: 1px solid rgba(96, 165, 250, 0.35);
-    border-radius: 20px;
-    padding: 20px;
-    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.45);
-    z-index: 40;
-    backdrop-filter: blur(14px);
-  }
-
-  .lyrics-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
-  }
-
-  .lyrics-header .eyebrow {
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgba(148, 163, 184, 0.9);
-  }
-
-  .lyrics-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    margin-top: 4px;
-  }
-
-  .lyrics-header button {
-    border: none;
-    border-radius: 999px;
-    width: 32px;
-    height: 32px;
-    background: rgba(30, 64, 175, 0.4);
-    color: #fff;
-    cursor: pointer;
-  }
-
-  .lyrics-body {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-height: 320px;
-    overflow-y: auto;
-  }
-
-  .lyrics-body p {
-    margin: 0;
-    font-size: 0.95rem;
-    color: rgba(241, 245, 249, 0.9);
-    transition: color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
-    opacity: 0.62;
-  }
-
-  .lyrics-body p.active {
-    color: #ffffff;
-    opacity: 1;
-    transform: translateX(4px);
-  }
-
-  .lyrics-empty {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px 4px;
-  }
-
-  .lyrics-empty-title {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: rgba(248, 250, 252, 0.96);
-  }
-
-  .lyrics-empty-hint {
-    margin: 0;
-    font-size: 0.85rem;
-    line-height: 1.5;
-    color: rgba(148, 163, 184, 0.92);
-  }
 
   @media (max-width: 1100px) {
     .player-bar {
@@ -1074,11 +1009,6 @@
 
     .extras {
       justify-content: flex-start;
-    }
-
-    .lyrics-panel {
-      width: calc(100% - 48px);
-      right: 24px;
     }
   }
 </style>

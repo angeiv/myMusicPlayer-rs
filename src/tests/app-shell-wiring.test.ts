@@ -3,6 +3,8 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { nowPlayingUi } from '../lib/player/now-playing';
+
 const appShellMock = vi.hoisted(() => {
   const createStore = <T,>(value: T) => ({
     subscribe(run: (value: T) => void) {
@@ -99,6 +101,7 @@ describe('App songs-shell wiring', () => {
   beforeEach(() => {
     const spyWindow = window as SongsViewSpyWindow;
     delete spyWindow.__songsViewSpyProps;
+    nowPlayingUi.close();
     window.location.hash = '#/songs';
   });
 
@@ -106,6 +109,7 @@ describe('App songs-shell wiring', () => {
     const spyWindow = window as SongsViewSpyWindow;
     cleanup();
     delete spyWindow.__songsViewSpyProps;
+    nowPlayingUi.close();
     window.location.hash = '';
     appShellMock.loadPlaylists.mockClear();
   });
@@ -134,5 +138,24 @@ describe('App songs-shell wiring', () => {
     await refreshTrigger.click();
 
     expect(appShellMock.loadPlaylists).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the background shell inert while keeping the bottom bar outside the locked shell', async () => {
+    nowPlayingUi.open();
+
+    const { container } = render(App);
+
+    await waitFor(() => {
+      expect(container.querySelector('.app-shell')).toBeTruthy();
+    });
+
+    const shell = container.querySelector('.app-shell');
+    const mainContent = container.querySelector('.main-content');
+    const bottomBarStub = screen.getByTestId('empty-stub');
+
+    expect(shell?.getAttribute('aria-hidden')).toBe('true');
+    expect(shell?.className).toContain('app-shell--inactive');
+    expect(mainContent?.className).toContain('main-content--locked');
+    expect(shell?.contains(bottomBarStub)).toBe(false);
   });
 });
