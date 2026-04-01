@@ -1,5 +1,6 @@
 //! Library service backed by SQLite for managing normalized music metadata.
 
+mod artwork;
 mod scan;
 #[allow(unused_imports)]
 pub use scan::*;
