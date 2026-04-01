@@ -51,15 +51,30 @@ describe('resolveArtworkSrc', () => {
 });
 
 describe('CoverArt', () => {
-  it('uses the same default accessible name for fallback artwork as the image state', () => {
-    render(CoverArt, {
-      artworkPath: null,
+  it('keeps the same default accessible name when the image falls back to the placeholder', async () => {
+    const { container } = render(CoverArt, {
+      artworkPath: MOCK_ARTWORK_DATA_URI,
       title: 'Midnight Echoes',
     });
 
-    expect(screen.queryByRole('img')).toBeTruthy();
-    expect(screen.getByRole('img', { name: 'Midnight Echoes cover art' })).toBeTruthy();
-    expect(screen.getByTestId('cover-art-placeholder')).toBeTruthy();
+    const image = container.querySelector('img');
+    const accessibleImage = screen.getByRole('img');
+    const defaultAlt = image?.getAttribute('alt');
+
+    expect(accessibleImage.tagName).toBe('IMG');
+    expect(defaultAlt).toBeTruthy();
+
+    if (!image || !defaultAlt) {
+      throw new Error('Expected the cover image to render with a default accessible name before fallback.');
+    }
+
+    await fireEvent.error(image);
+
+    const placeholder = screen.getByTestId('cover-art-placeholder');
+
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByRole('img')).toBe(placeholder);
+    expect(placeholder.getAttribute('aria-label')).toBe(defaultAlt);
   });
 
   it('preserves a custom alt label after the image falls back to the placeholder', async () => {

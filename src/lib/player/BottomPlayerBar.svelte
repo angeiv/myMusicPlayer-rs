@@ -226,7 +226,7 @@
         className="bottom-player-bar__artwork"
         artworkPath={currentTrack?.artwork_path}
         title={currentTrack?.title ?? '暂无播放'}
-        alt={currentTrack ? undefined : ''}
+        alt=""
       />
       <div class="track-meta">
         <div class="title">{currentTrack ? currentTrack.title : '暂无播放'}</div>

@@ -293,12 +293,12 @@ describe('NowPlayingOverlay', () => {
     });
   });
 
-  it('reuses the current track artwork in the summary surface', async () => {
+  it('reuses the current track artwork in the summary surface with a surface-owned alt label', async () => {
     overlayMock.nowPlayingState.set({ isOpen: true, activeTab: 'lyrics' });
     render(NowPlayingOverlay);
 
     const summary = await screen.findByLabelText('当前歌曲信息');
-    const artwork = within(summary).getByRole('img', { name: 'Midnight City cover art' });
+    const artwork = within(summary).getByRole('img', { name: 'Midnight City 的封面' });
 
     expect(artwork.tagName).toBe('IMG');
     expect(artwork.getAttribute('src')).toBe('/covers/midnight-city.jpg');

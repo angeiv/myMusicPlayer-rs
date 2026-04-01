@@ -147,7 +147,7 @@
           className="now-playing-overlay__artwork"
           artworkPath={currentTrack?.artwork_path}
           title={currentTrack?.title ?? '尚未开始播放'}
-          alt={currentTrack ? undefined : ''}
+          alt={currentTrack ? `${currentTrack.title} 的封面` : ''}
         />
 
         <div class="track-copy">

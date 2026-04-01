@@ -177,18 +177,20 @@ afterEach(() => {
 });
 
 describe('BottomPlayerBar cover art rendering', () => {
-  it('shows the current track artwork as informative content when artwork_path is available', () => {
+  it('renders the current track artwork decoratively when artwork_path is available', () => {
     render(BottomPlayerBar);
 
     const trigger = screen.getByRole('button', { name: /^打开正在播放：/ });
-    const artwork = within(trigger).getByRole('img', { name: 'Midnight City cover art' });
+    const artwork = trigger.querySelector('img');
 
-    expect(artwork.tagName).toBe('IMG');
-    expect(artwork.getAttribute('src')).toBe('/covers/midnight-city.jpg');
+    expect(artwork?.tagName).toBe('IMG');
+    expect(artwork?.getAttribute('src')).toBe('/covers/midnight-city.jpg');
+    expect(artwork?.getAttribute('alt')).toBe('');
+    expect(within(trigger).queryByRole('img')).toBeNull();
     expect(within(trigger).queryByTestId('cover-art-placeholder')).toBeNull();
   });
 
-  it('shows an informative fallback when the current track has no artwork_path', () => {
+  it('renders the fallback decoratively when the current track has no artwork_path', () => {
     playerBarMock.setCurrentTrack({
       ...playerBarMock.trackWithArtwork,
       artwork_path: null,
@@ -200,7 +202,8 @@ describe('BottomPlayerBar cover art rendering', () => {
     const fallback = within(trigger).getByTestId('cover-art-placeholder');
 
     expect(trigger.querySelector('img')).toBeNull();
-    expect(within(trigger).getByRole('img', { name: 'Midnight City cover art' })).toBe(fallback);
+    expect(within(trigger).queryByRole('img')).toBeNull();
+    expect(fallback.getAttribute('aria-hidden')).toBe('true');
   });
 });
 
