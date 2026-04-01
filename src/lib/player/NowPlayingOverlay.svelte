@@ -1,11 +1,12 @@
 <script lang="ts">
   import { afterUpdate, tick } from 'svelte';
 
-  import NowPlayingLyricsTab from './NowPlayingLyricsTab.svelte';
-  import QueueList from './QueueList.svelte';
-  import { nowPlayingUi, type NowPlayingTab } from './now-playing';
-  import { sharedPlayback } from './sharedPlayback';
+  import CoverArt from '../components/CoverArt.svelte';
   import type { PlaybackStateInfo, Track } from '../types';
+  import NowPlayingLyricsTab from './NowPlayingLyricsTab.svelte';
+  import { nowPlayingUi, type NowPlayingTab } from './now-playing';
+  import QueueList from './QueueList.svelte';
+  import { sharedPlayback } from './sharedPlayback';
 
   const overlayTitleId = 'now-playing-overlay-title';
   const lyricsTabId = 'now-playing-overlay-tab-lyrics';
@@ -81,11 +82,6 @@
 
     return `${minutes}:${seconds}`;
   }
-
-  function artworkLabel(track: Track | null): string {
-    const source = track?.title?.trim() || '♪';
-    return source.charAt(0).toUpperCase();
-  }
 </script>
 
 <svelte:window on:keydown={handleWindowKeydown} />
@@ -147,7 +143,12 @@
 
     <div class="overlay-body">
       <aside class="track-summary" aria-label="当前歌曲信息">
-        <div class="artwork" aria-hidden="true">{artworkLabel(currentTrack)}</div>
+        <CoverArt
+          className="now-playing-overlay__artwork"
+          artworkPath={currentTrack?.artwork_path}
+          title={currentTrack?.title ?? '尚未开始播放'}
+          alt={currentTrack ? undefined : ''}
+        />
 
         <div class="track-copy">
           <p class="track-title">{currentTrack?.title ?? '尚未开始播放'}</p>
@@ -347,19 +348,10 @@
     gap: 20px;
   }
 
-  .artwork {
+  :global(.now-playing-overlay__artwork) {
     width: min(100%, 320px);
     aspect-ratio: 1;
     border-radius: 24px;
-    display: grid;
-    place-items: center;
-    font-size: clamp(3rem, 8vw, 6rem);
-    font-weight: 700;
-    color: rgba(241, 245, 249, 0.96);
-    background:
-      radial-gradient(circle at top left, rgba(96, 165, 250, 0.36), transparent 48%),
-      linear-gradient(135deg, rgba(79, 70, 229, 0.4), rgba(14, 165, 233, 0.28));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 
   .track-copy {
@@ -439,7 +431,7 @@
       flex-wrap: wrap;
     }
 
-    .artwork {
+    :global(.now-playing-overlay__artwork) {
       width: min(100%, 240px);
     }
 

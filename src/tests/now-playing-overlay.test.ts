@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const artworkMock = vi.hoisted(() => ({
+  isTauri: false,
+  convertFileSrc: vi.fn((artworkPath: string) => `asset://converted${artworkPath}`),
+}));
 
 const overlayMock = vi.hoisted(() => {
   type Subscriber<T> = (value: T) => void;
@@ -38,8 +43,9 @@ const overlayMock = vi.hoisted(() => {
     sample_rate: 48000,
     channels: 2,
     artist_name: 'M83',
-    album_title: 'Hurry Up, We\'re Dreaming',
+    album_title: "Hurry Up, We're Dreaming",
     genre: 'Electronic',
+    artwork_path: '/covers/midnight-city.jpg',
     play_count: 0,
     date_added: '2026-03-01T00:00:00.000Z',
   };
@@ -181,6 +187,16 @@ const overlayMock = vi.hoisted(() => {
   };
 });
 
+vi.mock('../lib/utils/env', () => ({
+  get isTauri() {
+    return artworkMock.isTauri;
+  },
+}));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  convertFileSrc: artworkMock.convertFileSrc,
+}));
+
 vi.mock('../lib/player/now-playing', () => ({
   nowPlayingUi: {
     state: overlayMock.nowPlayingState,
@@ -225,6 +241,8 @@ function renderPlayerShell() {
 
 describe('NowPlayingOverlay', () => {
   beforeEach(() => {
+    artworkMock.isTauri = false;
+    artworkMock.convertFileSrc.mockClear();
     overlayMock.reset();
   });
 
@@ -273,6 +291,18 @@ describe('NowPlayingOverlay', () => {
     await waitFor(() => {
       expect(queueTab.getAttribute('aria-selected')).toBe('true');
     });
+  });
+
+  it('reuses the current track artwork in the summary surface', async () => {
+    overlayMock.nowPlayingState.set({ isOpen: true, activeTab: 'lyrics' });
+    render(NowPlayingOverlay);
+
+    const summary = await screen.findByLabelText('当前歌曲信息');
+    const artwork = within(summary).getByRole('img', { name: 'Midnight City cover art' });
+
+    expect(artwork.tagName).toBe('IMG');
+    expect(artwork.getAttribute('src')).toBe('/covers/midnight-city.jpg');
+    expect(within(summary).queryByTestId('cover-art-placeholder')).toBeNull();
   });
 
   it('closes when Escape is pressed', async () => {

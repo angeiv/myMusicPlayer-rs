@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
 
+  import CoverArt from '../components/CoverArt.svelte';
+  import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
   import QueueList from './QueueList.svelte';
   import { nowPlayingUi } from './now-playing';
   import { sharedPlayback } from './sharedPlayback';
-  import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
 
   const playback = sharedPlayback;
   const nowPlayingState = nowPlayingUi.state;
@@ -221,9 +222,12 @@
       aria-label={currentTrack ? `打开正在播放：${currentTrack.title}` : '当前没有正在播放内容'}
       aria-pressed={currentTrack ? isNowPlayingOpen : undefined}
     >
-      <div class="artwork" aria-hidden="true">
-        <span>{currentTrack ? currentTrack.title.charAt(0) : '♪'}</span>
-      </div>
+      <CoverArt
+        className="bottom-player-bar__artwork"
+        artworkPath={currentTrack?.artwork_path}
+        title={currentTrack?.title ?? '暂无播放'}
+        alt={currentTrack ? undefined : ''}
+      />
       <div class="track-meta">
         <div class="title">{currentTrack ? currentTrack.title : '暂无播放'}</div>
         <div class="artist">
@@ -548,17 +552,11 @@
     cursor: not-allowed;
   }
 
-  .artwork {
+  :global(.bottom-player-bar__artwork) {
     width: 68px;
     height: 68px;
     border-radius: 12px;
-    background: linear-gradient(135deg, rgba(79, 70, 229, 0.4), rgba(14, 165, 233, 0.35));
-    display: grid;
-    place-items: center;
-    font-size: 1.6rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    color: rgba(241, 245, 249, 0.95);
+    flex-shrink: 0;
   }
 
   .track-meta {
