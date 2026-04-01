@@ -48,6 +48,8 @@ pub struct Track {
     pub genre: Option<String>,
     /// Track artwork (path or binary data)
     pub artwork: Option<Vec<u8>>,
+    /// Cached album artwork path exposed to clients
+    pub artwork_path: Option<String>,
     /// Lyrics
     pub lyrics: Option<String>,
     /// Play count
@@ -81,6 +83,7 @@ impl Default for Track {
             year: None,
             genre: None,
             artwork: None,
+            artwork_path: None,
             lyrics: None,
             play_count: 0,
             last_played: None,

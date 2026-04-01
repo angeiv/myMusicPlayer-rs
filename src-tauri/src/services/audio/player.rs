@@ -98,6 +98,7 @@ impl RealAudioPlayer {
             year: None,
             genre: None,
             artwork: None,
+            artwork_path: None,
             lyrics: None,
             play_count: 0,
             last_played: None,

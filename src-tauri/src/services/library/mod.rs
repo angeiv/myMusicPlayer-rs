@@ -113,6 +113,7 @@ struct ExtractedTrack {
 /// Service responsible for scanning the filesystem and persisting music metadata.
 pub struct LibraryService {
     conn: Connection,
+    cache_root: Option<PathBuf>,
 }
 
 impl LibraryService {
@@ -122,15 +123,21 @@ impl LibraryService {
         let db_path = default_database_path()?;
         let mut conn = Connection::open(db_path).context("Failed to open library database")?;
         initialize_schema(&mut conn)?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            cache_root: utils::app_cache_dir(),
+        })
     }
 
     #[cfg(test)]
     pub fn new_with_path_for_tests<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let mut conn =
-            Connection::open(path.as_ref()).context("Failed to open library database")?;
+        let path = path.as_ref();
+        let mut conn = Connection::open(path).context("Failed to open library database")?;
         initialize_schema(&mut conn)?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            cache_root: path.parent().map(|parent| parent.join("cache")),
+        })
     }
 
     /// Scan a directory recursively and persist the discovered audio metadata.
@@ -164,11 +171,12 @@ impl LibraryService {
             .collect();
 
         let mut inserted = 0usize;
+        let cache_root = self.cache_root.clone();
         let tx = self.conn.transaction()?;
 
         for file_path in audio_files {
             match extract_metadata(&file_path) {
-                Ok(raw) => match persist_track(&tx, raw) {
+                Ok(raw) => match persist_track(&tx, raw, cache_root.as_deref()) {
                     Ok(created_new) => {
                         if created_new {
                             inserted += 1;
@@ -201,6 +209,7 @@ impl LibraryService {
         sample_limit: usize,
         mut on_progress: impl FnMut(&ScanProgress),
     ) -> Result<ScanSummary> {
+        let cache_root = self.cache_root.clone();
         let tx = self.conn.transaction()?;
         let mut processed_files = 0u64;
         let mut inserted_tracks = 0u64;
@@ -292,7 +301,7 @@ impl LibraryService {
                         processed_files += 1;
 
                         match extract_metadata(&file_path) {
-                            Ok(raw) => match persist_track(&tx, raw) {
+                            Ok(raw) => match persist_track(&tx, raw, cache_root.as_deref()) {
                                 Ok(created_new) => {
                                     if created_new {
                                         inserted_tracks += 1;
@@ -392,6 +401,7 @@ impl LibraryService {
                 aar.name as album_artist_name,
                 t.album_id,
                 al.title as album_title,
+                al.cover_art_path as artwork_path,
                 t.year,
                 t.genre,
                 t.play_count,
@@ -435,6 +445,7 @@ impl LibraryService {
                 aar.name as album_artist_name,
                 t.album_id,
                 al.title as album_title,
+                al.cover_art_path as artwork_path,
                 t.year,
                 t.genre,
                 t.play_count,
@@ -771,7 +782,11 @@ fn initialize_schema(conn: &mut Connection) -> Result<()> {
 }
 
 /// Persist a track inside the given transaction, returning true if a new row was created.
-fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<bool> {
+fn persist_track(
+    tx: &Transaction<'_>,
+    raw: ExtractedTrack,
+    cache_root: Option<&Path>,
+) -> Result<bool> {
     let artist_id = match raw.artist_name.as_deref() {
         Some(name) if !name.is_empty() => Some(ensure_artist(tx, name)?),
         _ => None,
@@ -786,6 +801,18 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<bool> {
         Some(title) if !title.is_empty() => Some(ensure_album(tx, title, album_artist_id)?),
         _ => None,
     };
+
+    if let (Some(album_id), Some(cache_root)) = (album_id.as_ref(), cache_root) {
+        if let Some(artwork_path) =
+            artwork::cache_album_artwork_to_dir(cache_root, album_id, &raw.file_path, None)?
+                .map(|path| path.to_string_lossy().into_owned())
+        {
+            tx.execute(
+                "UPDATE albums SET cover_art_path = COALESCE(cover_art_path, ?1) WHERE id = ?2",
+                params![artwork_path, album_id.to_string()],
+            )?;
+        }
+    }
 
     let existing_id = tx
         .query_row(
@@ -977,6 +1004,7 @@ fn row_to_track(row: &Row<'_>) -> Result<Track> {
         year: row.get("year")?,
         genre: row.get("genre")?,
         artwork: None,
+        artwork_path: row.get("artwork_path")?,
         lyrics: None,
         play_count: row.get::<_, i64>("play_count")? as u32,
         last_played: row
@@ -1002,6 +1030,7 @@ fn row_to_album(row: &Row<'_>) -> Result<Album> {
         year: row.get("year")?,
         genre: row.get("genre")?,
         artwork: None,
+        artwork_path: row.get("cover_art_path")?,
         track_count: row.get::<_, i64>("track_count")? as u32,
         duration: row.get::<_, i64>("duration")? as u32,
         date_added: Utc
@@ -1101,6 +1130,7 @@ fn query_tracks_with_condition(
             aar.name as album_artist_name,
             t.album_id,
             al.title as album_title,
+            al.cover_art_path as artwork_path,
             t.year,
             t.genre,
             t.play_count,
@@ -1135,6 +1165,13 @@ mod tests {
         },
     };
 
+    use image::{DynamicImage, ImageBuffer, ImageFormat, Rgb};
+    use lofty::{
+        config::WriteOptions,
+        picture::{MimeType, Picture, PictureType},
+        tag::{Tag, TagExt, TagType},
+    };
+    use serde_json::Value;
     use tempfile::{NamedTempFile, TempDir};
 
     fn touch_empty_mp3(path: &Path) {
@@ -1144,6 +1181,72 @@ mod tests {
     fn new_test_service(tmp: &TempDir) -> LibraryService {
         let db_path = tmp.path().join("library.sqlite");
         LibraryService::new_with_path_for_tests(&db_path).unwrap()
+    }
+
+    fn write_silent_wav(path: &Path) {
+        let sample_rate = 44_100u32;
+        let channels = 1u16;
+        let bits_per_sample = 16u16;
+        let sample_count = sample_rate / 10;
+        let block_align = channels * (bits_per_sample / 8);
+        let byte_rate = sample_rate * u32::from(block_align);
+        let data_size = sample_count * u32::from(block_align);
+        let chunk_size = 36 + data_size;
+
+        let mut bytes = Vec::with_capacity(44 + data_size as usize);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&chunk_size.to_le_bytes());
+        bytes.extend_from_slice(b"WAVE");
+        bytes.extend_from_slice(b"fmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&channels.to_le_bytes());
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&byte_rate.to_le_bytes());
+        bytes.extend_from_slice(&block_align.to_le_bytes());
+        bytes.extend_from_slice(&bits_per_sample.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_size.to_le_bytes());
+        bytes.resize(44 + data_size as usize, 0);
+
+        fs::write(path, bytes).unwrap();
+    }
+
+    fn png_bytes(rgb: [u8; 3]) -> Vec<u8> {
+        let image = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(2, 2, Rgb(rgb)));
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut std::io::Cursor::new(&mut bytes), ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    fn create_tagged_track_fixture(dir: &Path) -> PathBuf {
+        let track_path = dir.join("tagged-track.wav");
+        let cover_path = dir.join("cover.png");
+
+        write_silent_wav(&track_path);
+        fs::write(&cover_path, png_bytes([12, 34, 56])).unwrap();
+
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.set_title(String::from("Tagged Track"));
+        tag.set_artist(String::from("Tagged Artist"));
+        tag.set_album(String::from("Tagged Album"));
+        tag.push_picture(
+            Picture::unchecked(png_bytes([12, 34, 56]))
+                .pic_type(PictureType::CoverFront)
+                .mime_type(MimeType::Png)
+                .description("Front Cover")
+                .build(),
+        );
+        tag.save_to_path(&track_path, WriteOptions::default())
+            .unwrap();
+
+        track_path
+    }
+
+    fn json_artwork_path(value: &Value) -> Option<&str> {
+        value.get("artwork_path").and_then(Value::as_str)
     }
 
     #[test]
@@ -1292,5 +1395,79 @@ mod tests {
         // Ensure the database remains usable after a cancelled scan.
         let tracks = service.get_tracks().unwrap();
         assert!(tracks.is_empty());
+    }
+
+    #[test]
+    fn scan_persists_album_artwork_path() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        create_tagged_track_fixture(&root);
+
+        let inserted = service.scan_directory(&root).unwrap();
+        assert_eq!(inserted, 1);
+
+        let persisted_path: Option<String> = service
+            .conn
+            .query_row("SELECT cover_art_path FROM albums LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let persisted_path = persisted_path.expect("scan should persist album artwork path");
+        assert!(Path::new(&persisted_path).exists());
+
+        let albums = service.get_albums().unwrap();
+        assert_eq!(albums.len(), 1);
+        let album_json = serde_json::to_value(&albums[0]).unwrap();
+        assert_eq!(
+            json_artwork_path(&album_json),
+            Some(persisted_path.as_str())
+        );
+    }
+
+    #[test]
+    fn track_queries_expose_album_artwork_path() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        create_tagged_track_fixture(&root);
+
+        service.scan_directory(&root).unwrap();
+
+        let expected_artwork_path: String = service
+            .conn
+            .query_row(
+                "SELECT cover_art_path FROM albums WHERE cover_art_path IS NOT NULL LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        let tracks = service.get_tracks().unwrap();
+        assert_eq!(tracks.len(), 1);
+        let track = &tracks[0];
+        let track_json = serde_json::to_value(track).unwrap();
+        assert_eq!(
+            json_artwork_path(&track_json),
+            Some(expected_artwork_path.as_str())
+        );
+
+        let fetched = service.get_track(track.id).unwrap().unwrap();
+        let fetched_json = serde_json::to_value(&fetched).unwrap();
+        assert_eq!(
+            json_artwork_path(&fetched_json),
+            Some(expected_artwork_path.as_str())
+        );
+
+        let album_id = track.album_id.expect("track should belong to an album");
+        let by_album = service.get_tracks_by_album(&album_id).unwrap();
+        assert_eq!(by_album.len(), 1);
+        let by_album_json = serde_json::to_value(&by_album[0]).unwrap();
+        assert_eq!(
+            json_artwork_path(&by_album_json),
+            Some(expected_artwork_path.as_str())
+        );
     }
 }

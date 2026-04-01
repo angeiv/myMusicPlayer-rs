@@ -79,6 +79,7 @@ fn build_temp_track_for_file(path: PathBuf) -> Track {
         year: None,
         genre: None,
         artwork: None,
+        artwork_path: None,
         lyrics: load_local_lyrics(&path),
         play_count: 0,
         last_played: None,
