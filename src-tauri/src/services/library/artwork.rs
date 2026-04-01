@@ -46,19 +46,33 @@ pub fn resolve_album_artwork_source(
     track_path: &Path,
     embedded_artwork: Option<&[u8]>,
 ) -> Result<Option<ArtworkSource>> {
-    if let Some(path) = find_external_artwork(track_path)? {
-        match fingerprint_file(&path) {
-            Ok(fingerprint) => {
-                return Ok(Some(ArtworkSource::External { path, fingerprint }));
-            }
+    for path in find_external_artwork_candidates(track_path)? {
+        let fingerprint = match fingerprint_file(&path) {
+            Ok(fingerprint) => fingerprint,
             Err(error) => {
                 warn!(
                     "Failed to fingerprint external artwork for {}: {}",
-                    track_path.display(),
+                    path.display(),
                     error
                 );
+                continue;
             }
+        };
+
+        let source = ArtworkSource::External {
+            path: path.clone(),
+            fingerprint,
+        };
+        if let Err(error) = source.decode_image() {
+            warn!(
+                "Failed to decode candidate external artwork for {}: {}",
+                path.display(),
+                error
+            );
+            continue;
         }
+
+        return Ok(Some(source));
     }
 
     let Some(data) = embedded_artwork.filter(|data| !data.is_empty()) else {
@@ -154,9 +168,9 @@ pub fn cache_album_artwork(
     cache_album_artwork_to_dir(&cache_root, album_id, track_path, embedded_artwork)
 }
 
-fn find_external_artwork(track_path: &Path) -> Result<Option<PathBuf>> {
+fn find_external_artwork_candidates(track_path: &Path) -> Result<Vec<PathBuf>> {
     let Some(parent) = track_path.parent() else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
 
     let mut candidates = Vec::new();
@@ -181,7 +195,7 @@ fn find_external_artwork(track_path: &Path) -> Result<Option<PathBuf>> {
     }
 
     candidates.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
-    Ok(candidates.into_iter().next().map(|(_, _, path)| path))
+    Ok(candidates.into_iter().map(|(_, _, path)| path).collect())
 }
 
 fn external_artwork_priority(path: &Path) -> Option<usize> {
@@ -308,6 +322,47 @@ mod tests {
         );
         assert!(cached_before.exists());
         assert!(cached_after.exists());
+    }
+
+    #[test]
+    fn corrupt_preferred_external_falls_back_to_embedded_artwork() {
+        let dir = tempdir().unwrap();
+        let track_path = dir.path().join("track.mp3");
+        let cover_path = dir.path().join("cover.png");
+        let embedded = png_bytes([0, 200, 50]);
+
+        fs::write(&track_path, []).unwrap();
+        fs::write(&cover_path, b"broken-cover-bytes").unwrap();
+
+        let source = resolve_album_artwork_source(&track_path, Some(&embedded))
+            .unwrap()
+            .expect("embedded fallback should be resolved");
+
+        match source {
+            ArtworkSource::Embedded { data, .. } => assert_eq!(data, embedded),
+            ArtworkSource::External { .. } => panic!("expected embedded artwork fallback"),
+        }
+    }
+
+    #[test]
+    fn corrupt_preferred_external_falls_back_to_lower_priority_external_artwork() {
+        let dir = tempdir().unwrap();
+        let track_path = dir.path().join("track.mp3");
+        let cover_path = dir.path().join("cover.png");
+        let folder_path = dir.path().join("folder.png");
+
+        fs::write(&track_path, []).unwrap();
+        fs::write(&cover_path, b"broken-cover-bytes").unwrap();
+        write_png(&folder_path, [50, 120, 220]);
+
+        let source = resolve_album_artwork_source(&track_path, None)
+            .unwrap()
+            .expect("lower-priority external fallback should be resolved");
+
+        match source {
+            ArtworkSource::External { path, .. } => assert_eq!(path, folder_path),
+            ArtworkSource::Embedded { .. } => panic!("expected lower-priority external fallback"),
+        }
     }
 
     #[test]
