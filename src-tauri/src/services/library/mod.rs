@@ -18,6 +18,7 @@ use anyhow::{Context, Result, anyhow};
 use chrono::{TimeZone, Utc};
 use lofty::{
     file::AudioFile,
+    picture::PictureType,
     prelude::{ItemKey, TaggedFileExt},
     read_from_path,
     tag::Accessor,
@@ -110,9 +111,16 @@ struct ExtractedTrack {
     genre: Option<String>,
 }
 
+#[derive(Debug)]
+struct PersistTrackResult {
+    created_new: bool,
+    affected_album_ids: Vec<Uuid>,
+}
+
 /// Service responsible for scanning the filesystem and persisting music metadata.
 pub struct LibraryService {
     conn: Connection,
+    artwork_cache_root: Option<PathBuf>,
 }
 
 impl LibraryService {
@@ -122,7 +130,10 @@ impl LibraryService {
         let db_path = default_database_path()?;
         let mut conn = Connection::open(db_path).context("Failed to open library database")?;
         initialize_schema(&mut conn)?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            artwork_cache_root: utils::app_cache_dir(),
+        })
     }
 
     #[cfg(test)]
@@ -130,7 +141,10 @@ impl LibraryService {
         let path = path.as_ref();
         let mut conn = Connection::open(path).context("Failed to open library database")?;
         initialize_schema(&mut conn)?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            artwork_cache_root: path.parent().map(|parent| parent.join("cache")),
+        })
     }
 
     /// Scan a directory recursively and persist the discovered audio metadata.
@@ -164,15 +178,17 @@ impl LibraryService {
             .collect();
 
         let mut inserted = 0usize;
+        let mut affected_album_ids = HashSet::new();
         let tx = self.conn.transaction()?;
 
         for file_path in audio_files {
             match extract_metadata(&file_path) {
                 Ok(raw) => match persist_track(&tx, raw) {
-                    Ok(created_new) => {
-                        if created_new {
+                    Ok(result) => {
+                        if result.created_new {
                             inserted += 1;
                         }
+                        affected_album_ids.extend(result.affected_album_ids);
                     }
                     Err(err) => {
                         warn!(
@@ -190,6 +206,7 @@ impl LibraryService {
             }
         }
 
+        refresh_album_artwork_paths(&tx, self.artwork_cache_root.as_deref(), &affected_album_ids)?;
         tx.commit()?;
         Ok(inserted)
     }
@@ -206,6 +223,7 @@ impl LibraryService {
         let mut inserted_tracks = 0u64;
         let mut error_count = 0u64;
         let mut sample_errors: Vec<ScanErrorSample> = Vec::new();
+        let mut affected_album_ids = HashSet::new();
 
         let deduped_roots = dedupe_overlapping_roots(roots);
         let should_dedupe_files = deduped_roots.len() != roots.len();
@@ -293,10 +311,11 @@ impl LibraryService {
 
                         match extract_metadata(&file_path) {
                             Ok(raw) => match persist_track(&tx, raw) {
-                                Ok(created_new) => {
-                                    if created_new {
+                                Ok(result) => {
+                                    if result.created_new {
                                         inserted_tracks += 1;
                                     }
+                                    affected_album_ids.extend(result.affected_album_ids);
                                 }
                                 Err(err) => {
                                     warn!(
@@ -359,6 +378,7 @@ impl LibraryService {
             }
         }
 
+        refresh_album_artwork_paths(&tx, self.artwork_cache_root.as_deref(), &affected_album_ids)?;
         tx.commit()?;
 
         Ok(ScanSummary {
@@ -772,8 +792,8 @@ fn initialize_schema(conn: &mut Connection) -> Result<()> {
     Ok(())
 }
 
-/// Persist a track inside the given transaction, returning true if a new row was created.
-fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<bool> {
+/// Persist a track inside the given transaction.
+fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTrackResult> {
     let artist_id = match raw.artist_name.as_deref() {
         Some(name) if !name.is_empty() => Some(ensure_artist(tx, name)?),
         _ => None,
@@ -789,16 +809,24 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<bool> {
         _ => None,
     };
 
-    let existing_id = tx
+    let existing_track = tx
         .query_row(
-            "SELECT id FROM tracks WHERE file_path = ?1",
+            "SELECT id, album_id FROM tracks WHERE file_path = ?1",
             params![raw.file_path.to_string_lossy()],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
         )
         .optional()?;
 
+    let existing_id = existing_track.as_ref().map(|(id, _)| id.as_str());
+    let previous_album_id = existing_track
+        .as_ref()
+        .and_then(|(_, album_id)| album_id.as_deref())
+        .map(|album_id| {
+            Uuid::parse_str(album_id).context("Invalid album identifier stored in database")
+        })
+        .transpose()?;
+
     let track_id = existing_id
-        .as_deref()
         .map(Uuid::parse_str)
         .transpose()
         .context("Invalid track identifier stored in database")?
@@ -806,7 +834,7 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<bool> {
 
     let now = Utc::now().timestamp();
 
-    if existing_id.is_some() {
+    let created_new = if existing_id.is_some() {
         tx.execute(
             r#"
             UPDATE tracks SET
@@ -844,7 +872,7 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<bool> {
                 raw.genre,
             ],
         )?;
-        Ok(false)
+        false
     } else {
         tx.execute(
             r#"
@@ -878,8 +906,23 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<bool> {
                 now,
             ],
         )?;
-        Ok(true)
+        true
+    };
+
+    let mut affected_album_ids = Vec::new();
+    if let Some(previous_album_id) = previous_album_id {
+        affected_album_ids.push(previous_album_id);
     }
+    if let Some(album_id) = album_id {
+        if !affected_album_ids.contains(&album_id) {
+            affected_album_ids.push(album_id);
+        }
+    }
+
+    Ok(PersistTrackResult {
+        created_new,
+        affected_album_ids,
+    })
 }
 
 /// Check if an audio extension is supported by the pure-Rust pipeline.
@@ -945,6 +988,107 @@ fn extract_metadata(path: &Path) -> Result<ExtractedTrack> {
         year,
         genre,
     })
+}
+
+fn refresh_album_artwork_paths(
+    tx: &Transaction<'_>,
+    cache_root: Option<&Path>,
+    album_ids: &HashSet<Uuid>,
+) -> Result<()> {
+    for album_id in album_ids {
+        let cover_art_path = match resolve_album_artwork_for_album(tx, album_id)? {
+            Some(source) => match cache_root {
+                Some(cache_root) => {
+                    match artwork::write_cached_artwork_to_dir(cache_root, album_id, &source) {
+                        Ok(path) => Some(path.to_string_lossy().into_owned()),
+                        Err(error) => {
+                            warn!(
+                                "Failed to cache album artwork for album {}: {}",
+                                album_id, error
+                            );
+                            None
+                        }
+                    }
+                }
+                None => None,
+            },
+            None => None,
+        };
+
+        tx.execute(
+            "UPDATE albums SET cover_art_path = ?2 WHERE id = ?1",
+            params![album_id.to_string(), cover_art_path],
+        )?;
+    }
+
+    Ok(())
+}
+
+fn resolve_album_artwork_for_album(
+    tx: &Transaction<'_>,
+    album_id: &Uuid,
+) -> Result<Option<artwork::ArtworkSource>> {
+    let mut stmt = tx.prepare(
+        r#"
+        SELECT file_path
+        FROM tracks
+        WHERE album_id = ?1
+        ORDER BY lower(file_path)
+        "#,
+    )?;
+    let track_paths = stmt
+        .query_map(params![album_id.to_string()], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut embedded_fallback = None;
+    for track_path in track_paths {
+        let track_path = PathBuf::from(track_path);
+
+        match artwork::resolve_external_artwork_source(&track_path) {
+            Ok(Some(source)) => return Ok(Some(source)),
+            Ok(None) => {}
+            Err(error) => {
+                warn!(
+                    "Failed to resolve external album artwork for {}: {}",
+                    track_path.display(),
+                    error
+                );
+            }
+        }
+
+        if embedded_fallback.is_none() {
+            match read_embedded_artwork(&track_path) {
+                Ok(Some(data)) => {
+                    embedded_fallback = artwork::embedded_artwork_source(&data);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    warn!(
+                        "Failed to read embedded artwork for {}: {}",
+                        track_path.display(),
+                        error
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(embedded_fallback)
+}
+
+fn read_embedded_artwork(path: &Path) -> Result<Option<Vec<u8>>> {
+    let tagged_file = read_from_path(path)?;
+    let Some(tag) = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())
+    else {
+        return Ok(None);
+    };
+
+    Ok(tag
+        .get_picture_type(PictureType::CoverFront)
+        .or_else(|| tag.pictures().first())
+        .map(|picture| picture.data().to_vec()))
 }
 
 /// Map a database row to a Track domain model.
@@ -1196,28 +1340,58 @@ mod tests {
         bytes
     }
 
-    fn create_tagged_track_fixture(dir: &Path) -> PathBuf {
-        let track_path = dir.join("tagged-track.wav");
-        let cover_path = dir.join("cover.png");
+    fn create_tagged_track(
+        dir: &Path,
+        file_name: &str,
+        title: &str,
+        album_title: &str,
+        embedded_artwork_rgb: Option<[u8; 3]>,
+    ) -> PathBuf {
+        let track_path = dir.join(file_name);
 
         write_silent_wav(&track_path);
-        fs::write(&cover_path, png_bytes([12, 34, 56])).unwrap();
 
         let mut tag = Tag::new(TagType::Id3v2);
-        tag.set_title(String::from("Tagged Track"));
+        tag.set_title(title.to_string());
         tag.set_artist(String::from("Tagged Artist"));
-        tag.set_album(String::from("Tagged Album"));
-        tag.push_picture(
-            Picture::unchecked(png_bytes([12, 34, 56]))
-                .pic_type(PictureType::CoverFront)
-                .mime_type(MimeType::Png)
-                .description("Front Cover")
-                .build(),
-        );
+        tag.set_album(album_title.to_string());
+
+        if let Some(rgb) = embedded_artwork_rgb {
+            tag.push_picture(
+                Picture::unchecked(png_bytes(rgb))
+                    .pic_type(PictureType::CoverFront)
+                    .mime_type(MimeType::Png)
+                    .description("Front Cover")
+                    .build(),
+            );
+        }
+
         tag.save_to_path(&track_path, WriteOptions::default())
             .unwrap();
 
         track_path
+    }
+
+    fn create_tagged_track_fixture(dir: &Path) -> PathBuf {
+        let track_path = create_tagged_track(
+            dir,
+            "tagged-track.wav",
+            "Tagged Track",
+            "Tagged Album",
+            Some([12, 34, 56]),
+        );
+        let cover_path = dir.join("cover.png");
+        fs::write(&cover_path, png_bytes([12, 34, 56])).unwrap();
+        track_path
+    }
+
+    fn first_album_cover_art_path(service: &LibraryService) -> Option<String> {
+        service
+            .conn
+            .query_row("SELECT cover_art_path FROM albums LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
     }
 
     fn json_artwork_path(value: &Value) -> Option<&str> {
@@ -1380,7 +1554,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_does_not_persist_album_artwork_path_for_subtask_2a() {
+    fn scan_reuses_cached_album_artwork_path_and_regenerates_missing_cache_file() {
         let tmp = TempDir::new().unwrap();
         let mut service = new_test_service(&tmp);
         let root = tmp.path().join("library");
@@ -1390,13 +1564,136 @@ mod tests {
         let inserted = service.scan_directory(&root).unwrap();
         assert_eq!(inserted, 1);
 
-        let persisted_path: Option<String> = service
+        let initial_path =
+            first_album_cover_art_path(&service).expect("cover art path should persist");
+        assert!(Path::new(&initial_path).exists());
+
+        let rescanned = service.scan_directory(&root).unwrap();
+        assert_eq!(rescanned, 0);
+
+        let reused_path =
+            first_album_cover_art_path(&service).expect("cover art path should be reused");
+        assert_eq!(reused_path, initial_path);
+
+        fs::remove_file(&initial_path).unwrap();
+        assert!(!Path::new(&initial_path).exists());
+
+        let rescanned = service.scan_directory(&root).unwrap();
+        assert_eq!(rescanned, 0);
+
+        let regenerated_path =
+            first_album_cover_art_path(&service).expect("cover art path should regenerate");
+        assert_eq!(regenerated_path, initial_path);
+        assert!(Path::new(&regenerated_path).exists());
+    }
+
+    #[test]
+    fn scan_refreshes_album_cover_art_path_when_cover_source_changes() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        create_tagged_track(&root, "track.wav", "Tagged Track", "Tagged Album", None);
+        let cover_path = root.join("cover.png");
+        fs::write(&cover_path, png_bytes([12, 34, 56])).unwrap();
+
+        service.scan_directory(&root).unwrap();
+        let initial_path =
+            first_album_cover_art_path(&service).expect("cover art path should persist");
+        assert!(Path::new(&initial_path).exists());
+
+        fs::write(&cover_path, png_bytes([56, 34, 12])).unwrap();
+
+        let rescanned = service.scan_directory(&root).unwrap();
+        assert_eq!(rescanned, 0);
+
+        let refreshed_path =
+            first_album_cover_art_path(&service).expect("cover art path should refresh");
+        assert_ne!(refreshed_path, initial_path);
+        assert!(Path::new(&refreshed_path).exists());
+    }
+
+    #[test]
+    fn scan_clears_album_cover_art_path_when_cover_source_is_removed() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        create_tagged_track(&root, "track.wav", "Tagged Track", "Tagged Album", None);
+        let cover_path = root.join("cover.png");
+        fs::write(&cover_path, png_bytes([12, 34, 56])).unwrap();
+
+        service.scan_directory(&root).unwrap();
+        assert!(first_album_cover_art_path(&service).is_some());
+
+        fs::remove_file(&cover_path).unwrap();
+
+        let rescanned = service.scan_directory(&root).unwrap();
+        assert_eq!(rescanned, 0);
+        assert_eq!(first_album_cover_art_path(&service), None);
+    }
+
+    #[test]
+    fn scan_does_not_abort_when_album_artwork_is_corrupt() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        let broken_album = root.join("broken-album");
+        let healthy_album = root.join("healthy-album");
+        fs::create_dir_all(&broken_album).unwrap();
+        fs::create_dir_all(&healthy_album).unwrap();
+
+        create_tagged_track(
+            &broken_album,
+            "broken-track.wav",
+            "Broken Track",
+            "Broken Album",
+            None,
+        );
+        fs::write(broken_album.join("cover.png"), b"not-an-image").unwrap();
+        create_tagged_track(
+            &healthy_album,
+            "healthy-track.wav",
+            "Healthy Track",
+            "Healthy Album",
+            None,
+        );
+
+        let inserted = service.scan_directory(&root).unwrap();
+        assert_eq!(inserted, 2);
+        assert_eq!(service.get_tracks().unwrap().len(), 2);
+
+        let broken_album_artwork: Option<String> = service
             .conn
-            .query_row("SELECT cover_art_path FROM albums LIMIT 1", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT cover_art_path FROM albums WHERE title = ?1",
+                ["Broken Album"],
+                |row| row.get(0),
+            )
             .unwrap();
-        assert_eq!(persisted_path, None);
+        assert_eq!(broken_album_artwork, None);
+    }
+
+    #[test]
+    fn scan_resolves_album_artwork_using_sibling_track_paths() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        let disc_one = root.join("disc-01");
+        let disc_two = root.join("disc-02");
+        fs::create_dir_all(&disc_one).unwrap();
+        fs::create_dir_all(&disc_two).unwrap();
+
+        create_tagged_track(&disc_one, "track-01.wav", "Track 01", "Shared Album", None);
+        create_tagged_track(&disc_two, "track-02.wav", "Track 02", "Shared Album", None);
+        fs::write(disc_two.join("cover.png"), png_bytes([90, 40, 10])).unwrap();
+
+        let inserted = service.scan_directory(&root).unwrap();
+        assert_eq!(inserted, 2);
+
+        let persisted_path =
+            first_album_cover_art_path(&service).expect("cover art path should persist");
+        assert!(Path::new(&persisted_path).exists());
     }
 
     #[test]

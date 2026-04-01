@@ -42,10 +42,7 @@ impl ArtworkSource {
     }
 }
 
-pub fn resolve_album_artwork_source(
-    track_path: &Path,
-    embedded_artwork: Option<&[u8]>,
-) -> Result<Option<ArtworkSource>> {
+pub fn resolve_external_artwork_source(track_path: &Path) -> Result<Option<ArtworkSource>> {
     for path in find_external_artwork_candidates(track_path)? {
         let fingerprint = match fingerprint_file(&path) {
             Ok(fingerprint) => fingerprint,
@@ -75,14 +72,27 @@ pub fn resolve_album_artwork_source(
         return Ok(Some(source));
     }
 
-    let Some(data) = embedded_artwork.filter(|data| !data.is_empty()) else {
-        return Ok(None);
-    };
+    Ok(None)
+}
 
-    Ok(Some(ArtworkSource::Embedded {
+pub fn embedded_artwork_source(data: &[u8]) -> Option<ArtworkSource> {
+    let data = (!data.is_empty()).then_some(data)?;
+
+    Some(ArtworkSource::Embedded {
         data: data.to_vec(),
         fingerprint: fingerprint_bytes(data),
-    }))
+    })
+}
+
+pub fn resolve_album_artwork_source(
+    track_path: &Path,
+    embedded_artwork: Option<&[u8]>,
+) -> Result<Option<ArtworkSource>> {
+    if let Some(source) = resolve_external_artwork_source(track_path)? {
+        return Ok(Some(source));
+    }
+
+    Ok(embedded_artwork.and_then(embedded_artwork_source))
 }
 
 pub fn artwork_cache_filename(album_id: &Uuid, fingerprint: &str) -> String {
