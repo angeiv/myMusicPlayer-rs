@@ -913,7 +913,9 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTra
     if let Some(previous_album_id) = previous_album_id {
         affected_album_ids.push(previous_album_id);
     }
-    if let Some(album_id) = album_id && !affected_album_ids.contains(&album_id) {
+    if let Some(album_id) = album_id
+        && !affected_album_ids.contains(&album_id)
+    {
         affected_album_ids.push(album_id);
     }
 
