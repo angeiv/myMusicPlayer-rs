@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import CoverArt from '../components/CoverArt.svelte';
   import type { Album } from '../types';
   import { formatLongDuration } from '../utils/format';
 
@@ -31,9 +32,11 @@
     <div class="grid">
       {#each sortedAlbums as album}
         <button class="card" on:click={() => handleOpen(album)}>
-          <div class="artwork">
-            <span>{album.title.charAt(0)}</span>
-          </div>
+          <CoverArt
+            className="albums-view__artwork"
+            artworkPath={album.artwork_path}
+            title={album.title}
+          />
           <div class="info">
             <h3>{album.title}</h3>
             <p>{album.artist_name ?? 'Various artists'}</p>
@@ -104,16 +107,10 @@
     box-shadow: 0 20px 45px rgba(14, 116, 144, 0.25);
   }
 
-  .artwork {
+  :global(.albums-view__artwork) {
     width: 140px;
     height: 140px;
-    border-radius: 18px;
-    background: rgba(15, 23, 42, 0.5);
-    display: grid;
-    place-items: center;
-    font-size: 3rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
+    flex-shrink: 0;
   }
 
   .info h3 {
@@ -141,7 +138,7 @@
       padding: 24px;
     }
 
-    .artwork {
+    :global(.albums-view__artwork) {
       width: 100%;
     }
 
