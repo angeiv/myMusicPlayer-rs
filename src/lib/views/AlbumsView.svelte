@@ -36,6 +36,7 @@
             className="albums-view__artwork"
             artworkPath={album.artwork_path}
             title={album.title}
+            alt=""
           />
           <div class="info">
             <h3>{album.title}</h3>

@@ -58,7 +58,7 @@ afterEach(() => {
 });
 
 describe('AlbumsView cover art rendering', () => {
-  it('renders an album image with the correct accessible name when artwork_path is available', () => {
+  it('renders album artwork decoratively when artwork_path is available', () => {
     render(AlbumsView, {
       albums: [
         createAlbum({
@@ -70,13 +70,15 @@ describe('AlbumsView cover art rendering', () => {
     });
 
     const card = getAlbumCard('Midnight Echoes');
-    const artwork = within(card).getByRole('img', { name: 'Midnight Echoes cover art' });
+    const artwork = card.querySelector('img');
 
-    expect(artwork.tagName).toBe('IMG');
-    expect(artwork.getAttribute('src')).toBe('/covers/midnight-echoes.jpg');
+    expect(artwork?.tagName).toBe('IMG');
+    expect(artwork?.getAttribute('src')).toBe('/covers/midnight-echoes.jpg');
+    expect(artwork?.getAttribute('alt')).toBe('');
+    expect(within(card).queryByRole('img')).toBeNull();
   });
 
-  it('renders the disc fallback when artwork_path is missing', () => {
+  it('renders the disc fallback decoratively when artwork_path is missing', () => {
     render(AlbumsView, {
       albums: [
         createAlbum({
@@ -87,10 +89,12 @@ describe('AlbumsView cover art rendering', () => {
     });
 
     const card = getAlbumCard('Silent Orbit');
-    const fallback = within(card).getByRole('img', { name: 'Silent Orbit cover art' });
+    const fallback = within(card).getByTestId('cover-art-placeholder');
 
     expect(fallback.tagName).toBe('DIV');
     expect(card.querySelector('img')).toBeNull();
+    expect(within(card).queryByRole('img')).toBeNull();
+    expect(fallback.getAttribute('aria-hidden')).toBe('true');
     expect(fallback.querySelector('.cover-art__disc')).toBeTruthy();
   });
 });
