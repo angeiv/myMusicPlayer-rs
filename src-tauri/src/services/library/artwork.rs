@@ -8,13 +8,14 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use image::ImageFormat;
+use image::{ImageFormat, imageops::FilterType};
 use log::warn;
 use uuid::Uuid;
 
 use crate::utils;
 
 const ARTWORK_CACHE_DIR_NAME: &str = "artwork";
+const ARTWORK_CACHE_MAX_DIMENSION: u32 = 640;
 const EXTERNAL_ARTWORK_STEMS: &[&str] = &["cover", "folder", "front", "album", "artwork"];
 const EXTERNAL_ARTWORK_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp"];
 
@@ -130,7 +131,7 @@ pub fn write_cached_artwork_to_dir(
         return Ok(cache_path);
     }
 
-    let image = source.decode_image()?;
+    let image = normalize_image_for_cache(source.decode_image()?);
     image
         .save_with_format(&cache_path, ImageFormat::Jpeg)
         .with_context(|| format!("Failed to write cached artwork {}", cache_path.display()))?;
@@ -186,33 +187,88 @@ pub fn cache_album_artwork(
 }
 
 fn find_external_artwork_candidates(track_path: &Path) -> Result<Vec<PathBuf>> {
-    let Some(parent) = track_path.parent() else {
-        return Ok(Vec::new());
-    };
-
     let mut candidates = Vec::new();
-    for entry in fs::read_dir(parent)
-        .with_context(|| format!("Failed to read artwork directory {}", parent.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
 
-        let Some(priority) = external_artwork_priority(&path) else {
-            continue;
-        };
-        let sort_key = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .map(|name| name.to_ascii_lowercase())
-            .unwrap_or_default();
-        candidates.push((priority, sort_key, path));
+    for (directory_priority, directory) in artwork_search_directories(track_path)
+        .into_iter()
+        .enumerate()
+    {
+        for entry in fs::read_dir(&directory)
+            .with_context(|| format!("Failed to read artwork directory {}", directory.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let Some(priority) = external_artwork_priority(&path) else {
+                continue;
+            };
+            let sort_key = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_ascii_lowercase())
+                .unwrap_or_default();
+            candidates.push((directory_priority, priority, sort_key, path));
+        }
     }
 
-    candidates.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
-    Ok(candidates.into_iter().map(|(_, _, path)| path).collect())
+    candidates.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then(left.1.cmp(&right.1))
+            .then(left.2.cmp(&right.2))
+    });
+    Ok(candidates.into_iter().map(|(_, _, _, path)| path).collect())
+}
+
+fn artwork_search_directories(track_path: &Path) -> Vec<PathBuf> {
+    let Some(parent) = track_path.parent() else {
+        return Vec::new();
+    };
+
+    let mut directories = vec![parent.to_path_buf()];
+    if is_disc_subdirectory(parent) {
+        if let Some(album_root) = parent.parent() {
+            directories.push(album_root.to_path_buf());
+        }
+    }
+
+    directories
+}
+
+fn is_disc_subdirectory(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(matches_disc_directory_name)
+}
+
+fn matches_disc_directory_name(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase();
+
+    ["disc", "disk", "cd"].into_iter().any(|prefix| {
+        let Some(remainder) = normalized.strip_prefix(prefix) else {
+            return false;
+        };
+
+        let trimmed = remainder.trim_matches(|character: char| {
+            matches!(character, ' ' | '-' | '_' | '.' | '(' | ')' | '[' | ']')
+        });
+        !trimmed.is_empty() && trimmed.chars().all(|character| character.is_ascii_digit())
+    })
+}
+
+fn normalize_image_for_cache(image: image::DynamicImage) -> image::DynamicImage {
+    if image.width().max(image.height()) <= ARTWORK_CACHE_MAX_DIMENSION {
+        return image;
+    }
+
+    image.resize(
+        ARTWORK_CACHE_MAX_DIMENSION,
+        ARTWORK_CACHE_MAX_DIMENSION,
+        FilterType::Lanczos3,
+    )
 }
 
 fn external_artwork_priority(path: &Path) -> Option<usize> {
@@ -249,8 +305,8 @@ mod tests {
     use std::{fs, io::Cursor, path::Path};
     use tempfile::tempdir;
 
-    fn png_bytes(rgb: [u8; 3]) -> Vec<u8> {
-        let image = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(2, 2, Rgb(rgb)));
+    fn png_bytes_with_dimensions(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
+        let image = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(width, height, Rgb(rgb)));
         let mut bytes = Vec::new();
         image
             .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
@@ -258,8 +314,16 @@ mod tests {
         bytes
     }
 
+    fn png_bytes(rgb: [u8; 3]) -> Vec<u8> {
+        png_bytes_with_dimensions(2, 2, rgb)
+    }
+
+    fn write_png_with_dimensions(path: &Path, width: u32, height: u32, rgb: [u8; 3]) {
+        fs::write(path, png_bytes_with_dimensions(width, height, rgb)).unwrap();
+    }
+
     fn write_png(path: &Path, rgb: [u8; 3]) {
-        fs::write(path, png_bytes(rgb)).unwrap();
+        write_png_with_dimensions(path, 2, 2, rgb);
     }
 
     #[test]
@@ -275,6 +339,28 @@ mod tests {
         let source = resolve_album_artwork_source(&track_path, Some(&embedded))
             .unwrap()
             .expect("artwork source should be resolved");
+
+        match source {
+            ArtworkSource::External { path, .. } => assert_eq!(path, cover_path),
+            ArtworkSource::Embedded { .. } => panic!("expected external artwork source"),
+        }
+    }
+
+    #[test]
+    fn album_root_cover_is_used_for_tracks_in_disc_subdirectories() {
+        let dir = tempdir().unwrap();
+        let album_dir = dir.path().join("Album");
+        let disc_dir = album_dir.join("Disc 1");
+        let track_path = disc_dir.join("track.mp3");
+        let cover_path = album_dir.join("cover.png");
+
+        fs::create_dir_all(&disc_dir).unwrap();
+        fs::write(&track_path, []).unwrap();
+        write_png(&cover_path, [120, 60, 30]);
+
+        let source = resolve_external_artwork_source(&track_path)
+            .unwrap()
+            .expect("album-root cover should be resolved");
 
         match source {
             ArtworkSource::External { path, .. } => assert_eq!(path, cover_path),
@@ -339,6 +425,28 @@ mod tests {
         );
         assert!(cached_before.exists());
         assert!(cached_after.exists());
+    }
+
+    #[test]
+    fn oversized_artwork_is_scaled_down_before_writing_cache_jpeg() {
+        let source_dir = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let track_path = source_dir.path().join("track.mp3");
+        let cover_path = source_dir.path().join("cover.png");
+        let album_id = Uuid::new_v4();
+
+        fs::write(&track_path, []).unwrap();
+        write_png_with_dimensions(&cover_path, 1600, 800, [200, 150, 100]);
+
+        let source = resolve_album_artwork_source(&track_path, None)
+            .unwrap()
+            .expect("artwork source should be resolved");
+        let cached_path =
+            write_cached_artwork_to_dir(cache_dir.path(), &album_id, &source).unwrap();
+        let cached_image = image::open(&cached_path).unwrap();
+
+        assert_eq!(cached_image.width(), ARTWORK_CACHE_MAX_DIMENSION);
+        assert_eq!(cached_image.height(), ARTWORK_CACHE_MAX_DIMENSION / 2);
     }
 
     #[test]
