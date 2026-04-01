@@ -9,5 +9,7 @@ export function resolveArtworkSrc(path: string | null | undefined): string | nul
     return null;
   }
 
+  // `convertFileSrc()` depends on the asset protocol + CSP allowance configured in
+  // `src-tauri/Tauri.toml` for file-backed cover art to load inside the webview.
   return isTauri ? convertFileSrc(trimmedPath) : trimmedPath;
 }

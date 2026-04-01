@@ -51,24 +51,28 @@ describe('resolveArtworkSrc', () => {
 });
 
 describe('CoverArt', () => {
-  it('renders the disc fallback instead of an img when artworkPath is missing', () => {
-    const { container } = render(CoverArt, {
+  it('uses the same default accessible name for fallback artwork as the image state', () => {
+    render(CoverArt, {
       artworkPath: null,
       title: 'Midnight Echoes',
     });
 
-    expect(container.querySelector('img')).toBeNull();
+    expect(screen.queryByRole('img')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Midnight Echoes cover art' })).toBeTruthy();
     expect(screen.getByTestId('cover-art-placeholder')).toBeTruthy();
   });
 
-  it('falls back to the disc placeholder after an image load error', async () => {
+  it('preserves a custom alt label after the image falls back to the placeholder', async () => {
+    const alt = 'Album art for Midnight Echoes';
     const { container } = render(CoverArt, {
       artworkPath: MOCK_ARTWORK_DATA_URI,
       title: 'Midnight Echoes',
+      alt,
     });
 
     const image = container.querySelector('img');
-    expect(image).toBeTruthy();
+    expect(image?.getAttribute('alt')).toBe(alt);
+    expect(screen.getByRole('img', { name: alt })).toBeTruthy();
 
     if (!image) {
       throw new Error('Expected the cover image to render before simulating an error.');
@@ -77,6 +81,31 @@ describe('CoverArt', () => {
     await fireEvent.error(image);
 
     expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByRole('img', { name: alt })).toBeTruthy();
     expect(screen.getByTestId('cover-art-placeholder')).toBeTruthy();
+  });
+
+  it('supports decorative cover art without exposing fallback artwork to assistive tech', async () => {
+    const { container } = render(CoverArt, {
+      artworkPath: MOCK_ARTWORK_DATA_URI,
+      title: 'Midnight Echoes',
+      alt: '',
+    });
+
+    const image = container.querySelector('img');
+    expect(image?.getAttribute('alt')).toBe('');
+    expect(screen.queryByRole('img')).toBeNull();
+
+    if (!image) {
+      throw new Error('Expected the cover image to render before simulating an error.');
+    }
+
+    await fireEvent.error(image);
+
+    const placeholder = screen.getByTestId('cover-art-placeholder');
+
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.queryByRole('img')).toBeNull();
+    expect(placeholder.getAttribute('aria-hidden')).toBe('true');
   });
 });

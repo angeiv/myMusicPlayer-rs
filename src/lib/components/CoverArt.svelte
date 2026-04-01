@@ -3,7 +3,7 @@
 
   export let artworkPath: string | null | undefined = null;
   export let title = '';
-  export let alt = '';
+  export let alt: string | null | undefined = undefined;
   export let className = '';
   export let imageClassName = '';
   export let placeholderClassName = '';
@@ -17,7 +17,8 @@
   }
 
   $: normalizedTitle = title.trim() || 'Unknown release';
-  $: imageAlt = alt.trim() || `${normalizedTitle} cover art`;
+  $: resolvedAlt = alt == null ? `${normalizedTitle} cover art` : alt.trim();
+  $: isDecorative = resolvedAlt === '';
   $: artworkSrc = imageLoadFailed ? null : resolveArtworkSrc(artworkPath);
   $: rootClassName = ['cover-art', className].filter(Boolean).join(' ');
   $: resolvedImageClassName = ['cover-art__image', imageClassName].filter(Boolean).join(' ');
@@ -35,7 +36,7 @@
     <img
       class={resolvedImageClassName}
       src={artworkSrc}
-      alt={imageAlt}
+      alt={resolvedAlt}
       loading="lazy"
       decoding="async"
       on:error={handleImageError}
@@ -44,8 +45,9 @@
     <div
       class={resolvedPlaceholderClassName}
       data-testid="cover-art-placeholder"
-      role="img"
-      aria-label={`${normalizedTitle} cover placeholder`}
+      role={isDecorative ? undefined : 'img'}
+      aria-label={isDecorative ? undefined : resolvedAlt}
+      aria-hidden={isDecorative ? 'true' : undefined}
     >
       <span class="cover-art__disc" aria-hidden="true">
         <span class="cover-art__disc-ring"></span>
