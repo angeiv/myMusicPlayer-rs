@@ -229,10 +229,8 @@ fn artwork_search_directories(track_path: &Path) -> Vec<PathBuf> {
     };
 
     let mut directories = vec![parent.to_path_buf()];
-    if is_disc_subdirectory(parent) {
-        if let Some(album_root) = parent.parent() {
-            directories.push(album_root.to_path_buf());
-        }
+    if is_disc_subdirectory(parent) && let Some(album_root) = parent.parent() {
+        directories.push(album_root.to_path_buf());
     }
 
     directories
