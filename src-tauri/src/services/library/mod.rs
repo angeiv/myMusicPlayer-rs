@@ -1340,12 +1340,12 @@ mod tests {
         bytes
     }
 
-    fn create_tagged_track(
+    fn create_tagged_track_with_embedded_artwork(
         dir: &Path,
         file_name: &str,
         title: &str,
         album_title: &str,
-        embedded_artwork_rgb: Option<[u8; 3]>,
+        embedded_artwork: Option<&[u8]>,
     ) -> PathBuf {
         let track_path = dir.join(file_name);
 
@@ -1356,9 +1356,9 @@ mod tests {
         tag.set_artist(String::from("Tagged Artist"));
         tag.set_album(album_title.to_string());
 
-        if let Some(rgb) = embedded_artwork_rgb {
+        if let Some(artwork_bytes) = embedded_artwork {
             tag.push_picture(
-                Picture::unchecked(png_bytes(rgb))
+                Picture::unchecked(artwork_bytes.to_vec())
                     .pic_type(PictureType::CoverFront)
                     .mime_type(MimeType::Png)
                     .description("Front Cover")
@@ -1372,6 +1372,23 @@ mod tests {
         track_path
     }
 
+    fn create_tagged_track(
+        dir: &Path,
+        file_name: &str,
+        title: &str,
+        album_title: &str,
+        embedded_artwork_rgb: Option<[u8; 3]>,
+    ) -> PathBuf {
+        let embedded_artwork = embedded_artwork_rgb.map(png_bytes);
+        create_tagged_track_with_embedded_artwork(
+            dir,
+            file_name,
+            title,
+            album_title,
+            embedded_artwork.as_deref(),
+        )
+    }
+
     fn create_tagged_track_fixture(dir: &Path) -> PathBuf {
         let track_path = create_tagged_track(
             dir,
@@ -1383,6 +1400,17 @@ mod tests {
         let cover_path = dir.join("cover.png");
         fs::write(&cover_path, png_bytes([12, 34, 56])).unwrap();
         track_path
+    }
+
+    fn album_cover_art_path(service: &LibraryService, album_title: &str) -> Option<String> {
+        service
+            .conn
+            .query_row(
+                "SELECT cover_art_path FROM albums WHERE title = ?1",
+                [album_title],
+                |row| row.get(0),
+            )
+            .unwrap()
     }
 
     fn first_album_cover_art_path(service: &LibraryService) -> Option<String> {
@@ -1634,6 +1662,37 @@ mod tests {
     }
 
     #[test]
+    fn scan_uses_later_valid_embedded_artwork_when_an_earlier_sibling_is_corrupt() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        let album_dir = root.join("mixed-embedded-album");
+        fs::create_dir_all(&album_dir).unwrap();
+
+        create_tagged_track_with_embedded_artwork(
+            &album_dir,
+            "track-01.wav",
+            "Track 01",
+            "Mixed Embedded Album",
+            Some(b"not-an-image"),
+        );
+        create_tagged_track(
+            &album_dir,
+            "track-02.wav",
+            "Track 02",
+            "Mixed Embedded Album",
+            Some([12, 34, 56]),
+        );
+
+        let inserted = service.scan_directory(&root).unwrap();
+        assert_eq!(inserted, 2);
+
+        let persisted_path = album_cover_art_path(&service, "Mixed Embedded Album")
+            .expect("cover art path should persist from the later valid embedded image");
+        assert!(Path::new(&persisted_path).exists());
+    }
+
+    #[test]
     fn scan_does_not_abort_when_album_artwork_is_corrupt() {
         let tmp = TempDir::new().unwrap();
         let mut service = new_test_service(&tmp);
@@ -1656,22 +1715,19 @@ mod tests {
             "healthy-track.wav",
             "Healthy Track",
             "Healthy Album",
-            None,
+            Some([90, 40, 10]),
         );
 
         let inserted = service.scan_directory(&root).unwrap();
         assert_eq!(inserted, 2);
         assert_eq!(service.get_tracks().unwrap().len(), 2);
 
-        let broken_album_artwork: Option<String> = service
-            .conn
-            .query_row(
-                "SELECT cover_art_path FROM albums WHERE title = ?1",
-                ["Broken Album"],
-                |row| row.get(0),
-            )
-            .unwrap();
+        let broken_album_artwork = album_cover_art_path(&service, "Broken Album");
         assert_eq!(broken_album_artwork, None);
+
+        let healthy_album_artwork = album_cover_art_path(&service, "Healthy Album")
+            .expect("healthy album artwork should persist even when another album is corrupt");
+        assert!(Path::new(&healthy_album_artwork).exists());
     }
 
     #[test]

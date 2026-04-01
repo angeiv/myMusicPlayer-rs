@@ -78,10 +78,17 @@ pub fn resolve_external_artwork_source(track_path: &Path) -> Result<Option<Artwo
 pub fn embedded_artwork_source(data: &[u8]) -> Option<ArtworkSource> {
     let data = (!data.is_empty()).then_some(data)?;
 
-    Some(ArtworkSource::Embedded {
+    let source = ArtworkSource::Embedded {
         data: data.to_vec(),
         fingerprint: fingerprint_bytes(data),
-    })
+    };
+
+    if let Err(error) = source.decode_image() {
+        warn!("Failed to decode embedded artwork candidate: {}", error);
+        return None;
+    }
+
+    Some(source)
 }
 
 pub fn resolve_album_artwork_source(
