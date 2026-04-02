@@ -17,6 +17,15 @@ windows = [
   { label = "main", title = "Music Player", width = 1200, height = 800, minWidth = 800, minHeight = 600, resizable = true, center = true }
 ]
 
+[app.security]
+# Allow cached cover-art files resolved through `convertFileSrc()`.
+# Scope mirrors the Rust artwork cache root at `$CACHE/music-player-rs/artwork`.
+csp = "img-src 'self' asset: http://asset.localhost data:"
+
+[app.security.assetProtocol]
+enable = true
+scope = ["$CACHE/music-player-rs/artwork/**"]
+
 [bundle]
 # Path to your application icons (relative to the tauri directory)
 icon = ["icons/32x32.png", "icons/128x128.png"]

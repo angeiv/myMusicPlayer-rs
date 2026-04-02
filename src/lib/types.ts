@@ -19,6 +19,7 @@ export interface Track {
   year?: number | null;
   genre?: string | null;
   artwork?: number[] | null;
+  artwork_path?: string | null;
   lyrics?: string | null;
   play_count: number;
   last_played?: string | null;
@@ -33,6 +34,7 @@ export interface Album {
   year?: number | null;
   genre?: string | null;
   artwork?: number[] | null;
+  artwork_path?: string | null;
   track_count: number;
   duration: number;
   date_added: string;

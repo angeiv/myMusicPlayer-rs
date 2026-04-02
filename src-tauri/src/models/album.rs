@@ -21,6 +21,8 @@ pub struct Album {
     pub genre: Option<String>,
     /// Album artwork (path or binary data)
     pub artwork: Option<Vec<u8>>,
+    /// Cached artwork path exposed to clients
+    pub artwork_path: Option<String>,
     /// Number of tracks
     pub track_count: u32,
     /// Total duration in seconds
@@ -39,6 +41,7 @@ impl Default for Album {
             year: None,
             genre: None,
             artwork: None,
+            artwork_path: None,
             track_count: 0,
             duration: 0,
             date_added: Utc::now(),
@@ -57,6 +60,7 @@ impl Album {
             year: None,
             genre: None,
             artwork: None,
+            artwork_path: None,
             track_count: 0,
             duration: 0,
             date_added: Utc::now(),

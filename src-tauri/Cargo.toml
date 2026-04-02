@@ -23,6 +23,7 @@ toml = "1.0.6"
 [dependencies]
 # Tauri
 tauri = { version = "2.10.3", features = [
+    "protocol-asset",
     "tray-icon",
     "wry",
 ], default-features = false }
@@ -70,6 +71,7 @@ rusqlite = { version = "0.38.0", features = ["bundled"] }
 rand = "0.10.0"
 cpal = "0.17.3"
 encoding_rs = "0.8.35"
+image = { version = "0.25.8", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
 
 [features]
 default = ["custom-protocol"]

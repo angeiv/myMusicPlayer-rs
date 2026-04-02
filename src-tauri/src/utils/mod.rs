@@ -50,6 +50,14 @@ pub fn app_data_dir() -> Option<PathBuf> {
     })
 }
 
+/// Get the application cache directory
+pub fn app_cache_dir() -> Option<PathBuf> {
+    dirs::cache_dir().map(|mut dir| {
+        dir.push("music-player-rs");
+        dir
+    })
+}
+
 /// Get the application config directory
 pub fn app_config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|mut dir| {

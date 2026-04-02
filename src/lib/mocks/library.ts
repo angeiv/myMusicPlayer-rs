@@ -11,6 +11,9 @@ const ALBUM_C_ID = '22222222-2222-2222-2222-333333333333';
 const PLAYLIST_A_ID = '33333333-3333-3333-3333-111111111111';
 const PLAYLIST_B_ID = '33333333-3333-3333-3333-222222222222';
 
+const MOCK_ARTWORK_DATA_URI =
+  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjAgMTIwIj48cmVjdCB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgcng9IjI0IiBmaWxsPSIjMWUyOTNiIi8+PGNpcmNsZSBjeD0iNjAiIGN5PSI2MCIgcj0iMzIiIGZpbGw9IiM2MGE1ZmEiLz48Y2lyY2xlIGN4PSI2MCIgY3k9IjYwIiByPSIxMCIgZmlsbD0iIzBmMTcyYSIvPjwvc3ZnPg==';
+
 const mockArtists: Artist[] = [
   {
     id: ARTIST_A_ID,
@@ -50,6 +53,7 @@ const mockAlbums: Album[] = [
     year: 2022,
     genre: 'Electronica',
     artwork: null,
+    artwork_path: MOCK_ARTWORK_DATA_URI,
     track_count: 6,
     duration: 1725,
     date_added: '2024-02-10T10:00:00Z',
@@ -62,6 +66,7 @@ const mockAlbums: Album[] = [
     year: 2021,
     genre: 'Modern Classical',
     artwork: null,
+    artwork_path: MOCK_ARTWORK_DATA_URI,
     track_count: 6,
     duration: 1654,
     date_added: '2024-02-10T10:30:00Z',
@@ -74,6 +79,7 @@ const mockAlbums: Album[] = [
     year: 2020,
     genre: 'Downtempo',
     artwork: null,
+    artwork_path: MOCK_ARTWORK_DATA_URI,
     track_count: 6,
     duration: 1878,
     date_added: '2024-01-20T09:15:00Z',
@@ -102,6 +108,7 @@ const mockTracks: Track[] = [
     year: 2022,
     genre: 'Electronica',
     artwork: null,
+    artwork_path: MOCK_ARTWORK_DATA_URI,
     lyrics: null,
     play_count: 18,
     last_played: '2024-05-12T07:15:00Z',
@@ -180,6 +187,7 @@ const mockTracks: Track[] = [
     year: 2021,
     genre: 'Modern Classical',
     artwork: null,
+    artwork_path: MOCK_ARTWORK_DATA_URI,
     lyrics: null,
     play_count: 6,
     last_played: '2024-04-22T17:25:00Z',
@@ -232,6 +240,7 @@ const mockTracks: Track[] = [
     year: 2020,
     genre: 'Downtempo',
     artwork: null,
+    artwork_path: MOCK_ARTWORK_DATA_URI,
     lyrics: null,
     play_count: 21,
     last_played: '2024-05-01T12:10:00Z',
