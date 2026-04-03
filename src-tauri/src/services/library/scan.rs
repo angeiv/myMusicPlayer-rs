@@ -136,7 +136,10 @@ pub fn is_scan_phase_active(phase: ScanPhase) -> bool {
 }
 
 pub fn is_scan_phase_terminal(phase: ScanPhase) -> bool {
-    matches!(phase, ScanPhase::Completed | ScanPhase::Cancelled | ScanPhase::Failed)
+    matches!(
+        phase,
+        ScanPhase::Completed | ScanPhase::Cancelled | ScanPhase::Failed
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

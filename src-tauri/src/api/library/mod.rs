@@ -3,10 +3,7 @@
 use log::{error, info};
 use std::{
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::Ordering,
-    },
+    sync::{Arc, Mutex, atomic::Ordering},
 };
 use tauri::State;
 use uuid::Uuid;
@@ -15,8 +12,8 @@ use crate::AppState;
 use crate::models::{Album, Artist, Track};
 use crate::services::library::{
     LibraryScanState, LibraryService, ScanErrorKind, ScanErrorSample, ScanMode, ScanPhase,
-    ScanStatus, WatcherCoordinatorState, dedupe_overlapping_roots, is_dangerous_root,
-    is_scan_phase_active, now_ms,
+    ScanStatus, WatcherCoordinatorState, dedupe_overlapping_roots, handle_debounced_event_result,
+    is_dangerous_root, is_scan_phase_active, now_ms,
 };
 
 type LibrarySearchResult = (Vec<Track>, Vec<Album>, Vec<Artist>);
@@ -101,6 +98,25 @@ fn watcher_terminal_hook(
             error!("Failed to queue watcher follow-up scan: {}", err);
         }
     })
+}
+
+fn launch_watcher_incremental_scan(
+    library: Arc<Mutex<LibraryService>>,
+    library_scan: Arc<Mutex<LibraryScanState>>,
+    library_watcher: Arc<Mutex<WatcherCoordinatorState>>,
+    roots: Vec<PathBuf>,
+) -> Result<(), String> {
+    launch_library_scan(
+        roots,
+        Some(ScanMode::Incremental),
+        library.clone(),
+        library_scan.clone(),
+        Some(watcher_terminal_hook(
+            library,
+            library_scan,
+            library_watcher,
+        )),
+    )
 }
 
 fn resolve_scan_mode(
@@ -359,20 +375,65 @@ pub(crate) fn schedule_watcher_dirty_roots(
     })?;
 
     watcher.schedule_dirty_roots(scan_phase, dirty_roots, |roots| {
-        launch_library_scan(
-            roots,
-            Some(ScanMode::Incremental),
+        launch_watcher_incremental_scan(
             library.clone(),
             library_scan.clone(),
-            Some(watcher_terminal_hook(
-                library.clone(),
-                library_scan.clone(),
-                library_watcher.clone(),
-            )),
+            library_watcher.clone(),
+            roots,
         )
     })?;
 
     Ok(())
+}
+
+pub(crate) fn refresh_library_watcher(
+    state: &AppState,
+    watched_roots: &[PathBuf],
+) -> Result<(), String> {
+    let library = state.library.clone();
+    let library_scan = state.library_scan.clone();
+    let library_watcher = state.library_watcher.clone();
+
+    let mut runtime = state.library_watcher_runtime.lock().map_err(|e| {
+        error!("Failed to acquire watcher runtime lock: {}", e);
+        "Failed to access watcher runtime".to_string()
+    })?;
+    let mut watcher = state.library_watcher.lock().map_err(|e| {
+        error!("Failed to acquire watcher state lock: {}", e);
+        "Failed to access watcher coordinator state".to_string()
+    })?;
+
+    runtime.refresh_roots(&mut watcher, watched_roots, move |result| {
+        let scan_phase = {
+            let scan = match library_scan.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("Library scan state lock poisoned during watcher callback");
+                    poisoned.into_inner()
+                }
+            };
+            scan.status.phase
+        };
+
+        let mut watcher = match library_watcher.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("Watcher state lock poisoned during watcher callback");
+                poisoned.into_inner()
+            }
+        };
+
+        if let Err(err) = handle_debounced_event_result(&mut watcher, scan_phase, result, |roots| {
+            launch_watcher_incremental_scan(
+                library.clone(),
+                library_scan.clone(),
+                library_watcher.clone(),
+                roots,
+            )
+        }) {
+            error!("Failed to schedule watcher batch: {}", err);
+        }
+    })
 }
 
 /// Scan a directory for music files and add them to the library

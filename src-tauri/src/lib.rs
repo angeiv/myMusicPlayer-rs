@@ -2,7 +2,6 @@
 
 use anyhow::Context;
 use std::sync::{Arc, Mutex};
-#[cfg(any(debug_assertions, feature = "devtools"))]
 use tauri::Manager;
 use tauri_plugin_log::Target;
 
@@ -30,6 +29,7 @@ pub struct AppState {
     pub playlists: Arc<Mutex<services::playlist::PlaylistService>>,
     pub library_scan: Arc<Mutex<services::library::LibraryScanState>>,
     pub library_watcher: Arc<Mutex<services::library::WatcherCoordinatorState>>,
+    pub library_watcher_runtime: Arc<Mutex<services::library::LibraryWatcherRuntime>>,
     pub config_lock: Arc<Mutex<()>>,
 }
 
@@ -47,8 +47,11 @@ impl AppState {
                     .context("Failed to initialize playlist service")?,
             )),
             library_scan: Arc::new(Mutex::new(services::library::LibraryScanState::new_idle())),
-            library_watcher: Arc::new(Mutex::new(
-                services::library::WatcherCoordinatorState::new(),
+            library_watcher: Arc::new(
+                Mutex::new(services::library::WatcherCoordinatorState::new()),
+            ),
+            library_watcher_runtime: Arc::new(Mutex::new(
+                services::library::LibraryWatcherRuntime::new(),
             )),
             config_lock: Arc::new(Mutex::new(())),
         })
@@ -102,6 +105,15 @@ pub fn run() {
             if let Err(e) = utils::init_app_dirs() {
                 log::error!("Failed to initialize application directories: {}", e);
                 return Err(e.into());
+            }
+
+            if let Err(err) = crate::api::config::refresh_library_watcher_from_persisted_config(
+                _app.state::<AppState>().inner(),
+            ) {
+                log::error!(
+                    "Failed to refresh library watcher from persisted config: {}",
+                    err
+                );
             }
 
             Ok(())
@@ -195,6 +207,7 @@ mod tests {
         assert!(state.playlists.try_lock().is_ok());
         assert!(state.library_scan.try_lock().is_ok());
         assert!(state.library_watcher.try_lock().is_ok());
+        assert!(state.library_watcher_runtime.try_lock().is_ok());
         assert!(state.config_lock.try_lock().is_ok());
     }
 }

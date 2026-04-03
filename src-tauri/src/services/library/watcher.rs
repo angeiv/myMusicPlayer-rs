@@ -1,6 +1,15 @@
 #![allow(dead_code)]
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
+
+use notify_debouncer_full::{
+    DebounceEventHandler, DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache,
+    new_debouncer,
+    notify::{EventKind, RecommendedWatcher, RecursiveMode},
+};
 
 use super::{
     LibraryPathKind, LibraryPathVisibility, ScanPhase, classify_library_path,
@@ -44,6 +53,21 @@ pub enum WatcherScheduleAction {
     NoFollowUp,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatcherRuntimeOutcome {
+    Ignored,
+    DiagnosticOnly,
+    Scheduled(WatcherScheduleAction),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatcherTriggerMetadata {
+    pub triggered_at_ms: i64,
+    pub event_count: usize,
+    pub observed_paths: Vec<PathBuf>,
+    pub dirty_roots: Vec<PathBuf>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WatcherCoordinatorState {
     pub watched_roots: Vec<PathBuf>,
@@ -52,6 +76,8 @@ pub struct WatcherCoordinatorState {
     pub last_attempted_roots: Vec<PathBuf>,
     pub last_attempted_at_ms: Option<i64>,
     pub last_scheduler_error: Option<String>,
+    pub last_runtime_error: Option<String>,
+    pub last_trigger: Option<WatcherTriggerMetadata>,
 }
 
 impl WatcherCoordinatorState {
@@ -61,6 +87,25 @@ impl WatcherCoordinatorState {
 
     pub fn set_watched_roots(&mut self, watched_roots: &[PathBuf]) {
         self.watched_roots = sanitize_canonical_roots(watched_roots);
+    }
+
+    pub fn set_runtime_error(&mut self, error: Option<String>) {
+        self.last_runtime_error = error;
+    }
+
+    pub fn set_last_trigger(
+        &mut self,
+        triggered_at_ms: i64,
+        event_count: usize,
+        observed_paths: &[PathBuf],
+        dirty_roots: &[PathBuf],
+    ) {
+        self.last_trigger = Some(WatcherTriggerMetadata {
+            triggered_at_ms,
+            event_count,
+            observed_paths: dedupe_exact_paths(observed_paths),
+            dirty_roots: dedupe_overlapping_roots(dirty_roots),
+        });
     }
 
     pub fn schedule_dirty_roots<F>(
@@ -176,6 +221,115 @@ impl WatcherCoordinatorState {
     }
 }
 
+pub struct LibraryWatcherRuntime {
+    debouncer: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
+    debounce_window: Duration,
+}
+
+impl Default for LibraryWatcherRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LibraryWatcherRuntime {
+    pub fn new() -> Self {
+        Self {
+            debouncer: None,
+            debounce_window: Duration::from_secs(2),
+        }
+    }
+
+    pub fn is_registered(&self) -> bool {
+        self.debouncer.is_some()
+    }
+
+    pub fn refresh_roots<F>(
+        &mut self,
+        watcher_state: &mut WatcherCoordinatorState,
+        desired_roots: &[PathBuf],
+        event_handler: F,
+    ) -> Result<(), String>
+    where
+        F: DebounceEventHandler,
+    {
+        self.refresh_roots_with_timeout(
+            watcher_state,
+            desired_roots,
+            self.debounce_window,
+            event_handler,
+        )
+    }
+
+    fn refresh_roots_with_timeout<F>(
+        &mut self,
+        watcher_state: &mut WatcherCoordinatorState,
+        desired_roots: &[PathBuf],
+        debounce_window: Duration,
+        event_handler: F,
+    ) -> Result<(), String>
+    where
+        F: DebounceEventHandler,
+    {
+        let root_plan = plan_runtime_watched_roots(desired_roots);
+
+        if desired_roots.is_empty() {
+            self.debouncer = None;
+            watcher_state.set_watched_roots(&[]);
+            watcher_state.set_runtime_error(None);
+            return Ok(());
+        }
+
+        if root_plan.valid_roots.is_empty() {
+            let message = format!(
+                "Failed to refresh watcher roots: no valid library roots available ({})",
+                format_paths(&root_plan.rejected_roots),
+            );
+            watcher_state.set_runtime_error(Some(message.clone()));
+            return Err(message);
+        }
+
+        let mut debouncer = new_debouncer(debounce_window, None, event_handler).map_err(|err| {
+            let message = format!("Failed to create watcher runtime: {err}");
+            watcher_state.set_runtime_error(Some(message.clone()));
+            message
+        })?;
+
+        for root in &root_plan.valid_roots {
+            debouncer
+                .watch(root, RecursiveMode::Recursive)
+                .map_err(|err| {
+                    let message = format!(
+                        "Failed to refresh watcher roots: {} ({})",
+                        err,
+                        root.display()
+                    );
+                    watcher_state.set_runtime_error(Some(message.clone()));
+                    message
+                })?;
+        }
+
+        self.debouncer = Some(debouncer);
+        watcher_state.set_watched_roots(&root_plan.valid_roots);
+        watcher_state.set_runtime_error(if root_plan.rejected_roots.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "Rejected watcher roots: {}",
+                format_paths(&root_plan.rejected_roots)
+            ))
+        });
+
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct RuntimeWatcherRootPlan {
+    valid_roots: Vec<PathBuf>,
+    rejected_roots: Vec<PathBuf>,
+}
+
 fn sanitize_canonical_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut sanitized = Vec::new();
 
@@ -193,6 +347,204 @@ fn sanitize_canonical_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
     }
 
     dedupe_overlapping_roots(&sanitized)
+}
+
+fn plan_runtime_watched_roots(roots: &[PathBuf]) -> RuntimeWatcherRootPlan {
+    let mut plan = RuntimeWatcherRootPlan::default();
+
+    for root in roots {
+        if root.as_os_str().is_empty() || is_dangerous_root(root.as_path()) {
+            plan.rejected_roots.push(normalize_path(root.as_path()));
+            continue;
+        }
+
+        let candidate = match root.canonicalize() {
+            Ok(canonicalized) => normalize_path(&canonicalized),
+            Err(_) => normalize_path(root.as_path()),
+        };
+
+        if candidate.as_os_str().is_empty() || !candidate.is_absolute() || !candidate.is_dir() {
+            plan.rejected_roots.push(candidate);
+            continue;
+        }
+
+        if is_dangerous_root(candidate.as_path()) {
+            plan.rejected_roots.push(candidate);
+            continue;
+        }
+
+        plan.valid_roots.push(candidate);
+    }
+
+    plan.valid_roots = dedupe_overlapping_roots(&plan.valid_roots);
+    plan.rejected_roots = dedupe_exact_paths(&plan.rejected_roots);
+    plan
+}
+
+pub fn handle_debounced_event_result<F>(
+    watcher_state: &mut WatcherCoordinatorState,
+    scan_phase: ScanPhase,
+    result: DebounceEventResult,
+    launch_scan: F,
+) -> Result<WatcherRuntimeOutcome, String>
+where
+    F: FnOnce(Vec<PathBuf>) -> Result<(), String>,
+{
+    handle_debounced_event_result_at(watcher_state, scan_phase, result, now_ms(), launch_scan)
+}
+
+pub fn handle_debounced_event_result_at<F>(
+    watcher_state: &mut WatcherCoordinatorState,
+    scan_phase: ScanPhase,
+    result: DebounceEventResult,
+    triggered_at_ms: i64,
+    launch_scan: F,
+) -> Result<WatcherRuntimeOutcome, String>
+where
+    F: FnOnce(Vec<PathBuf>) -> Result<(), String>,
+{
+    match result {
+        Err(errors) => {
+            let observed_paths = observed_paths_from_errors(&errors);
+            watcher_state.set_last_trigger(triggered_at_ms, errors.len(), &observed_paths, &[]);
+            watcher_state.set_runtime_error(Some(format_notify_errors(&errors)));
+            Ok(WatcherRuntimeOutcome::DiagnosticOnly)
+        }
+        Ok(events) => {
+            let observed_paths = observed_paths_from_events(&events);
+            if events
+                .iter()
+                .any(|event| event.need_rescan() || event.paths.is_empty())
+            {
+                watcher_state.set_last_trigger(triggered_at_ms, events.len(), &observed_paths, &[]);
+                watcher_state.set_runtime_error(Some(
+                    "watcher runtime dropped malformed debounced event batch".to_string(),
+                ));
+                return Ok(WatcherRuntimeOutcome::DiagnosticOnly);
+            }
+
+            let mut dirty_roots = Vec::new();
+            let mut runtime_diagnostics = Vec::new();
+
+            for event in &events {
+                if matches!(event.kind, EventKind::Access(_)) {
+                    continue;
+                }
+
+                for observed_path in &event.paths {
+                    match classify_watcher_path(
+                        &watcher_state.watched_roots,
+                        observed_path.clone(),
+                        watcher_event_path_kind(observed_path),
+                    ) {
+                        WatcherClassification::DirtyRoots { canonical_roots } => {
+                            dirty_roots.extend(canonical_roots);
+                        }
+                        WatcherClassification::Ignored { .. } => {}
+                        WatcherClassification::Diagnostic { observed_path, .. } => {
+                            runtime_diagnostics.push(format!(
+                                "watcher ignored dangerous event path: {}",
+                                observed_path.display()
+                            ));
+                        }
+                    }
+                }
+            }
+
+            let dirty_roots = dedupe_overlapping_roots(&dirty_roots);
+            watcher_state.set_last_trigger(
+                triggered_at_ms,
+                events.len(),
+                &observed_paths,
+                &dirty_roots,
+            );
+            watcher_state.set_runtime_error(
+                (!runtime_diagnostics.is_empty()).then(|| runtime_diagnostics.join("; ")),
+            );
+
+            if dirty_roots.is_empty() {
+                return Ok(if runtime_diagnostics.is_empty() {
+                    WatcherRuntimeOutcome::Ignored
+                } else {
+                    WatcherRuntimeOutcome::DiagnosticOnly
+                });
+            }
+
+            let action = watcher_state.schedule_dirty_roots_at(
+                scan_phase,
+                &dirty_roots,
+                triggered_at_ms,
+                launch_scan,
+            )?;
+
+            Ok(WatcherRuntimeOutcome::Scheduled(action))
+        }
+    }
+}
+
+fn watcher_event_path_kind(path: &Path) -> LibraryPathKind {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => LibraryPathKind::Directory,
+        Ok(_) => LibraryPathKind::File,
+        Err(_) => LibraryPathKind::Unknown,
+    }
+}
+
+fn observed_paths_from_events(events: &[DebouncedEvent]) -> Vec<PathBuf> {
+    let mut observed_paths = Vec::new();
+    for event in events {
+        observed_paths.extend(event.paths.iter().cloned());
+    }
+    dedupe_exact_paths(&observed_paths)
+}
+
+fn observed_paths_from_errors(errors: &[notify_debouncer_full::notify::Error]) -> Vec<PathBuf> {
+    let mut observed_paths = Vec::new();
+    for error in errors {
+        observed_paths.extend(error.paths.iter().cloned());
+    }
+    dedupe_exact_paths(&observed_paths)
+}
+
+fn format_notify_errors(errors: &[notify_debouncer_full::notify::Error]) -> String {
+    errors
+        .iter()
+        .map(|error| {
+            if error.paths.is_empty() {
+                error.to_string()
+            } else {
+                format!("{} ({})", error, format_paths(&error.paths))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn format_paths(paths: &[PathBuf]) -> String {
+    let rendered = dedupe_exact_paths(paths)
+        .into_iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>();
+
+    if rendered.is_empty() {
+        "<none>".to_string()
+    } else {
+        rendered.join(", ")
+    }
+}
+
+fn dedupe_exact_paths(paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut deduped = Vec::new();
+
+    for path in paths {
+        if deduped.iter().any(|existing| existing == path) {
+            continue;
+        }
+
+        deduped.push(path.clone());
+    }
+
+    deduped
 }
 
 pub fn classify_watcher_path(
@@ -310,7 +662,14 @@ fn canonicalize_with_existing_ancestor(path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf};
+    use notify_debouncer_full::{
+        DebouncedEvent,
+        notify::{
+            Error as NotifyError, Event, EventKind,
+            event::{CreateKind, ModifyKind},
+        },
+    };
+    use std::{fs, path::PathBuf, time::Instant};
     use tempfile::TempDir;
 
     #[test]
@@ -575,10 +934,11 @@ mod tests {
         assert!(state.queued_follow_up);
         assert_eq!(state.dirty_roots, vec![root.clone()]);
 
-        let follow_up = state.handle_scan_terminal_at(ScanPhase::Completed, 30, |roots: Vec<PathBuf>| {
-            launches.push(roots.clone());
-            Ok(())
-        });
+        let follow_up =
+            state.handle_scan_terminal_at(ScanPhase::Completed, 30, |roots: Vec<PathBuf>| {
+                launches.push(roots.clone());
+                Ok(())
+            });
         assert_eq!(follow_up.unwrap(), WatcherScheduleAction::Launched);
         assert_eq!(launches, vec![vec![root.clone()]]);
         assert!(!state.queued_follow_up);
@@ -598,10 +958,11 @@ mod tests {
         let mut state = WatcherCoordinatorState::new();
         let mut launches = Vec::new();
 
-        let empty = state.schedule_dirty_roots_at(ScanPhase::Idle, &[], 10, |roots: Vec<PathBuf>| {
-            launches.push(roots);
-            Ok(())
-        });
+        let empty =
+            state.schedule_dirty_roots_at(ScanPhase::Idle, &[], 10, |roots: Vec<PathBuf>| {
+                launches.push(roots);
+                Ok(())
+            });
         assert_eq!(empty.unwrap(), WatcherScheduleAction::Ignored);
         assert!(launches.is_empty());
 
@@ -655,7 +1016,10 @@ mod tests {
         assert_eq!(state.last_attempted_roots, vec![first_root.clone()]);
         assert_eq!(state.last_attempted_at_ms, Some(10));
         assert!(!state.queued_follow_up);
-        assert_eq!(state.last_scheduler_error.as_deref(), Some("launcher failed"));
+        assert_eq!(
+            state.last_scheduler_error.as_deref(),
+            Some("launcher failed")
+        );
 
         let retry = state.schedule_dirty_roots_at(
             ScanPhase::Failed,
@@ -709,6 +1073,271 @@ mod tests {
         assert!(!state.queued_follow_up);
         assert!(state.dirty_roots.is_empty());
         assert_eq!(state.last_scheduler_error, None);
+    }
+
+    #[test]
+    fn watcher_runtime_schedules_dirty_roots_from_mutating_batches() {
+        let tmp = TempDir::new().unwrap();
+        let root_dir = tmp.path().join("music");
+        fs::create_dir_all(root_dir.join("album")).unwrap();
+        let track_path = root_dir.join("album").join("track.mp3");
+        fs::write(&track_path, b"stub").unwrap();
+
+        let canonical_root = root_dir.canonicalize().unwrap();
+        let canonical_track = track_path.canonicalize().unwrap();
+        let mut state = WatcherCoordinatorState::new();
+        state.set_watched_roots(std::slice::from_ref(&canonical_root));
+        let mut launches = Vec::new();
+
+        let outcome = handle_debounced_event_result_at(
+            &mut state,
+            ScanPhase::Idle,
+            Ok(vec![DebouncedEvent::new(
+                Event::new(EventKind::Modify(ModifyKind::Any)).add_path(canonical_track.clone()),
+                Instant::now(),
+            )]),
+            50,
+            |roots: Vec<PathBuf>| {
+                launches.push(roots.clone());
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            outcome,
+            WatcherRuntimeOutcome::Scheduled(WatcherScheduleAction::Launched)
+        );
+        assert_eq!(launches, vec![vec![canonical_root.clone()]]);
+        assert_eq!(
+            state.last_trigger,
+            Some(WatcherTriggerMetadata {
+                triggered_at_ms: 50,
+                event_count: 1,
+                observed_paths: vec![canonical_track],
+                dirty_roots: vec![canonical_root],
+            })
+        );
+        assert_eq!(state.last_runtime_error, None);
+    }
+
+    #[test]
+    fn watcher_runtime_ignores_hidden_noise_and_outside_paths() {
+        let tmp = TempDir::new().unwrap();
+        let root_dir = tmp.path().join("music");
+        let hidden_dir = root_dir.join(".hidden");
+        let noise_dir = root_dir.join("node_modules");
+        let outside_dir = tmp.path().join("outside");
+        fs::create_dir_all(&hidden_dir).unwrap();
+        fs::create_dir_all(&noise_dir).unwrap();
+        fs::create_dir_all(&outside_dir).unwrap();
+
+        let canonical_root = root_dir.canonicalize().unwrap();
+        let hidden_path = hidden_dir.join("track.mp3");
+        let noise_path = noise_dir.join("track.mp3");
+        let outside_path = outside_dir.join("track.mp3");
+        let mut state = WatcherCoordinatorState::new();
+        state.set_watched_roots(std::slice::from_ref(&canonical_root));
+        let mut launches = Vec::new();
+
+        let outcome = handle_debounced_event_result_at(
+            &mut state,
+            ScanPhase::Idle,
+            Ok(vec![
+                DebouncedEvent::new(
+                    Event::new(EventKind::Create(CreateKind::Any)).add_path(hidden_path.clone()),
+                    Instant::now(),
+                ),
+                DebouncedEvent::new(
+                    Event::new(EventKind::Create(CreateKind::Any)).add_path(noise_path.clone()),
+                    Instant::now(),
+                ),
+                DebouncedEvent::new(
+                    Event::new(EventKind::Create(CreateKind::Any)).add_path(outside_path.clone()),
+                    Instant::now(),
+                ),
+            ]),
+            60,
+            |roots: Vec<PathBuf>| {
+                launches.push(roots);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(outcome, WatcherRuntimeOutcome::Ignored);
+        assert!(launches.is_empty());
+        assert_eq!(
+            state.last_trigger,
+            Some(WatcherTriggerMetadata {
+                triggered_at_ms: 60,
+                event_count: 3,
+                observed_paths: vec![hidden_path, noise_path, outside_path],
+                dirty_roots: Vec::new(),
+            })
+        );
+        assert_eq!(state.last_runtime_error, None);
+    }
+
+    #[test]
+    fn watcher_runtime_marks_malformed_batches_as_diagnostic_only() {
+        let tmp = TempDir::new().unwrap();
+        let root_dir = tmp.path().join("music");
+        fs::create_dir_all(&root_dir).unwrap();
+
+        let canonical_root = root_dir.canonicalize().unwrap();
+        let mut state = WatcherCoordinatorState::new();
+        state.set_watched_roots(std::slice::from_ref(&canonical_root));
+        let mut launches = Vec::new();
+
+        let outcome = handle_debounced_event_result_at(
+            &mut state,
+            ScanPhase::Idle,
+            Ok(vec![DebouncedEvent::new(
+                Event::new(EventKind::Modify(ModifyKind::Any)),
+                Instant::now(),
+            )]),
+            70,
+            |roots: Vec<PathBuf>| {
+                launches.push(roots);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(outcome, WatcherRuntimeOutcome::DiagnosticOnly);
+        assert!(launches.is_empty());
+        assert_eq!(
+            state.last_trigger,
+            Some(WatcherTriggerMetadata {
+                triggered_at_ms: 70,
+                event_count: 1,
+                observed_paths: Vec::new(),
+                dirty_roots: Vec::new(),
+            })
+        );
+        assert!(
+            state
+                .last_runtime_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("malformed debounced event batch")
+        );
+    }
+
+    #[test]
+    fn watcher_runtime_records_backend_errors_without_scheduling() {
+        let tmp = TempDir::new().unwrap();
+        let root_dir = tmp.path().join("music");
+        fs::create_dir_all(&root_dir).unwrap();
+
+        let canonical_root = root_dir.canonicalize().unwrap();
+        let mut state = WatcherCoordinatorState::new();
+        state.set_watched_roots(std::slice::from_ref(&canonical_root));
+        let mut launches = Vec::new();
+
+        let outcome = handle_debounced_event_result_at(
+            &mut state,
+            ScanPhase::Idle,
+            Err(vec![
+                NotifyError::generic("backend failed").add_path(canonical_root.clone()),
+            ]),
+            80,
+            |roots: Vec<PathBuf>| {
+                launches.push(roots);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(outcome, WatcherRuntimeOutcome::DiagnosticOnly);
+        assert!(launches.is_empty());
+        assert_eq!(
+            state.last_trigger,
+            Some(WatcherTriggerMetadata {
+                triggered_at_ms: 80,
+                event_count: 1,
+                observed_paths: vec![canonical_root],
+                dirty_roots: Vec::new(),
+            })
+        );
+        assert!(
+            state
+                .last_runtime_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("backend failed")
+        );
+    }
+
+    #[test]
+    fn watcher_runtime_refresh_replaces_registered_roots() {
+        let tmp = TempDir::new().unwrap();
+        let first_dir = tmp.path().join("music-a");
+        let second_dir = tmp.path().join("music-b");
+        fs::create_dir_all(&first_dir).unwrap();
+        fs::create_dir_all(&second_dir).unwrap();
+
+        let first_root = first_dir.canonicalize().unwrap();
+        let second_root = second_dir.canonicalize().unwrap();
+        let mut state = WatcherCoordinatorState::new();
+        let mut runtime = LibraryWatcherRuntime::new();
+
+        runtime
+            .refresh_roots(&mut state, std::slice::from_ref(&first_root), |_result| {})
+            .unwrap();
+        assert_eq!(state.watched_roots, vec![first_root.clone()]);
+        assert!(runtime.is_registered());
+
+        runtime
+            .refresh_roots(&mut state, std::slice::from_ref(&second_root), |_result| {})
+            .unwrap();
+
+        assert_eq!(state.watched_roots, vec![second_root]);
+        assert_eq!(state.last_runtime_error, None);
+        assert!(runtime.is_registered());
+    }
+
+    #[test]
+    fn watcher_runtime_refresh_preserves_previous_roots_on_registration_failure() {
+        let tmp = TempDir::new().unwrap();
+        let watched_dir = tmp.path().join("music");
+        let missing_dir = tmp.path().join("missing");
+        fs::create_dir_all(&watched_dir).unwrap();
+        fs::create_dir_all(&missing_dir).unwrap();
+
+        let watched_root = watched_dir.canonicalize().unwrap();
+        let missing_root = missing_dir.canonicalize().unwrap();
+        fs::remove_dir_all(&missing_dir).unwrap();
+
+        let mut state = WatcherCoordinatorState::new();
+        let mut runtime = LibraryWatcherRuntime::new();
+        runtime
+            .refresh_roots(
+                &mut state,
+                std::slice::from_ref(&watched_root),
+                |_result| {},
+            )
+            .unwrap();
+
+        let err = runtime
+            .refresh_roots(
+                &mut state,
+                std::slice::from_ref(&missing_root),
+                |_result| {},
+            )
+            .unwrap_err();
+
+        assert!(err.contains("Failed to refresh watcher roots"));
+        assert_eq!(state.watched_roots, vec![watched_root]);
+        assert!(
+            state
+                .last_runtime_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("missing")
+        );
+        assert!(runtime.is_registered());
     }
 
     #[cfg(target_os = "macos")]
