@@ -313,6 +313,115 @@ describe('SongsView integration harness', () => {
     expectDisabledActionWithHint(contextMenuAddToPlaylistAction, /请先创建歌单/);
   });
 
+  it('renders missing rows with visible and accessible unavailable state copy', () => {
+    const missingBetaTrack = createTrack({
+      id: betaTrack.id,
+      title: betaTrack.title,
+      artist_name: betaTrack.artist_name ?? null,
+      album_title: betaTrack.album_title ?? null,
+      availability: 'missing',
+      missing_since: null,
+    });
+
+    renderSongsView({
+      tracks: [alphaTrack, missingBetaTrack, gammaTrack, deltaTrack],
+    });
+
+    const missingRow = getRow(missingBetaTrack.title);
+
+    expect(missingRow.getAttribute('data-availability')).toBe('missing');
+    expect(within(missingRow).getByText('文件缺失')).not.toBeNull();
+    expect(getHintText(missingRow)).toMatch(/文件缺失/);
+    expect(getHintText(missingRow)).toMatch(/无法播放/);
+  });
+
+  it('disables primary play actions with a missing-file hint when the visible selection has no playable tracks', async () => {
+    const missingBetaTrack = createTrack({
+      id: betaTrack.id,
+      title: betaTrack.title,
+      artist_name: betaTrack.artist_name ?? null,
+      album_title: betaTrack.album_title ?? null,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+
+    renderSongsView({
+      tracks: [alphaTrack, missingBetaTrack, gammaTrack, deltaTrack],
+    });
+
+    await fireEvent.click(getRow(missingBetaTrack.title));
+
+    const playSelectedButton = screen.getByRole('button', { name: '播放选中' });
+    expectDisabledActionWithHint(playSelectedButton, /所选歌曲文件缺失，无法播放/);
+
+    await fireEvent.contextMenu(getRow(missingBetaTrack.title), { clientX: 120, clientY: 140 });
+
+    const contextMenuPlayAction = getContextMenuAction('播放选中');
+    expectDisabledActionWithHint(contextMenuPlayAction, /所选歌曲文件缺失，无法播放/);
+  });
+
+  it('shows immediate feedback and skips playback when a missing row is double-clicked', async () => {
+    const missingBetaTrack = createTrack({
+      id: betaTrack.id,
+      title: betaTrack.title,
+      artist_name: betaTrack.artist_name ?? null,
+      album_title: betaTrack.album_title ?? null,
+      availability: 'missing',
+      missing_since: null,
+    });
+
+    renderSongsView({
+      tracks: [alphaTrack, missingBetaTrack, gammaTrack, deltaTrack],
+    });
+
+    await fireRealDoubleClick(getRow(missingBetaTrack.title));
+
+    expect(playbackApiMock.setQueue).not.toHaveBeenCalled();
+    expect(playbackApiMock.playTrack).not.toHaveBeenCalled();
+    expect(screen.getByText('当前歌曲文件缺失，无法播放')).not.toBeNull();
+  });
+
+  it('prevents default keyboard playback and shows immediate feedback when Enter and Space target a missing row', async () => {
+    const missingBetaTrack = createTrack({
+      id: betaTrack.id,
+      title: betaTrack.title,
+      artist_name: betaTrack.artist_name ?? null,
+      album_title: betaTrack.album_title ?? null,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+
+    renderSongsView({
+      tracks: [alphaTrack, missingBetaTrack, gammaTrack, deltaTrack],
+    });
+
+    const missingRow = getRow(missingBetaTrack.title);
+
+    await fireEvent.focus(missingRow);
+
+    const enterEvent = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      bubbles: true,
+      cancelable: true,
+    });
+    missingRow.dispatchEvent(enterEvent);
+    await flushPromises();
+
+    const spaceEvent = new KeyboardEvent('keydown', {
+      key: ' ',
+      bubbles: true,
+      cancelable: true,
+    });
+    missingRow.dispatchEvent(spaceEvent);
+    await flushPromises();
+
+    expect(enterEvent.defaultPrevented).toBe(true);
+    expect(spaceEvent.defaultPrevented).toBe(true);
+    expect(playbackApiMock.setQueue).not.toHaveBeenCalled();
+    expect(playbackApiMock.playTrack).not.toHaveBeenCalled();
+    expect(screen.getByText('当前歌曲文件缺失，无法播放')).not.toBeNull();
+  });
+
   it('double-clicking an unselected row replaces the queue with all visible tracks and resets the selection to that row without rendering a play-success banner above the list', async () => {
     renderSongsView();
 

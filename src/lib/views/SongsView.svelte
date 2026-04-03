@@ -35,6 +35,7 @@
     type SongsSortDirection,
     type SongsSortKey,
   } from '../features/songs-list/sort-filter';
+  import { getMissingTrackPlayMessage, getPlayableTracks } from '../utils/track-availability';
   import type { Playlist, Track } from '../types';
 
   export let tracks: Track[] = [];
@@ -54,6 +55,9 @@
   let playlistPickerOpen = false;
   let playlistPickerAnchor: DOMRect | null = null;
   let feedback = '';
+  let selectedVisibleTracks: Track[] = [];
+  let canPlaySelected = false;
+  let playSelectedHint = '';
   let playbackPollTimer: number | null = null;
   let pendingDoubleClickSelection: {
     trackId: string;
@@ -103,6 +107,13 @@
   $: visibleTrackIds = visibleTracks.map((track) => track.id);
   $: visibleSelectedIds = getVisibleSelectedIds(selection, visibleTrackIds);
   $: visibleSelectionCount = visibleSelectedIds.length;
+  $: {
+    const visibleSelectedIdSet = new Set(visibleSelectedIds);
+    selectedVisibleTracks = visibleTracks.filter((track) => visibleSelectedIdSet.has(track.id));
+  }
+  $: canPlaySelected = getPlayableTracks(selectedVisibleTracks).length > 0;
+  $: playSelectedHint =
+    visibleSelectionCount > 0 && !canPlaySelected ? getMissingTrackPlayMessage('selection') : '';
   $: canAddToPlaylist = playlists.length > 0;
   $: addToPlaylistHint = canAddToPlaylist ? '' : '请先创建歌单';
 
@@ -483,6 +494,8 @@
     {#if visibleSelectionCount > 0}
       <SongsBulkActionBar
         selectedCount={visibleSelectionCount}
+        {canPlaySelected}
+        {playSelectedHint}
         {canAddToPlaylist}
         {addToPlaylistHint}
         on:playSelected={handlePlaySelected}
@@ -522,6 +535,8 @@
     <SongsContextMenu
       x={contextMenuPosition.x}
       y={contextMenuPosition.y}
+      {canPlaySelected}
+      {playSelectedHint}
       {canAddToPlaylist}
       {addToPlaylistHint}
       on:playSelected={handlePlaySelected}

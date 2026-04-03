@@ -2,8 +2,14 @@
   import { createEventDispatcher } from 'svelte';
 
   import type { Track } from '../../types';
-  import { formatDate, formatDuration, formatTrackIndex } from '../../utils/format';
   import type { SongsSortDirection, SongsSortKey } from '../../features/songs-list/sort-filter';
+  import {
+    getTrackAvailabilityBadge,
+    getTrackAvailabilityDescription,
+    getTrackAvailabilityState,
+    isTrackPlayable,
+  } from '../../utils/track-availability';
+  import { formatDate, formatDuration, formatTrackIndex } from '../../utils/format';
 
   export let tracks: Track[] = [];
   export let selectedIds: string[] = [];
@@ -124,16 +130,24 @@
       {@const selected = selectedIds.includes(track.id)}
       {@const active = activeTrackId === track.id}
       {@const playing = playingTrackId === track.id}
+      {@const playable = isTrackPlayable(track)}
+      {@const availability = getTrackAvailabilityState(track)}
+      {@const availabilityBadge = getTrackAvailabilityBadge(track)}
+      {@const availabilityDescription = getTrackAvailabilityDescription(track)}
+      {@const availabilityDescriptionId = !playable ? `songs-track-availability-${index}` : undefined}
       <div
         class="row"
         class:is-selected={selected}
         class:is-active={active}
         class:is-playing={playing}
+        class:is-missing={!playable}
         role="row"
         tabindex="0"
         data-selected={selected ? 'true' : 'false'}
         data-active={active ? 'true' : 'false'}
         data-playing={playing ? 'true' : 'false'}
+        data-availability={availability}
+        aria-describedby={availabilityDescriptionId}
         on:click={(event) => handleRowClick(event, track)}
         on:dblclick={() => handleRowDoubleClick(track)}
         on:focus={() => handleRowFocus(track)}
@@ -143,7 +157,15 @@
         <div class="index" role="cell">{formatTrackIndex(index)}</div>
         <div class="title" role="cell">
           <span class="track-title">{track.title}</span>
-          <span class="format">{track.format?.toUpperCase()}</span>
+          <div class="meta-line">
+            {#if availabilityBadge}
+              <span class="availability-badge">{availabilityBadge}</span>
+            {/if}
+            <span class="format">{track.format?.toUpperCase()}</span>
+          </div>
+          {#if availabilityDescriptionId}
+            <span id={availabilityDescriptionId} class="sr-only">{availabilityDescription}</span>
+          {/if}
         </div>
         <div class="artist" role="cell">{track.artist_name ?? 'Unknown artist'}</div>
         <div class="album" role="cell">{track.album_title ?? 'Unknown album'}</div>
@@ -258,6 +280,19 @@
     color: #93c5fd;
   }
 
+  .row.is-missing:not(.is-playing) .track-title {
+    color: rgba(226, 232, 240, 0.82);
+  }
+
+  .row.is-missing .artist,
+  .row.is-missing .album,
+  .row.is-missing .duration,
+  .row.is-missing .added,
+  .row.is-missing .format,
+  .row.is-missing .index {
+    color: rgba(148, 163, 184, 0.78);
+  }
+
   .index {
     font-variant-numeric: tabular-nums;
     text-align: center;
@@ -279,6 +314,26 @@
     color: #f8fafc;
   }
 
+  .meta-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .availability-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    background: rgba(127, 29, 29, 0.28);
+    color: rgba(254, 202, 202, 0.92);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+  }
+
   .format {
     font-size: 0.65rem;
     text-transform: uppercase;
@@ -298,6 +353,18 @@
   .added {
     font-variant-numeric: tabular-nums;
     color: rgba(148, 163, 184, 0.85);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   @media (max-width: 1024px) {

@@ -2,9 +2,12 @@
   import { createEventDispatcher } from 'svelte';
 
   export let selectedCount = 0;
+  export let canPlaySelected = true;
+  export let playSelectedHint = '';
   export let canAddToPlaylist = true;
   export let addToPlaylistHint = '';
 
+  const playSelectedHintId = 'songs-bulk-action-play-selected-hint';
   const addToPlaylistHintId = 'songs-bulk-action-add-to-playlist-hint';
 
   const dispatch = createEventDispatcher<{
@@ -14,8 +17,11 @@
     clearSelection: void;
   }>();
 
+  $: disabledPlaySelectedHint = !canPlaySelected ? playSelectedHint.trim() : '';
   $: disabledAddToPlaylistHint = !canAddToPlaylist ? addToPlaylistHint.trim() : '';
+  $: playSelectedDescription = disabledPlaySelectedHint.length > 0 ? playSelectedHintId : undefined;
   $: addToPlaylistDescription = disabledAddToPlaylistHint.length > 0 ? addToPlaylistHintId : undefined;
+  $: toolbarDescription = [playSelectedDescription, addToPlaylistDescription].filter(Boolean).join(' ') || undefined;
 
   function handleAddToPlaylist(event: MouseEvent): void {
     const trigger = event.currentTarget;
@@ -34,7 +40,7 @@
   class="bulk-action-bar"
   role="toolbar"
   aria-label="歌曲批量操作"
-  aria-describedby={addToPlaylistDescription}
+  aria-describedby={toolbarDescription}
 >
   <div class="summary">
     <span class="count">已选 {selectedCount} 首</span>
@@ -43,7 +49,14 @@
 
   <div class="controls">
     <div class="actions">
-      <button type="button" on:click={() => dispatch('playSelected')}>播放选中</button>
+      <button
+        type="button"
+        disabled={!canPlaySelected}
+        aria-describedby={playSelectedDescription}
+        on:click={() => dispatch('playSelected')}
+      >
+        播放选中
+      </button>
       <button type="button" on:click={() => dispatch('addToQueue')}>加入队列</button>
       <button
         type="button"
@@ -56,8 +69,14 @@
       <button type="button" class="ghost" on:click={() => dispatch('clearSelection')}>清除选择</button>
     </div>
 
+    {#if disabledPlaySelectedHint}
+      <p id={playSelectedHintId} class="disabled-hint" role="status" aria-live="polite" aria-atomic="true">
+        {disabledPlaySelectedHint}
+      </p>
+    {/if}
+
     {#if disabledAddToPlaylistHint}
-      <p id={addToPlaylistHintId} class="disabled-hint" aria-live="polite" aria-atomic="true">
+      <p id={addToPlaylistHintId} class="disabled-hint" role="status" aria-live="polite" aria-atomic="true">
         {disabledAddToPlaylistHint}
       </p>
     {/if}
