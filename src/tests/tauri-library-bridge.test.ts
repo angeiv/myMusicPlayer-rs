@@ -40,6 +40,10 @@ describe('tauri library bridge', () => {
       phase: 'completed',
       processed_files: 0,
       inserted_tracks: 0,
+    changed_tracks: 0,
+    unchanged_files: 0,
+    restored_tracks: 0,
+    missing_tracks: 0,
       error_count: 0,
       sample_errors: [],
     };

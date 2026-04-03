@@ -164,6 +164,10 @@ pub async fn start_library_scan(
         scan.status.current_path = None;
         scan.status.processed_files = 0;
         scan.status.inserted_tracks = 0;
+        scan.status.changed_tracks = 0;
+        scan.status.unchanged_files = 0;
+        scan.status.restored_tracks = 0;
+        scan.status.missing_tracks = 0;
         scan.status.error_count = invalid_count;
         scan.status.sample_errors = invalid_samples;
 
@@ -194,6 +198,10 @@ pub async fn start_library_scan(
         scan.status.current_path = None;
         scan.status.processed_files = 0;
         scan.status.inserted_tracks = 0;
+        scan.status.changed_tracks = 0;
+        scan.status.unchanged_files = 0;
+        scan.status.restored_tracks = 0;
+        scan.status.missing_tracks = 0;
         scan.status.error_count = invalid_count;
         scan.status.sample_errors = invalid_samples;
 
@@ -223,6 +231,10 @@ pub async fn start_library_scan(
 
                 scan.status.processed_files = progress.processed_files;
                 scan.status.inserted_tracks = progress.inserted_tracks;
+                scan.status.changed_tracks = progress.changed_tracks;
+                scan.status.unchanged_files = progress.unchanged_files;
+                scan.status.restored_tracks = progress.restored_tracks;
+                scan.status.missing_tracks = progress.missing_tracks;
                 scan.status.error_count = invalid_count + progress.error_count;
                 scan.status.current_path = Some(progress.current_path.display().to_string());
             })
@@ -249,6 +261,12 @@ pub async fn start_library_scan(
 
                 scan.status.phase = phase;
                 scan.status.ended_at_ms = Some(ended_at_ms);
+                scan.status.processed_files = summary.processed_files;
+                scan.status.inserted_tracks = summary.inserted_tracks;
+                scan.status.changed_tracks = summary.changed_tracks;
+                scan.status.unchanged_files = summary.unchanged_files;
+                scan.status.restored_tracks = summary.restored_tracks;
+                scan.status.missing_tracks = summary.missing_tracks;
 
                 scan.status.sample_errors.extend(sample_errors);
                 scan.status.sample_errors.truncate(sample_limit);

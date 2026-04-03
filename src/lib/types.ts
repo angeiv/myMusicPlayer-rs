@@ -119,6 +119,10 @@ export interface ScanStatus {
   current_path?: string | null;
   processed_files: number;
   inserted_tracks: number;
+  changed_tracks: number;
+  unchanged_files: number;
+  restored_tracks: number;
+  missing_tracks: number;
   error_count: number;
   sample_errors: ScanErrorSample[];
 }
