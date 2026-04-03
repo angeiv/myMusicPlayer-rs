@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::models::{Album, Artist, Track};
 use crate::services::library::{
-    ScanErrorKind, ScanErrorSample, ScanPhase, ScanStatus, dedupe_overlapping_roots,
+    ScanErrorKind, ScanErrorSample, ScanMode, ScanPhase, ScanStatus, dedupe_overlapping_roots,
     is_dangerous_root, now_ms,
 };
 
@@ -35,6 +35,29 @@ fn push_error_sample(
     }
 }
 
+fn reset_scan_status(
+    status: &mut ScanStatus,
+    phase: ScanPhase,
+    mode: Option<ScanMode>,
+    started_at_ms: Option<i64>,
+    error_count: u64,
+    sample_errors: Vec<ScanErrorSample>,
+) {
+    status.phase = phase;
+    status.mode = mode;
+    status.started_at_ms = started_at_ms;
+    status.ended_at_ms = None;
+    status.current_path = None;
+    status.processed_files = 0;
+    status.inserted_tracks = 0;
+    status.changed_tracks = 0;
+    status.unchanged_files = 0;
+    status.restored_tracks = 0;
+    status.missing_tracks = 0;
+    status.error_count = error_count;
+    status.sample_errors = sample_errors;
+}
+
 /// Scan a directory for music files and add them to the library
 #[tauri::command]
 pub async fn scan_directory(path: PathBuf, state: State<'_, AppState>) -> Result<usize, String> {
@@ -47,6 +70,20 @@ pub async fn scan_directory(path: PathBuf, state: State<'_, AppState>) -> Result
 
     library.scan_directory(&path).map_err(|e| {
         error!("Failed to scan directory: {}", e);
+        e.to_string()
+    })
+}
+
+/// Return whether the library currently has any persisted tracks.
+#[tauri::command]
+pub async fn has_library_tracks(state: State<'_, AppState>) -> Result<bool, String> {
+    let library = state.library.lock().map_err(|e| {
+        error!("Failed to acquire library lock: {}", e);
+        "Failed to access library service".to_string()
+    })?;
+
+    library.has_library_tracks().map_err(|e| {
+        error!("Failed to query library occupancy: {}", e);
         e.to_string()
     })
 }
@@ -82,9 +119,31 @@ pub async fn cancel_library_scan(state: State<'_, AppState>) -> Result<(), Strin
 #[tauri::command]
 pub async fn start_library_scan(
     paths: Vec<PathBuf>,
+    mode: Option<ScanMode>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    info!("Starting library scan for {} path(s)", paths.len());
+    let resolved_mode = match mode {
+        Some(mode) => mode,
+        None => {
+            let library = state.library.lock().map_err(|e| {
+                error!("Failed to acquire library lock: {}", e);
+                "Failed to access library service".to_string()
+            })?;
+
+            library.has_library_tracks().map_err(|e| {
+                error!("Failed to query library occupancy: {}", e);
+                e.to_string()
+            })?
+            .then_some(ScanMode::Incremental)
+            .unwrap_or(ScanMode::Full)
+        }
+    };
+
+    info!(
+        "Starting {:?} library scan for {} path(s)",
+        resolved_mode,
+        paths.len()
+    );
 
     // Short-lock: reject if there's already an in-progress scan.
     {
@@ -158,18 +217,14 @@ pub async fn start_library_scan(
 
         scan.cancel_flag.store(false, Ordering::SeqCst);
 
-        scan.status.phase = ScanPhase::Idle;
-        scan.status.started_at_ms = None;
-        scan.status.ended_at_ms = None;
-        scan.status.current_path = None;
-        scan.status.processed_files = 0;
-        scan.status.inserted_tracks = 0;
-        scan.status.changed_tracks = 0;
-        scan.status.unchanged_files = 0;
-        scan.status.restored_tracks = 0;
-        scan.status.missing_tracks = 0;
-        scan.status.error_count = invalid_count;
-        scan.status.sample_errors = invalid_samples;
+        reset_scan_status(
+            &mut scan.status,
+            ScanPhase::Idle,
+            Some(resolved_mode),
+            None,
+            invalid_count,
+            invalid_samples,
+        );
 
         return Err("No valid scan paths".to_string());
     }
@@ -192,18 +247,14 @@ pub async fn start_library_scan(
 
         scan.cancel_flag.store(false, Ordering::SeqCst);
 
-        scan.status.phase = ScanPhase::Running;
-        scan.status.started_at_ms = Some(started_at_ms);
-        scan.status.ended_at_ms = None;
-        scan.status.current_path = None;
-        scan.status.processed_files = 0;
-        scan.status.inserted_tracks = 0;
-        scan.status.changed_tracks = 0;
-        scan.status.unchanged_files = 0;
-        scan.status.restored_tracks = 0;
-        scan.status.missing_tracks = 0;
-        scan.status.error_count = invalid_count;
-        scan.status.sample_errors = invalid_samples;
+        reset_scan_status(
+            &mut scan.status,
+            ScanPhase::Running,
+            Some(resolved_mode),
+            Some(started_at_ms),
+            invalid_count,
+            invalid_samples,
+        );
 
         scan.cancel_flag.clone()
     };

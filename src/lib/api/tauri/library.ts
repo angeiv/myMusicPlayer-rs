@@ -1,10 +1,34 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { Album, Artist, ScanStatus, SearchResults, Track } from '../../types';
+import type {
+  Album,
+  Artist,
+  LibraryScanRequest,
+  ScanStatus,
+  SearchResults,
+  Track,
+} from '../../types';
 import { normalizeSearchResults } from '../../transport/search';
+
+function normalizeLibraryScanRequest(
+  requestOrPaths: LibraryScanRequest | string[],
+): LibraryScanRequest {
+  if (Array.isArray(requestOrPaths)) {
+    return { paths: [...requestOrPaths] };
+  }
+
+  return {
+    ...requestOrPaths,
+    paths: [...requestOrPaths.paths],
+  };
+}
 
 export async function scanDirectory(path: string): Promise<number> {
   return invoke<number>('scan_directory', { path });
+}
+
+export async function hasLibraryTracks(): Promise<boolean> {
+  return invoke<boolean>('has_library_tracks');
 }
 
 export async function getTracks(): Promise<Track[]> {
@@ -57,8 +81,11 @@ export async function searchLibrary(query: string): Promise<SearchResults> {
   return normalizeSearchResults(payload);
 }
 
-export async function startLibraryScan(paths: string[]): Promise<void> {
-  await invoke<void>('start_library_scan', { paths });
+export async function startLibraryScan(
+  requestOrPaths: LibraryScanRequest | string[],
+): Promise<void> {
+  const request = normalizeLibraryScanRequest(requestOrPaths);
+  await invoke<void>('start_library_scan', request);
 }
 
 export async function getLibraryScanStatus(): Promise<ScanStatus> {
@@ -68,4 +95,3 @@ export async function getLibraryScanStatus(): Promise<ScanStatus> {
 export async function cancelLibraryScan(): Promise<void> {
   await invoke<void>('cancel_library_scan');
 }
-

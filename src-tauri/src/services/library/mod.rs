@@ -573,6 +573,17 @@ impl LibraryService {
         Ok(summary)
     }
 
+    /// Return whether the library currently has any persisted tracks.
+    pub fn has_library_tracks(&self) -> Result<bool> {
+        let has_tracks = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM tracks LIMIT 1)",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+
+        Ok(has_tracks != 0)
+    }
+
     /// Retrieve all tracks currently stored in the library.
     pub fn get_tracks(&self) -> Result<Vec<Track>> {
         let mut stmt = self.conn.prepare(
@@ -1726,6 +1737,21 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
         let mut conn = Connection::open(temp.path()).unwrap();
         initialize_schema(&mut conn).unwrap();
+    }
+
+    #[test]
+    fn scan_has_library_tracks_reports_empty_and_non_empty_library() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        create_tagged_track_fixture(&root);
+
+        assert!(!service.has_library_tracks().unwrap());
+
+        service.scan_directory(&root).unwrap();
+
+        assert!(service.has_library_tracks().unwrap());
     }
 
     #[test]

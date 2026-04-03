@@ -110,6 +110,8 @@ export interface OutputDeviceInfo {
 
 export type ScanPhase = 'idle' | 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
 
+export type ScanMode = 'full' | 'incremental';
+
 export type ScanErrorKind = 'invalid_path' | 'walk' | 'read_metadata' | 'persist';
 
 export interface ScanErrorSample {
@@ -118,8 +120,14 @@ export interface ScanErrorSample {
   kind: ScanErrorKind;
 }
 
+export interface LibraryScanRequest {
+  paths: string[];
+  mode?: ScanMode | null;
+}
+
 export interface ScanStatus {
   phase: ScanPhase;
+  mode?: ScanMode | null;
   started_at_ms?: number | null;
   ended_at_ms?: number | null;
   current_path?: string | null;
@@ -138,6 +146,7 @@ export function createScanStatus(overrides: Partial<ScanStatus> = {}): ScanStatu
 
   return {
     phase: 'idle',
+    mode: null,
     started_at_ms: null,
     ended_at_ms: null,
     current_path: null,

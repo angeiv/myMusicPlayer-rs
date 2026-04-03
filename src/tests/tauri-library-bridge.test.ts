@@ -11,6 +11,7 @@ import {
   getLibraryScanStatus,
   getTrack,
   getTracks,
+  hasLibraryTracks,
   scanDirectory,
   searchLibrary,
   startLibraryScan,
@@ -18,8 +19,10 @@ import {
 import {
   getLibraryScanStatus as getMockLibraryScanStatus,
   getTracks as getMockTracks,
+  hasLibraryTracks as getMockHasLibraryTracks,
+  startLibraryScan as startMockLibraryScan,
 } from '../lib/api/mock/library';
-import { createScanStatus, type ScanStatus, type Track } from '../lib/types';
+import { createScanStatus, type LibraryScanRequest, type ScanStatus, type Track } from '../lib/types';
 
 function createTrack(overrides: Partial<Track> = {}): Track {
   return {
@@ -62,16 +65,22 @@ describe('tauri library bridge', () => {
     expect(invokeMock).toHaveBeenCalledWith('scan_directory', { path: '/music' });
   });
 
-  it('invokes start_library_scan with the expected payload key', async () => {
+  it('invokes start_library_scan with the mode-aware payload shape', async () => {
+    const request: LibraryScanRequest = {
+      paths: ['/music'],
+      mode: 'incremental',
+    };
+
     invokeMock.mockResolvedValueOnce(undefined);
 
-    await expect(startLibraryScan(['/music'])).resolves.toBeUndefined();
-    expect(invokeMock).toHaveBeenCalledWith('start_library_scan', { paths: ['/music'] });
+    await expect(startLibraryScan(request)).resolves.toBeUndefined();
+    expect(invokeMock).toHaveBeenCalledWith('start_library_scan', request);
   });
 
   it('returns richer scan status payloads unchanged', async () => {
     const status = createStatus({
       phase: 'completed',
+      mode: 'incremental',
       started_at_ms: 10,
       ended_at_ms: 25,
       current_path: '/music/signal-bloom.flac',
@@ -95,6 +104,13 @@ describe('tauri library bridge', () => {
 
     await expect(getLibraryScanStatus()).resolves.toEqual(status);
     expect(invokeMock).toHaveBeenCalledWith('get_library_scan_status');
+  });
+
+  it('invokes has_library_tracks without a payload', async () => {
+    invokeMock.mockResolvedValueOnce(true);
+
+    await expect(hasLibraryTracks()).resolves.toBe(true);
+    expect(invokeMock).toHaveBeenCalledWith('has_library_tracks');
   });
 
   it('invokes cancel_library_scan without a payload', async () => {
@@ -148,8 +164,18 @@ describe('tauri library bridge', () => {
     expect(invokeMock).toHaveBeenCalledWith('get_tracks');
   });
 
-  it('keeps the web mock scan status aligned with the canonical frontend shape', async () => {
+  it('keeps the web mock scan request and status shape aligned with the canonical frontend contract', async () => {
+    await startMockLibraryScan({
+      paths: ['/music'],
+      mode: 'full',
+    });
+
     const first = await getMockLibraryScanStatus();
+    expect(first).toMatchObject({
+      phase: 'completed',
+      mode: 'full',
+    });
+
     first.changed_tracks = 99;
     first.sample_errors.push({
       path: '/mutated',
@@ -157,7 +183,18 @@ describe('tauri library bridge', () => {
       kind: 'walk',
     });
 
-    await expect(getMockLibraryScanStatus()).resolves.toStrictEqual(createScanStatus());
+    await expect(getMockLibraryScanStatus()).resolves.toStrictEqual(
+      createScanStatus({
+        phase: 'completed',
+        mode: 'full',
+        started_at_ms: first.started_at_ms,
+        ended_at_ms: first.ended_at_ms,
+      }),
+    );
+  });
+
+  it('keeps the web mock occupancy helper aligned with the mock library fixture', async () => {
+    await expect(getMockHasLibraryTracks()).resolves.toBe(true);
   });
 
   it('keeps the web mock track payload aligned with the baseline scan fields', async () => {

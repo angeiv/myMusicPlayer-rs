@@ -143,6 +143,7 @@ pub fn run() {
             crate::api::audio::get_output_device,
             // Library commands
             crate::api::library::scan_directory,
+            crate::api::library::has_library_tracks,
             crate::api::library::start_library_scan,
             crate::api::library::get_library_scan_status,
             crate::api::library::cancel_library_scan,

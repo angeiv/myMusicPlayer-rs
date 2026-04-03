@@ -17,6 +17,13 @@ pub enum ScanPhase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ScanMode {
+    Full,
+    Incremental,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScanErrorKind {
     InvalidPath,
     Walk,
@@ -67,6 +74,7 @@ pub struct ScanSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanStatus {
     pub phase: ScanPhase,
+    pub mode: Option<ScanMode>,
     pub started_at_ms: Option<i64>,
     pub ended_at_ms: Option<i64>,
     pub current_path: Option<String>,
@@ -84,6 +92,7 @@ impl ScanStatus {
     pub fn new(phase: ScanPhase) -> Self {
         Self {
             phase,
+            mode: None,
             started_at_ms: None,
             ended_at_ms: None,
             current_path: None,

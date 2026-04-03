@@ -2,6 +2,8 @@ import {
   createScanStatus,
   type Album,
   type Artist,
+  type LibraryScanRequest,
+  type ScanMode,
   type ScanStatus,
   type SearchResults,
   type Track,
@@ -20,10 +22,36 @@ import {
 
 let scanStatus: ScanStatus = createScanStatus();
 
-export async function startLibraryScan(_paths: string[]): Promise<void> {
+function normalizeLibraryScanRequest(
+  requestOrPaths: LibraryScanRequest | string[],
+): LibraryScanRequest {
+  if (Array.isArray(requestOrPaths)) {
+    return { paths: [...requestOrPaths] };
+  }
+
+  return {
+    ...requestOrPaths,
+    paths: [...requestOrPaths.paths],
+  };
+}
+
+function resolveMockScanMode(request: LibraryScanRequest): ScanMode {
+  if (request.mode) {
+    return request.mode;
+  }
+
+  return getMockTracks().length > 0 ? 'incremental' : 'full';
+}
+
+export async function startLibraryScan(
+  requestOrPaths: LibraryScanRequest | string[],
+): Promise<void> {
+  const request = normalizeLibraryScanRequest(requestOrPaths);
   const now = Date.now();
+
   scanStatus = createScanStatus({
     phase: 'completed',
+    mode: resolveMockScanMode(request),
     started_at_ms: now,
     ended_at_ms: now,
   });
@@ -35,6 +63,10 @@ export async function getLibraryScanStatus(): Promise<ScanStatus> {
 
 export async function cancelLibraryScan(): Promise<void> {
   // no-op in web mode
+}
+
+export async function hasLibraryTracks(): Promise<boolean> {
+  return getMockTracks().length > 0;
 }
 
 export async function scanDirectory(_path: string): Promise<number> {
