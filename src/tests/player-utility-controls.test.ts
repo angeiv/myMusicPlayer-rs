@@ -4,8 +4,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { cleanup, render, screen, within } from '@testing-library/svelte';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { Track } from '../lib/types';
 
 const artworkMock = vi.hoisted(() => ({
   isTauri: false,
@@ -36,7 +38,7 @@ const playerBarMock = vi.hoisted(() => {
     };
   }
 
-  const trackWithArtwork = {
+  const trackWithArtwork: Track = {
     id: 'track-current',
     title: 'Midnight City',
     duration: 264,
@@ -50,6 +52,8 @@ const playerBarMock = vi.hoisted(() => {
     album_title: "Hurry Up, We're Dreaming",
     genre: 'Electronic',
     artwork_path: '/covers/midnight-city.jpg' as string | null,
+    availability: 'available',
+    missing_since: null,
     play_count: 0,
     date_added: '2026-03-01T00:00:00.000Z',
   };
@@ -188,6 +192,31 @@ describe('BottomPlayerBar cover art rendering', () => {
     expect(artwork?.getAttribute('alt')).toBe('');
     expect(within(trigger).queryByRole('img')).toBeNull();
     expect(within(trigger).queryByTestId('cover-art-placeholder')).toBeNull();
+  });
+
+  it('renders continuity copy for a missing paused current track and removes it when the track is restored', async () => {
+    playerBarMock.setCurrentTrack({
+      ...playerBarMock.trackWithArtwork,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+
+    render(BottomPlayerBar);
+
+    expect(
+      screen.getByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')
+    ).toBeTruthy();
+    expect(screen.queryByText('文件缺失，无法播放')).toBeNull();
+
+    playerBarMock.setCurrentTrack({
+      ...playerBarMock.trackWithArtwork,
+      availability: 'available',
+      missing_since: null,
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
+    });
   });
 
   it('renders the fallback decoratively when the current track has no artwork_path', () => {

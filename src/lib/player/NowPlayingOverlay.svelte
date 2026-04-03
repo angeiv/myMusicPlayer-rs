@@ -3,6 +3,7 @@
 
   import CoverArt from '../components/CoverArt.svelte';
   import type { PlaybackStateInfo, Track } from '../types';
+  import { getPlaybackSurfaceAvailability } from '../utils/track-availability';
   import NowPlayingLyricsTab from './NowPlayingLyricsTab.svelte';
   import { nowPlayingUi, type NowPlayingTab } from './now-playing';
   import QueueList from './QueueList.svelte';
@@ -19,6 +20,7 @@
   let isOpen = false;
   let activeTab: NowPlayingTab = 'lyrics';
   let currentTrack: Track | null = null;
+  let currentTrackAvailability: ReturnType<typeof getPlaybackSurfaceAvailability> | null = null;
   let playbackState: PlaybackStateInfo = { state: 'stopped' };
   let progress = 0;
   let queueTracks: Track[] = [];
@@ -31,6 +33,9 @@
   $: activeTab = $nowPlayingState.activeTab;
   $: currentTrack = $sharedPlayback.currentTrack;
   $: playbackState = $sharedPlayback.playbackState;
+  $: currentTrackAvailability = currentTrack
+    ? getPlaybackSurfaceAvailability(currentTrack, { isCurrent: true, playbackState })
+    : null;
   $: progress = $sharedPlayback.progress;
   $: queueTracks = $sharedPlayback.queueTracks;
 
@@ -150,9 +155,15 @@
           alt={currentTrack ? `${currentTrack.title} 的封面` : ''}
         />
 
-        <div class="track-copy">
+        <div class="track-copy" data-availability={currentTrackAvailability?.availability ?? 'available'}>
           <p class="track-title">{currentTrack?.title ?? '尚未开始播放'}</p>
           <p class="track-artist">{currentTrack?.artist_name ?? 'Unknown Artist'}</p>
+          {#if currentTrackAvailability?.badge}
+            <span class="availability-badge">{currentTrackAvailability.badge}</span>
+          {/if}
+          {#if currentTrackAvailability?.description}
+            <p class="track-status">{currentTrackAvailability.description}</p>
+          {/if}
         </div>
 
         <dl class="track-meta-grid">
@@ -195,6 +206,7 @@
             <QueueList
               tracks={queueTracks}
               currentTrackId={currentTrack?.id ?? null}
+              playbackState={playbackState}
               onSelect={(track) => void sharedPlayback.playQueueTrack(track)}
               onRemove={(track) => void sharedPlayback.removeQueueTrack(track.id)}
               onClear={() => void sharedPlayback.clearQueue()}
@@ -369,6 +381,25 @@
   .track-artist {
     font-size: 1rem;
     color: rgba(203, 213, 225, 0.84);
+  }
+
+  .availability-badge {
+    display: inline-flex;
+    width: fit-content;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(127, 29, 29, 0.32);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    color: rgba(254, 226, 226, 0.95);
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .track-status {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: rgba(254, 226, 226, 0.9);
   }
 
   .track-meta-grid {

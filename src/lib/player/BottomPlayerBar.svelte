@@ -3,6 +3,7 @@
 
   import CoverArt from '../components/CoverArt.svelte';
   import type { OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
+  import { getPlaybackSurfaceAvailability } from '../utils/track-availability';
   import QueueList from './QueueList.svelte';
   import { nowPlayingUi } from './now-playing';
   import { sharedPlayback } from './sharedPlayback';
@@ -11,6 +12,7 @@
   const nowPlayingState = nowPlayingUi.state;
 
   let currentTrack: Track | null = null;
+  let currentTrackAvailability: ReturnType<typeof getPlaybackSurfaceAvailability> | null = null;
   let playbackState: PlaybackStateInfo = { state: 'stopped' };
   let volume = 1;
   let volumePercentUi = 100;
@@ -38,6 +40,9 @@
 
   $: currentTrack = $playback.currentTrack;
   $: playbackState = $playback.playbackState;
+  $: currentTrackAvailability = currentTrack
+    ? getPlaybackSurfaceAvailability(currentTrack, { isCurrent: true, playbackState })
+    : null;
   $: volume = $playback.volume;
   $: progress = $playback.progress;
   $: duration = $playback.duration;
@@ -228,7 +233,7 @@
         title={currentTrack?.title ?? '暂无播放'}
         alt=""
       />
-      <div class="track-meta">
+      <div class="track-meta" data-availability={currentTrackAvailability?.availability ?? 'available'}>
         <div class="title">{currentTrack ? currentTrack.title : '暂无播放'}</div>
         <div class="artist">
           {#if currentTrack}
@@ -242,7 +247,13 @@
           {#if currentTrack?.year}
             <span class="badge subtle">{currentTrack.year}</span>
           {/if}
+          {#if currentTrackAvailability?.badge}
+            <span class="badge availability">{currentTrackAvailability.badge}</span>
+          {/if}
         </div>
+        {#if currentTrackAvailability?.description}
+          <p class="availability-copy">{currentTrackAvailability.description}</p>
+        {/if}
       </div>
     </button>
     <button
@@ -371,6 +382,7 @@
           <QueueList
             tracks={queueTracks}
             currentTrackId={currentTrack?.id ?? null}
+            playbackState={playbackState}
             onSelect={handleQueuePlay}
             onRemove={(track) => void playback.removeQueueTrack(track.id)}
             onClear={() => void playback.clearQueue()}
@@ -600,6 +612,19 @@
   .badge.subtle {
     background: color-mix(in srgb, var(--player-border) 60%, transparent);
     border-color: color-mix(in srgb, var(--player-border) 85%, transparent);
+  }
+
+  .badge.availability {
+    background: rgba(127, 29, 29, 0.32);
+    border-color: rgba(248, 113, 113, 0.34);
+    color: rgba(254, 226, 226, 0.95);
+  }
+
+  .availability-copy {
+    margin: 0;
+    font-size: 0.76rem;
+    line-height: 1.4;
+    color: rgba(254, 226, 226, 0.9);
   }
 
   .favorite {

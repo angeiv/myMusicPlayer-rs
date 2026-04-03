@@ -1,8 +1,10 @@
 <script lang="ts">
-  import type { Track } from '../types';
+  import { getPlaybackSurfaceAvailability } from '../utils/track-availability';
+  import type { PlaybackStateInfo, Track } from '../types';
 
   export let tracks: Track[] = [];
   export let currentTrackId: string | null = null;
+  export let playbackState: PlaybackStateInfo = { state: 'stopped' };
   export let onSelect: (track: Track) => void = () => {};
   export let onRemove: (track: Track) => void = () => {};
   export let onClear: () => void = () => {};
@@ -11,8 +13,8 @@
     return Boolean(currentTrackId && track.id === currentTrackId);
   }
 
-  function handleSelect(track: Track): void {
-    if (isCurrent(track)) return;
+  function handleSelect(track: Track, blocked: boolean): void {
+    if (isCurrent(track) || blocked) return;
     onSelect(track);
   }
 
@@ -46,13 +48,40 @@
   {:else}
     <ul class="queue-list">
       {#each tracks as track, index (track.id)}
-        <li class:active={track.id === currentTrackId}>
+        {@const current = isCurrent(track)}
+        {@const availability = getPlaybackSurfaceAvailability(track, { isCurrent: current, playbackState })}
+        {@const selectionBlocked = availability.status === 'blocked'}
+        {@const availabilityDescriptionId = availability.description ? `queue-track-availability-${index}` : undefined}
+        <li
+          class:active={current}
+          class:is-missing={availability.availability === 'missing'}
+          data-availability={availability.availability}
+        >
           <div class="queue-row">
-            <button type="button" class="queue-item" on:click={() => handleSelect(track)}>
+            <button
+              type="button"
+              class="queue-item"
+              disabled={selectionBlocked && !current}
+              aria-disabled={selectionBlocked && !current ? 'true' : undefined}
+              aria-current={current ? 'true' : undefined}
+              aria-describedby={availabilityDescriptionId}
+              title={availability.description || undefined}
+              on:click={() => handleSelect(track, selectionBlocked)}
+            >
               <span class="index">{index + 1}</span>
-              <div>
+              <div class="queue-copy">
                 <p class="queue-title">{track.title}</p>
                 <p class="queue-artist">{track.artist_name ?? 'Unknown Artist'}</p>
+                {#if availability.badge || availability.description}
+                  <div class="queue-meta-line">
+                    {#if availability.badge}
+                      <span class="availability-badge">{availability.badge}</span>
+                    {/if}
+                    {#if availability.description}
+                      <p id={availabilityDescriptionId} class="queue-status">{availability.description}</p>
+                    {/if}
+                  </div>
+                {/if}
               </div>
               <span class="queue-time">{formatDuration(track.duration)}</span>
             </button>
@@ -130,7 +159,7 @@
   .queue-item {
     width: 100%;
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
     border: none;
@@ -142,12 +171,28 @@
     text-align: left;
   }
 
-  .queue-item:hover {
+  .queue-item:hover:not(:disabled) {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   li.active .queue-item {
     background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  li.is-missing .queue-item {
+    border: 1px solid rgba(248, 113, 113, 0.18);
+  }
+
+  .queue-item:disabled {
+    cursor: not-allowed;
+    opacity: 0.78;
+  }
+
+  .queue-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .queue-remove {
@@ -175,6 +220,30 @@
   .queue-artist {
     font-size: 0.75rem;
     color: var(--player-muted);
+  }
+
+  .queue-meta-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .availability-badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(127, 29, 29, 0.32);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    color: rgba(254, 226, 226, 0.95);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .queue-status {
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: rgba(254, 226, 226, 0.9);
   }
 
   .queue-time {
