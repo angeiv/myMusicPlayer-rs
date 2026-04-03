@@ -38,8 +38,7 @@
     artists,
     playlists,
     counts,
-    scanStatus,
-    isScanning,
+    maintenance,
     isLibraryLoading,
     isSearching,
     searchResults,
@@ -168,8 +167,7 @@
         />
       {:else if route.name === "settings"}
         <SettingsView
-          {scanStatus}
-          {isScanning}
+          {maintenance}
           runLibraryScan={runSettingsLibraryScan}
           runFullLibraryScan={runSettingsFullLibraryScan}
           {cancelLibraryScan}

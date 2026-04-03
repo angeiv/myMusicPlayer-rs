@@ -33,6 +33,7 @@
   } from './settings-output-device';
   import { buildSettingsLibraryScanPresentation } from './settings-library-scan';
 
+  import type { LibraryMaintenanceState } from '../features/library-scan/maintenance';
   import type { AppConfig, OutputDeviceInfo, ScanStatus, ThemeOption } from '../types';
 
   const dispatch = createEventDispatcher<{
@@ -40,8 +41,7 @@
     refreshPlaylists: void;
   }>();
 
-  export let scanStatus: Readable<ScanStatus>;
-  export let isScanning: Readable<boolean>;
+  export let maintenance: Readable<LibraryMaintenanceState>;
   export let runLibraryScan: (paths: string[]) => Promise<ScanStatus>;
   export let runFullLibraryScan: (paths: string[]) => Promise<ScanStatus>;
   export let cancelLibraryScan: () => Promise<void>;
@@ -77,7 +77,9 @@
   let selectedDeviceId = 'default';
   let appVersion = 'unknown';
 
-  $: scanPresentation = buildSettingsLibraryScanPresentation($scanStatus);
+  $: scanPresentation = buildSettingsLibraryScanPresentation($maintenance);
+  $: isMaintenanceActive =
+    $maintenance.activePhase === 'running' || $maintenance.activePhase === 'cancelling';
   $: activeOutputDeviceLabel = describeSelectedOutputDevice(outputDevices, selectedDeviceId);
 
   onMount(async () => {
@@ -333,7 +335,7 @@
 
         <div
           class="scan-status"
-          data-testid="settings-scan-status"
+          data-testid="settings-maintenance-status"
           data-tone={scanPresentation.statusTone}
         >
           <div class="scan-status-headline" role="status" aria-live="polite" aria-atomic="true">
@@ -342,10 +344,33 @@
 
           <p class="scan-description">{scanPresentation.description}</p>
 
+          <div class="scan-status-row scan-status-row--stacked">
+            <span class="scan-label">Auto-sync</span>
+            <span class="scan-current">{scanPresentation.autoSyncSummary}</span>
+          </div>
+
+          {#if scanPresentation.watchedRoots.length > 0}
+            <div class="scan-status-stack">
+              <span class="scan-label">Watched folders</span>
+              <ul class="scan-list" aria-label="Watched folders">
+                {#each scanPresentation.watchedRoots as root}
+                  <li>{root}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+
           {#if scanPresentation.currentPath}
             <div class="scan-status-row">
               <span class="scan-label">{scanPresentation.currentPathLabel}</span>
               <span class="scan-current">{scanPresentation.currentPath}</span>
+            </div>
+          {/if}
+
+          {#if scanPresentation.queuedFollowUp}
+            <div class="scan-callout" data-tone="warning" role="note">
+              <span class="scan-label">{scanPresentation.queuedFollowUp.title}</span>
+              <p class="scan-error-message">{scanPresentation.queuedFollowUp.description}</p>
             </div>
           {/if}
 
@@ -357,6 +382,27 @@
               </li>
             {/each}
           </ul>
+
+          {#if scanPresentation.actionGuide}
+            <div class="scan-callout" data-tone={scanPresentation.statusTone === 'danger' ? 'danger' : 'default'} role="note">
+              <span class="scan-label">{scanPresentation.actionGuide.title}</span>
+              <p class="scan-error-message">{scanPresentation.actionGuide.description}</p>
+            </div>
+          {/if}
+
+          {#if scanPresentation.recoveryHint && scanPresentation.actionGuide?.buttonLabel === 'Cancel Scan'}
+            <div class="scan-callout" data-tone="active" role="note">
+              <span class="scan-label">What happens next</span>
+              <p class="scan-error-message">{scanPresentation.recoveryHint}</p>
+            </div>
+          {/if}
+
+          {#if scanPresentation.watcherError}
+            <div class="scan-callout" data-tone="warning" role="note">
+              <span class="scan-label">{scanPresentation.watcherError.title}</span>
+              <p class="scan-error-message">{scanPresentation.watcherError.description}</p>
+            </div>
+          {/if}
 
           {#if scanPresentation.sampleError}
             <div class="scan-callout" data-tone="danger" role="note">
@@ -382,7 +428,7 @@
           data-variant="secondary"
           type="button"
           on:click={handleRescan}
-          disabled={libraryPaths.length === 0 || isUpdatingPaths || $isScanning}
+          disabled={libraryPaths.length === 0 || isUpdatingPaths || isMaintenanceActive}
         >
           Rescan Now
         </button>
@@ -391,11 +437,11 @@
           data-variant="secondary"
           type="button"
           on:click={handleFullScan}
-          disabled={libraryPaths.length === 0 || isUpdatingPaths || $isScanning}
+          disabled={libraryPaths.length === 0 || isUpdatingPaths || isMaintenanceActive}
         >
           Full Scan
         </button>
-        {#if $isScanning}
+        {#if isMaintenanceActive}
           <button
             class="settings-button"
             data-variant="danger"
@@ -710,6 +756,29 @@
     gap: 12px;
   }
 
+  .scan-status-row--stacked,
+  .scan-status-stack {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .scan-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+  }
+
+  .scan-list li {
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-panel) 88%, transparent);
+    color: var(--text-primary);
+    overflow-wrap: anywhere;
+  }
+
   .scan-current {
     text-align: right;
     overflow-wrap: anywhere;
@@ -761,7 +830,27 @@
     gap: 0.35rem;
     padding: 12px 14px;
     border-radius: 14px;
-    border: 1px solid color-mix(in srgb, #ef4444 22%, var(--border-default));
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-panel) 90%, transparent);
+  }
+
+  .scan-callout[data-tone='default'] {
+    border-color: color-mix(in srgb, var(--accent) 10%, var(--border-default));
+    background: color-mix(in srgb, var(--surface-panel-subtle) 92%, transparent);
+  }
+
+  .scan-callout[data-tone='active'] {
+    border-color: color-mix(in srgb, var(--accent) 22%, var(--border-default));
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-panel));
+  }
+
+  .scan-callout[data-tone='warning'] {
+    border-color: color-mix(in srgb, #f59e0b 22%, var(--border-default));
+    background: color-mix(in srgb, var(--state-warning) 46%, var(--surface-panel));
+  }
+
+  .scan-callout[data-tone='danger'] {
+    border-color: color-mix(in srgb, #ef4444 22%, var(--border-default));
     background: color-mix(in srgb, var(--state-danger) 48%, var(--surface-panel));
   }
 
