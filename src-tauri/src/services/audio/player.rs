@@ -84,7 +84,9 @@ impl RealAudioPlayer {
             track_number: None,
             disc_number: None,
             path: path_buf,
+            library_root: None,
             size: 0, // TODO: Get file size
+            file_mtime_ms: None,
             format: "unknown".to_string(),
             bitrate: 0,
             sample_rate: 44100,
@@ -100,6 +102,8 @@ impl RealAudioPlayer {
             artwork: None,
             artwork_path: None,
             lyrics: None,
+            availability: crate::models::TrackAvailability::Available,
+            missing_since: None,
             play_count: 0,
             last_played: None,
             date_added: chrono::Utc::now(),

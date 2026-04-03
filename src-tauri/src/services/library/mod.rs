@@ -28,7 +28,7 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::models::{Album, Artist, Track};
+use crate::models::{Album, Artist, Track, TrackAvailability};
 use crate::utils;
 
 const DB_FILE_NAME: &str = "library.sqlite";
@@ -99,7 +99,9 @@ struct ExtractedTrack {
     track_number: Option<u32>,
     disc_number: Option<u32>,
     file_path: PathBuf,
+    library_root: PathBuf,
     size: u64,
+    file_mtime_ms: i64,
     format: String,
     bitrate: u32,
     sample_rate: u32,
@@ -182,7 +184,7 @@ impl LibraryService {
         let tx = self.conn.transaction()?;
 
         for file_path in audio_files {
-            match extract_metadata(&file_path) {
+            match extract_metadata(&file_path, path) {
                 Ok(raw) => match persist_track(&tx, raw) {
                     Ok(result) => {
                         if result.created_new {
@@ -309,7 +311,7 @@ impl LibraryService {
 
                         processed_files += 1;
 
-                        match extract_metadata(&file_path) {
+                        match extract_metadata(&file_path, root) {
                             Ok(raw) => match persist_track(&tx, raw) {
                                 Ok(result) => {
                                     if result.created_new {
@@ -401,7 +403,9 @@ impl LibraryService {
                 t.track_number,
                 t.disc_number,
                 t.file_path,
+                t.library_root,
                 t.size,
+                t.file_mtime_ms,
                 t.format,
                 t.bitrate,
                 t.sample_rate,
@@ -415,6 +419,8 @@ impl LibraryService {
                 al.cover_art_path as artwork_path,
                 t.year,
                 t.genre,
+                t.availability,
+                t.missing_since,
                 t.play_count,
                 t.last_played,
                 t.date_added
@@ -445,7 +451,9 @@ impl LibraryService {
                 t.track_number,
                 t.disc_number,
                 t.file_path,
+                t.library_root,
                 t.size,
+                t.file_mtime_ms,
                 t.format,
                 t.bitrate,
                 t.sample_rate,
@@ -459,6 +467,8 @@ impl LibraryService {
                 al.cover_art_path as artwork_path,
                 t.year,
                 t.genre,
+                t.availability,
+                t.missing_since,
                 t.play_count,
                 t.last_played,
                 t.date_added
@@ -757,13 +767,17 @@ fn initialize_schema(conn: &mut Connection) -> Result<()> {
             disc_number INTEGER,
             duration INTEGER NOT NULL,
             file_path TEXT NOT NULL UNIQUE,
+            library_root TEXT,
             size INTEGER NOT NULL,
+            file_mtime_ms INTEGER,
             format TEXT NOT NULL,
             bitrate INTEGER,
             sample_rate INTEGER,
             channels INTEGER,
             year INTEGER,
             genre TEXT,
+            availability TEXT NOT NULL DEFAULT 'available',
+            missing_since INTEGER,
             play_count INTEGER NOT NULL DEFAULT 0,
             last_played INTEGER,
             date_added INTEGER NOT NULL,
@@ -789,6 +803,44 @@ fn initialize_schema(conn: &mut Connection) -> Result<()> {
         );
         "#,
     )?;
+    ensure_track_scan_columns(conn)?;
+    Ok(())
+}
+
+fn ensure_track_scan_columns(conn: &Connection) -> Result<()> {
+    let columns = conn
+        .prepare("PRAGMA table_info(tracks)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    if !columns.iter().any(|name| name == "library_root") {
+        conn.execute("ALTER TABLE tracks ADD COLUMN library_root TEXT", [])?;
+    }
+
+    if !columns.iter().any(|name| name == "file_mtime_ms") {
+        conn.execute("ALTER TABLE tracks ADD COLUMN file_mtime_ms INTEGER", [])?;
+    }
+
+    if !columns.iter().any(|name| name == "availability") {
+        conn.execute(
+            "ALTER TABLE tracks ADD COLUMN availability TEXT NOT NULL DEFAULT 'available'",
+            [],
+        )?;
+    }
+
+    if !columns.iter().any(|name| name == "missing_since") {
+        conn.execute("ALTER TABLE tracks ADD COLUMN missing_since INTEGER", [])?;
+    }
+
+    conn.execute(
+        "UPDATE tracks SET availability = 'available' WHERE availability IS NULL OR trim(availability) = ''",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE tracks SET missing_since = NULL WHERE availability <> 'missing'",
+        [],
+    )?;
+
     Ok(())
 }
 
@@ -846,12 +898,16 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTra
                 disc_number = ?7,
                 duration = ?8,
                 size = ?9,
-                format = ?10,
-                bitrate = ?11,
-                sample_rate = ?12,
-                channels = ?13,
-                year = ?14,
-                genre = ?15
+                library_root = ?10,
+                file_mtime_ms = ?11,
+                format = ?12,
+                bitrate = ?13,
+                sample_rate = ?14,
+                channels = ?15,
+                year = ?16,
+                genre = ?17,
+                availability = ?18,
+                missing_since = NULL
             WHERE id = ?1
             "#,
             params![
@@ -864,12 +920,15 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTra
                 raw.disc_number.map(|n| n as i64),
                 raw.duration as i64,
                 raw.size as i64,
+                raw.library_root.to_string_lossy().into_owned(),
+                raw.file_mtime_ms,
                 raw.format,
                 raw.bitrate as i64,
                 raw.sample_rate as i64,
                 raw.channels as i64,
                 raw.year,
                 raw.genre,
+                TrackAvailability::Available.as_db_str(),
             ],
         )?;
         false
@@ -878,12 +937,14 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTra
             r#"
             INSERT INTO tracks (
                 id, title, artist_id, album_artist_id, album_id, track_number, disc_number,
-                duration, file_path, size, format, bitrate, sample_rate, channels,
-                year, genre, play_count, last_played, date_added
+                duration, file_path, library_root, size, file_mtime_ms, format, bitrate,
+                sample_rate, channels, year, genre, availability, missing_since,
+                play_count, last_played, date_added
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                 ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                ?15, ?16, 0, NULL, ?17
+                ?15, ?16, ?17, ?18, ?19, NULL,
+                0, NULL, ?20
             )
             "#,
             params![
@@ -896,13 +957,16 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTra
                 raw.disc_number.map(|n| n as i64),
                 raw.duration as i64,
                 raw.file_path.to_string_lossy(),
+                raw.library_root.to_string_lossy().into_owned(),
                 raw.size as i64,
+                raw.file_mtime_ms,
                 raw.format,
                 raw.bitrate as i64,
                 raw.sample_rate as i64,
                 raw.channels as i64,
                 raw.year,
                 raw.genre,
+                TrackAvailability::Available.as_db_str(),
                 now,
             ],
         )?;
@@ -935,7 +999,7 @@ fn is_supported_extension(ext: &str) -> bool {
 }
 
 /// Extract metadata from an audio file using Lofty + Symphonia-friendly information.
-fn extract_metadata(path: &Path) -> Result<ExtractedTrack> {
+fn extract_metadata(path: &Path, library_root: &Path) -> Result<ExtractedTrack> {
     let tagged_file = read_from_path(path)?;
     let properties = tagged_file.properties();
     let tag = tagged_file
@@ -953,6 +1017,7 @@ fn extract_metadata(path: &Path) -> Result<ExtractedTrack> {
         })
         .unwrap_or_else(|| "Unknown Track".to_string());
 
+    let metadata = std::fs::metadata(path)?;
     let duration = properties.duration().as_secs() as u32;
     let track_number = tag.track();
     let disc_number = tag.disk();
@@ -961,7 +1026,14 @@ fn extract_metadata(path: &Path) -> Result<ExtractedTrack> {
     let album_title = tag.album().map(|s| s.to_string());
     let year = tag.date().map(|ts| i32::from(ts.year));
     let genre = tag.genre().map(|s| s.to_string());
-    let size = std::fs::metadata(path)?.len();
+    let size = metadata.len();
+    let file_mtime_ms: i64 = metadata
+        .modified()?
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .context("File modification time predates the unix epoch")?
+        .as_millis()
+        .try_into()
+        .context("File modification time is too large to persist")?;
     let format = path
         .extension()
         .and_then(|s| s.to_str())
@@ -977,7 +1049,9 @@ fn extract_metadata(path: &Path) -> Result<ExtractedTrack> {
         track_number,
         disc_number,
         file_path: path.to_path_buf(),
+        library_root: library_root.to_path_buf(),
         size,
+        file_mtime_ms,
         format,
         bitrate,
         sample_rate,
@@ -1093,6 +1167,14 @@ fn read_embedded_artwork(path: &Path) -> Result<Option<Vec<u8>>> {
 
 /// Map a database row to a Track domain model.
 fn row_to_track(row: &Row<'_>) -> Result<Track> {
+    let availability = parse_track_availability(row.get::<_, String>("availability")?)?;
+    let missing_since = if availability == TrackAvailability::Missing {
+        row.get::<_, Option<i64>>("missing_since")?
+            .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+    } else {
+        None
+    };
+
     Ok(Track {
         id: parse_uuid(row.get::<_, String>("id")?)?,
         title: row.get("title")?,
@@ -1100,7 +1182,11 @@ fn row_to_track(row: &Row<'_>) -> Result<Track> {
         track_number: row.get::<_, Option<i64>>("track_number")?.map(|n| n as u32),
         disc_number: row.get::<_, Option<i64>>("disc_number")?.map(|n| n as u32),
         path: PathBuf::from(row.get::<_, String>("file_path")?),
+        library_root: row
+            .get::<_, Option<String>>("library_root")?
+            .map(PathBuf::from),
         size: row.get::<_, i64>("size")? as u64,
+        file_mtime_ms: row.get("file_mtime_ms")?,
         format: row.get("format")?,
         bitrate: row.get::<_, Option<i64>>("bitrate")?.unwrap_or(0) as u32,
         sample_rate: row.get::<_, Option<i64>>("sample_rate")?.unwrap_or(44_100) as u32,
@@ -1125,6 +1211,8 @@ fn row_to_track(row: &Row<'_>) -> Result<Track> {
         artwork: None,
         artwork_path: row.get("artwork_path")?,
         lyrics: None,
+        availability,
+        missing_since,
         play_count: row.get::<_, i64>("play_count")? as u32,
         last_played: row
             .get::<_, Option<i64>>("last_played")?
@@ -1223,6 +1311,14 @@ fn parse_uuid(value: String) -> Result<Uuid> {
     Uuid::parse_str(&value).context("Invalid UUID stored in database")
 }
 
+fn parse_track_availability(value: String) -> Result<TrackAvailability> {
+    match value.as_str() {
+        "available" => Ok(TrackAvailability::Available),
+        "missing" => Ok(TrackAvailability::Missing),
+        _ => Err(anyhow!("Invalid track availability stored in database: {value}")),
+    }
+}
+
 /// Helper to run a track query with a WHERE clause.
 fn query_tracks_with_condition(
     conn: &Connection,
@@ -1238,7 +1334,9 @@ fn query_tracks_with_condition(
             t.track_number,
             t.disc_number,
             t.file_path,
+            t.library_root,
             t.size,
+            t.file_mtime_ms,
             t.format,
             t.bitrate,
             t.sample_rate,
@@ -1252,6 +1350,8 @@ fn query_tracks_with_condition(
             al.cover_art_path as artwork_path,
             t.year,
             t.genre,
+            t.availability,
+            t.missing_since,
             t.play_count,
             t.last_played,
             t.date_added
@@ -1840,6 +1940,165 @@ mod tests {
         assert_eq!(
             json_artwork_path(&by_album_json),
             Some(expected_artwork_path.as_str())
+        );
+    }
+
+    fn create_legacy_tracks_table(path: &Path) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE tracks (
+                id TEXT PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL,
+                artist_id TEXT,
+                album_artist_id TEXT,
+                album_id TEXT,
+                track_number INTEGER,
+                disc_number INTEGER,
+                duration INTEGER NOT NULL,
+                file_path TEXT NOT NULL UNIQUE,
+                size INTEGER NOT NULL,
+                format TEXT NOT NULL,
+                bitrate INTEGER,
+                sample_rate INTEGER,
+                channels INTEGER,
+                year INTEGER,
+                genre TEXT,
+                play_count INTEGER NOT NULL DEFAULT 0,
+                last_played INTEGER,
+                date_added INTEGER NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+    }
+
+    fn track_column_names(conn: &Connection) -> Vec<String> {
+        conn.prepare("PRAGMA table_info(tracks)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn schema_migrates_legacy_tracks_columns_with_safe_defaults() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("legacy-library.sqlite");
+        create_legacy_tracks_table(&db_path);
+
+        let track_id = Uuid::new_v4();
+        let legacy_path = tmp.path().join("legacy-track.mp3");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO tracks (
+                id, title, artist_id, album_artist_id, album_id, track_number, disc_number,
+                duration, file_path, size, format, bitrate, sample_rate, channels,
+                year, genre, play_count, last_played, date_added
+            ) VALUES (
+                ?1, ?2, NULL, NULL, NULL, NULL, NULL,
+                ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                NULL, NULL, 0, NULL, ?10
+            )
+            "#,
+            params![
+                track_id.to_string(),
+                "Legacy Track",
+                180i64,
+                legacy_path.to_string_lossy().into_owned(),
+                512i64,
+                "mp3",
+                320i64,
+                44_100i64,
+                2i64,
+                Utc::now().timestamp(),
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let service = LibraryService::new_with_path_for_tests(&db_path).unwrap();
+        let columns = track_column_names(&service.conn);
+        assert!(columns.iter().any(|name| name == "library_root"));
+        assert!(columns.iter().any(|name| name == "file_mtime_ms"));
+        assert!(columns.iter().any(|name| name == "availability"));
+        assert!(columns.iter().any(|name| name == "missing_since"));
+
+        let migrated = service.get_track(track_id).unwrap().unwrap();
+        let migrated_json = serde_json::to_value(&migrated).unwrap();
+        assert_eq!(migrated_json.get("library_root"), Some(&Value::Null));
+        assert_eq!(migrated_json.get("file_mtime_ms"), Some(&Value::Null));
+        assert_eq!(migrated_json.get("availability"), Some(&Value::String("available".into())));
+        assert_eq!(migrated_json.get("missing_since"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn availability_track_round_trip_exposes_scan_baseline_fields() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        let track_path = create_tagged_track_fixture(&root);
+
+        let inserted = service.scan_directory(&root).unwrap();
+        assert_eq!(inserted, 1);
+
+        let track = service.get_tracks().unwrap().pop().unwrap();
+        let track_json = serde_json::to_value(&track).unwrap();
+        let expected_mtime_ms = fs::metadata(&track_path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        assert_eq!(track_json.get("library_root"), Some(&Value::String(root.display().to_string())));
+        assert_eq!(track_json.get("file_mtime_ms"), Some(&Value::Number(expected_mtime_ms.into())));
+        assert_eq!(track_json.get("availability"), Some(&Value::String("available".into())));
+        assert_eq!(track_json.get("missing_since"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn availability_missing_tracks_remain_queryable() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        create_tagged_track_fixture(&root);
+
+        service.scan_directory(&root).unwrap();
+        let track_id = service.get_tracks().unwrap()[0].id;
+        let missing_since = Utc::now().timestamp();
+        service
+            .conn
+            .execute(
+                r#"
+                UPDATE tracks
+                SET availability = 'missing', missing_since = ?2
+                WHERE id = ?1
+                "#,
+                params![track_id.to_string(), missing_since],
+            )
+            .unwrap();
+
+        let fetched = service.get_track(track_id).unwrap().unwrap();
+        let listed = service.get_tracks().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, track_id);
+
+        let fetched_json = serde_json::to_value(&fetched).unwrap();
+        assert_eq!(fetched_json.get("availability"), Some(&Value::String("missing".into())));
+        assert_eq!(
+            fetched_json.get("missing_since"),
+            Some(&Value::String(
+                Utc.timestamp_opt(missing_since, 0)
+                    .single()
+                    .unwrap()
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            ))
         );
     }
 }
