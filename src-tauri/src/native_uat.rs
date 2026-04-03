@@ -19,6 +19,7 @@ const RUNTIME_ROOT_RELATIVE: &str = ".gsd/runtime/native-uat/current";
 const HOST_SNAPSHOT_DIR_NAME: &str = "host-snapshot";
 const MANIFEST_FILE_NAME: &str = "manifest.json";
 const README_FILE_NAME: &str = "README.md";
+const FIXTURE_TRACK_DURATION_SECS: u32 = 45;
 const CONFIG_FILE_NAME: &str = "config.json";
 const ENV_FILE_NAME: &str = "env.sh";
 const POWERSHELL_ENV_FILE_NAME: &str = "env.ps1";
@@ -393,7 +394,7 @@ fn write_silent_wav(path: &Path) {
     let sample_rate = 44_100u32;
     let channels = 1u16;
     let bits_per_sample = 16u16;
-    let sample_count = sample_rate / 10;
+    let sample_count = sample_rate * FIXTURE_TRACK_DURATION_SECS;
     let block_align = channels * (bits_per_sample / 8);
     let byte_rate = sample_rate * u32::from(block_align);
     let data_size = sample_count * u32::from(block_align);
@@ -549,6 +550,21 @@ mod tests {
         let readme = fs::read_to_string(setup.runtime_root.join(README_FILE_NAME)).unwrap();
         assert!(readme.contains("mock regression coverage only"));
         assert!(readme.contains(PLAYBACK_GUARDRAIL_CONTEXT));
+    }
+
+    #[test]
+    fn native_uat_fixture_tracks_are_long_enough_for_playback_uat() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("fixture.wav");
+
+        write_silent_wav(&path);
+
+        let metadata = fs::metadata(&path).unwrap();
+        let minimum_duration_bytes = 44 + (44_100u64 * 30 * 2);
+        assert!(
+            metadata.len() >= minimum_duration_bytes,
+            "fixture WAV should be long enough to keep a native playback session alive during UAT"
+        );
     }
 
     #[test]

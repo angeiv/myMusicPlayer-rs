@@ -2,6 +2,8 @@
   import { getPlaybackSurfaceAvailability } from '../utils/track-availability';
   import type { PlaybackStateInfo, Track } from '../types';
 
+  const CURRENT_QUEUE_TRACK_REPLAY_BLOCKED_DESCRIPTION = '文件已缺失，无法重新播放';
+
   export let tracks: Track[] = [];
   export let currentTrackId: string | null = null;
   export let playbackState: PlaybackStateInfo = { state: 'stopped' };
@@ -50,8 +52,12 @@
       {#each tracks as track, index (track.id)}
         {@const current = isCurrent(track)}
         {@const availability = getPlaybackSurfaceAvailability(track, { isCurrent: current, playbackState })}
+        {@const availabilityDescription =
+          current && availability.status === 'continuing'
+            ? CURRENT_QUEUE_TRACK_REPLAY_BLOCKED_DESCRIPTION
+            : availability.description}
         {@const selectionBlocked = availability.status === 'blocked'}
-        {@const availabilityDescriptionId = availability.description ? `queue-track-availability-${index}` : undefined}
+        {@const availabilityDescriptionId = availabilityDescription ? `queue-track-availability-${index}` : undefined}
         <li
           class:active={current}
           class:is-missing={availability.availability === 'missing'}
@@ -65,20 +71,20 @@
               aria-disabled={selectionBlocked && !current ? 'true' : undefined}
               aria-current={current ? 'true' : undefined}
               aria-describedby={availabilityDescriptionId}
-              title={availability.description || undefined}
+              title={availabilityDescription || undefined}
               on:click={() => handleSelect(track, selectionBlocked)}
             >
               <span class="index">{index + 1}</span>
               <div class="queue-copy">
                 <p class="queue-title">{track.title}</p>
                 <p class="queue-artist">{track.artist_name ?? 'Unknown Artist'}</p>
-                {#if availability.badge || availability.description}
+                {#if availability.badge || availabilityDescription}
                   <div class="queue-meta-line">
                     {#if availability.badge}
                       <span class="availability-badge">{availability.badge}</span>
                     {/if}
-                    {#if availability.description}
-                      <p id={availabilityDescriptionId} class="queue-status">{availability.description}</p>
+                    {#if availabilityDescription}
+                      <p id={availabilityDescriptionId} class="queue-status">{availabilityDescription}</p>
                     {/if}
                   </div>
                 {/if}

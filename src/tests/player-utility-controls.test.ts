@@ -88,6 +88,23 @@ const playerBarMock = vi.hoisted(() => {
     }));
   }
 
+  function setPlaybackStateInfo(
+    nextPlaybackState:
+      | { state: 'stopped' }
+      | { state: 'playing'; position: number; duration: number }
+      | { state: 'paused'; position: number; duration: number }
+      | { state: 'error'; message: string }
+  ) {
+    playbackState.update((state) => ({
+      ...state,
+      playbackState: nextPlaybackState,
+      duration:
+        nextPlaybackState.state === 'playing' || nextPlaybackState.state === 'paused'
+          ? nextPlaybackState.duration
+          : state.currentTrack?.duration ?? 0,
+    }));
+  }
+
   function reset() {
     playbackState.set(createPlaybackSnapshot(trackWithArtwork));
     nowPlayingState.set({ isOpen: false });
@@ -99,6 +116,7 @@ const playerBarMock = vi.hoisted(() => {
     nowPlayingState,
     toggle,
     setCurrentTrack,
+    setPlaybackStateInfo,
     reset,
     trackWithArtwork,
     togglePlayPause: vi.fn(async () => undefined),
@@ -194,11 +212,16 @@ describe('BottomPlayerBar cover art rendering', () => {
     expect(within(trigger).queryByTestId('cover-art-placeholder')).toBeNull();
   });
 
-  it('renders continuity copy for a missing paused current track and removes it when the track is restored', async () => {
+  it('renders continuity copy only while a missing current track is still playing', async () => {
     playerBarMock.setCurrentTrack({
       ...playerBarMock.trackWithArtwork,
       availability: 'missing',
       missing_since: '2026-04-03T00:00:00.000Z',
+    });
+    playerBarMock.setPlaybackStateInfo({
+      state: 'playing',
+      position: 24,
+      duration: playerBarMock.trackWithArtwork.duration,
     });
 
     render(BottomPlayerBar);
@@ -206,6 +229,7 @@ describe('BottomPlayerBar cover art rendering', () => {
     expect(
       screen.getByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')
     ).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，无法重新播放')).toBeNull();
     expect(screen.queryByText('文件缺失，无法播放')).toBeNull();
 
     playerBarMock.setCurrentTrack({
@@ -217,6 +241,20 @@ describe('BottomPlayerBar cover art rendering', () => {
     await waitFor(() => {
       expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
     });
+  });
+
+  it('renders replay-blocked copy for a missing paused current track', () => {
+    playerBarMock.setCurrentTrack({
+      ...playerBarMock.trackWithArtwork,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+
+    render(BottomPlayerBar);
+
+    expect(screen.getByText('文件已缺失，无法重新播放')).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
+    expect(screen.queryByText('文件缺失，无法播放')).toBeNull();
   });
 
   it('renders the fallback decoratively when the current track has no artwork_path', () => {

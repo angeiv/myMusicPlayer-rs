@@ -340,6 +340,7 @@ describe('NowPlayingOverlay', () => {
     expect(
       await screen.findByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')
     ).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，无法重新播放')).toBeNull();
     expect(screen.queryByText('文件缺失，无法播放')).toBeNull();
 
     overlayMock.setCurrentTrack({
@@ -351,6 +352,30 @@ describe('NowPlayingOverlay', () => {
     await waitFor(() => {
       expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
     });
+  });
+
+  it('falls back to replay-blocked copy for a missing current track when playback is paused or stopped', async () => {
+    overlayMock.setCurrentTrack({
+      ...overlayMock.currentTrack,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+    overlayMock.setPlaybackStateInfo({
+      state: 'paused',
+      position: 24,
+      duration: overlayMock.currentTrack.duration,
+    });
+    overlayMock.nowPlayingState.set({ isOpen: true, activeTab: 'lyrics' });
+    render(NowPlayingOverlay);
+
+    expect(await screen.findByText('文件已缺失，无法重新播放')).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
+    expect(screen.queryByText('文件缺失，无法播放')).toBeNull();
+
+    overlayMock.setPlaybackStateInfo({ state: 'stopped' });
+
+    expect(screen.getByText('文件已缺失，无法重新播放')).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
   });
 
   it('closes when Escape is pressed', async () => {

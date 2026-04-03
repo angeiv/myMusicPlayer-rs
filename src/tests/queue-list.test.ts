@@ -54,6 +54,7 @@ function getQueueItemButton(title: string): HTMLButtonElement {
 }
 
 const pausedState: PlaybackStateInfo = { state: 'paused', position: 24, duration: 180 };
+const playingState: PlaybackStateInfo = { state: 'playing', position: 24, duration: 180 };
 
 const availableTrack = createTrack({
   id: 'queue-available',
@@ -106,20 +107,21 @@ describe('QueueList', () => {
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 
-  it('shows continuity copy for the current missing row instead of blocked replay copy', () => {
+  it('keeps the current missing row compact and replay-blocked in the queue even while playback continues', () => {
     render(QueueList, {
       props: {
         tracks: [missingTrack, availableTrack],
         currentTrackId: missingTrack.id,
-        playbackState: pausedState,
+        playbackState: playingState,
       } as any,
     });
 
     const currentRow = getQueueRow(missingTrack.title);
+    const currentButton = getQueueItemButton(missingTrack.title);
 
-    expect(
-      within(currentRow).getByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')
-    ).toBeTruthy();
+    expect(currentButton.disabled).toBe(false);
+    expect(within(currentRow).getByText('文件已缺失，无法重新播放')).toBeTruthy();
+    expect(within(currentRow).queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
     expect(within(currentRow).queryByText('文件缺失，无法播放')).toBeNull();
   });
 
