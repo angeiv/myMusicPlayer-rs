@@ -21,7 +21,8 @@
   $: disabledAddToPlaylistHint = !canAddToPlaylist ? addToPlaylistHint.trim() : '';
   $: playSelectedDescription = disabledPlaySelectedHint.length > 0 ? playSelectedHintId : undefined;
   $: addToPlaylistDescription = disabledAddToPlaylistHint.length > 0 ? addToPlaylistHintId : undefined;
-  $: toolbarDescription = [playSelectedDescription, addToPlaylistDescription].filter(Boolean).join(' ') || undefined;
+  $: toolbarDescription =
+    [playSelectedDescription, addToPlaylistDescription].filter(Boolean).join(' ') || undefined;
 
   function handleAddToPlaylist(event: MouseEvent): void {
     const trigger = event.currentTarget;
@@ -90,10 +91,10 @@
     justify-content: space-between;
     gap: 16px;
     padding: 14px 18px;
-    border: 1px solid rgba(96, 165, 250, 0.25);
-    border-radius: 16px;
-    background: rgba(15, 23, 42, 0.78);
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-default));
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--state-selected) 72%, var(--surface-panel-subtle));
+    box-shadow: var(--shadow-soft);
   }
 
   .summary {
@@ -105,12 +106,12 @@
   .count {
     font-size: 0.95rem;
     font-weight: 700;
-    color: #eff6ff;
+    color: var(--text-primary);
   }
 
   .hint {
     font-size: 0.8rem;
-    color: rgba(191, 219, 254, 0.72);
+    color: var(--text-secondary);
   }
 
   .controls {
@@ -131,7 +132,7 @@
     margin: 0;
     font-size: 0.82rem;
     font-weight: 500;
-    color: rgba(191, 219, 254, 0.82);
+    color: var(--text-secondary);
   }
 
   button {
@@ -140,30 +141,32 @@
     padding: 10px 16px;
     font: inherit;
     font-weight: 600;
-    color: #e0f2fe;
-    background: rgba(59, 130, 246, 0.22);
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--surface-panel) 88%, transparent);
     cursor: pointer;
     transition:
       transform 0.16s ease,
       background 0.16s ease,
+      box-shadow 0.16s ease,
       opacity 0.16s ease;
   }
 
   button:hover:not(:disabled),
   button:focus-visible:not(:disabled) {
-    background: rgba(59, 130, 246, 0.34);
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-panel));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
     transform: translateY(-1px);
     outline: none;
   }
 
   .ghost {
-    background: rgba(148, 163, 184, 0.14);
-    color: rgba(226, 232, 240, 0.9);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 84%, transparent);
+    color: var(--text-secondary);
   }
 
   .ghost:hover:not(:disabled),
   .ghost:focus-visible:not(:disabled) {
-    background: rgba(148, 163, 184, 0.24);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 92%, var(--state-selected));
   }
 
   button:disabled {

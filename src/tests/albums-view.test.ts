@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
 
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { cleanup, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +25,13 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 import AlbumsView from '../lib/views/AlbumsView.svelte';
+
+const testsRoot = path.dirname(fileURLToPath(import.meta.url));
+const albumsViewPath = path.resolve(testsRoot, '../lib/views/AlbumsView.svelte');
+
+async function readAlbumsViewSource(): Promise<string> {
+  return readFile(albumsViewPath, 'utf8');
+}
 
 function createAlbum(overrides: Pick<Album, 'id' | 'title'> & Partial<Album>): Album {
   const { id, title, ...rest } = overrides;
@@ -58,6 +69,14 @@ afterEach(() => {
 });
 
 describe('AlbumsView cover art rendering', () => {
+  it('migrates AlbumsView onto the shared page, panel, and empty-state primitives', async () => {
+    const source = await readAlbumsViewSource();
+
+    expect(source).toContain('PageHeader');
+    expect(source).toContain('SurfacePanel');
+    expect(source).toContain('EmptyState');
+  });
+
   it('renders album artwork decoratively when artwork_path is available', () => {
     render(AlbumsView, {
       albums: [

@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
 
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,6 +33,14 @@ vi.mock('../lib/api/playback', () => ({
 
 import PlaylistDetailView from '../lib/views/PlaylistDetailView.svelte';
 import type { Playlist, Track } from '../lib/types';
+
+const testsRoot = path.dirname(fileURLToPath(import.meta.url));
+const playlistDetailViewPath = path.resolve(testsRoot, '../lib/views/PlaylistDetailView.svelte');
+const trackActionRowPath = path.resolve(testsRoot, '../lib/components/library/TrackActionRow.svelte');
+
+async function readViewSource(pathname: string): Promise<string> {
+  return readFile(pathname, 'utf8');
+}
 
 const basePlaylist: Playlist = {
   id: 'playlist-1',
@@ -136,6 +148,35 @@ describe('PlaylistDetailView', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it('routes playlist detail rows through the shared action-row seam and keeps native text selection disabled', async () => {
+    const [playlistSource, rowSource] = await Promise.all([
+      readViewSource(playlistDetailViewPath),
+      readViewSource(trackActionRowPath),
+    ]);
+
+    expect(playlistSource).toContain('TrackActionRow');
+    expect(rowSource).toContain('user-select: none');
+    expect(rowSource).toContain('-webkit-user-select: none');
+    expect(rowSource).toContain('var(--state-selected)');
+    expect(rowSource).toContain('var(--state-danger)');
+    expect(rowSource).toContain('var(--focus-ring)');
+  });
+
+  it('keeps playlist rows keyboard-focusable and marks the active action row when focus moves', async () => {
+    render(PlaylistDetailView, { props: { playlistId: 'playlist-1' } });
+
+    await screen.findByRole('heading', { name: basePlaylist.name });
+    const row = getRow(availableTrack.title);
+
+    expect(row.getAttribute('data-surface')).toBe('action-row');
+    expect(row.getAttribute('tabindex')).toBe('0');
+    expect(row.getAttribute('data-active')).toBe('false');
+
+    await fireEvent.focus(row);
+
+    expect(row.getAttribute('data-active')).toBe('true');
   });
 
   it('filters hero play to available playlist tracks and starts from the first playable track', async () => {

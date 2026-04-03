@@ -143,6 +143,7 @@
         class:is-missing={!playable}
         role="row"
         tabindex="0"
+        data-surface="action-row"
         data-selected={selected ? 'true' : 'false'}
         data-active={active ? 'true' : 'false'}
         data-playing={playing ? 'true' : 'false'}
@@ -178,11 +179,9 @@
 
 <style>
   .songs-table {
-    background: var(--panel-bg);
-    border: 1px solid var(--panel-border);
-    border-radius: 16px;
     overflow: hidden;
-    backdrop-filter: blur(12px);
+    border-radius: 18px;
+    background: transparent;
   }
 
   .table-header,
@@ -193,12 +192,13 @@
   }
 
   .table-header {
-    background: var(--panel-bg);
     padding: 12px 20px;
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: var(--muted-fg);
+    color: var(--text-tertiary);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   .table-header .index,
@@ -226,7 +226,7 @@
 
   .table-header .column-sort-button:hover,
   .table-header .column-sort-button:focus-visible {
-    color: #eff6ff;
+    color: var(--text-primary);
     outline: none;
   }
 
@@ -236,7 +236,7 @@
 
   .sort-indicator {
     min-width: 0.75rem;
-    color: rgba(191, 219, 254, 0.8);
+    color: color-mix(in srgb, var(--accent) 40%, var(--text-tertiary));
   }
 
   .table-body {
@@ -245,10 +245,11 @@
 
   .row {
     padding: 12px 20px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    border-bottom: 1px solid var(--border-subtle);
     transition:
       background 0.2s ease,
-      box-shadow 0.2s ease;
+      box-shadow 0.2s ease,
+      border-color 0.2s ease;
     cursor: pointer;
     user-select: none;
     -webkit-user-select: none;
@@ -260,28 +261,34 @@
   }
 
   .row:hover {
-    background: rgba(59, 130, 246, 0.12);
+    background: var(--accent-soft);
   }
 
   .row:focus-visible {
     outline: none;
-    box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.5);
+    box-shadow:
+      var(--focus-ring),
+      inset 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent);
   }
 
   .row.is-selected {
-    background: rgba(59, 130, 246, 0.18);
+    background: var(--state-selected);
   }
 
   .row.is-active {
-    box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.7);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+
+  .row.is-playing {
+    background: color-mix(in srgb, var(--state-playing) 44%, var(--surface-panel-subtle));
   }
 
   .row.is-playing .track-title {
-    color: #93c5fd;
+    color: color-mix(in srgb, var(--accent) 32%, var(--text-primary));
   }
 
   .row.is-missing:not(.is-playing) .track-title {
-    color: rgba(226, 232, 240, 0.82);
+    color: var(--text-secondary);
   }
 
   .row.is-missing .artist,
@@ -290,13 +297,13 @@
   .row.is-missing .added,
   .row.is-missing .format,
   .row.is-missing .index {
-    color: rgba(148, 163, 184, 0.78);
+    color: var(--text-tertiary);
   }
 
   .index {
     font-variant-numeric: tabular-nums;
     text-align: center;
-    color: rgba(148, 163, 184, 0.9);
+    color: var(--text-tertiary);
   }
 
   .title {
@@ -311,7 +318,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 600;
-    color: #f8fafc;
+    color: var(--text-primary);
   }
 
   .meta-line {
@@ -325,9 +332,9 @@
     display: inline-flex;
     align-items: center;
     border-radius: 999px;
-    border: 1px solid rgba(248, 113, 113, 0.35);
-    background: rgba(127, 29, 29, 0.28);
-    color: rgba(254, 202, 202, 0.92);
+    border: 1px solid color-mix(in srgb, var(--state-danger) 64%, var(--border-default));
+    background: color-mix(in srgb, var(--state-danger) 45%, transparent);
+    color: var(--text-primary);
     font-size: 0.68rem;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -338,7 +345,7 @@
     font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(148, 163, 184, 0.55);
+    color: var(--text-tertiary);
   }
 
   .artist,
@@ -346,13 +353,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: rgba(226, 232, 240, 0.8);
+    color: var(--text-secondary);
   }
 
   .duration,
   .added {
     font-variant-numeric: tabular-nums;
-    color: rgba(148, 163, 184, 0.85);
+    color: var(--text-tertiary);
   }
 
   .sr-only {

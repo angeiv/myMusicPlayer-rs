@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
 
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,6 +29,15 @@ vi.mock('../lib/api/playback', () => ({
 
 import AlbumDetailView from '../lib/views/AlbumDetailView.svelte';
 import type { Album, Track } from '../lib/types';
+
+const testsRoot = path.dirname(fileURLToPath(import.meta.url));
+const albumDetailViewPath = path.resolve(testsRoot, '../lib/views/AlbumDetailView.svelte');
+const playlistDetailViewPath = path.resolve(testsRoot, '../lib/views/PlaylistDetailView.svelte');
+const trackActionRowPath = path.resolve(testsRoot, '../lib/components/library/TrackActionRow.svelte');
+
+async function readViewSource(pathname: string): Promise<string> {
+  return readFile(pathname, 'utf8');
+}
 
 const baseAlbum: Album = {
   id: 'album-1',
@@ -125,6 +138,39 @@ describe('AlbumDetailView', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('routes album and playlist detail rows through a shared action-row seam with native text selection disabled', async () => {
+    const [albumSource, playlistSource, rowSource] = await Promise.all([
+      readViewSource(albumDetailViewPath),
+      readViewSource(playlistDetailViewPath),
+      readViewSource(trackActionRowPath),
+    ]);
+
+    expect(albumSource).toContain('TrackActionRow');
+    expect(playlistSource).toContain('TrackActionRow');
+    expect(rowSource).toContain('user-select: none');
+    expect(rowSource).toContain('-webkit-user-select: none');
+    expect(rowSource).toContain('var(--state-selected)');
+    expect(rowSource).toContain('var(--state-danger)');
+    expect(rowSource).toContain('var(--focus-ring)');
+  });
+
+  it('exposes action-row focus semantics on album tracks without collapsing missing-state accessibility', async () => {
+    render(AlbumDetailView, { props: { albumId: baseAlbum.id } });
+
+    await screen.findByRole('heading', { name: baseAlbum.title });
+    const availableRow = getRow(availableIntroTrack.title);
+    const missingRow = getRow(missingInterludeTrack.title);
+
+    expect(availableRow.getAttribute('data-surface')).toBe('action-row');
+    expect(availableRow.getAttribute('data-active')).toBe('false');
+
+    await fireEvent.focus(availableRow);
+
+    expect(availableRow.getAttribute('data-active')).toBe('true');
+    expect(missingRow.getAttribute('data-availability')).toBe('missing');
+    expect(missingRow.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('filters hero play to available album tracks and starts from the first playable track', async () => {

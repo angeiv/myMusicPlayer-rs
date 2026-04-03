@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
 
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
 import type { Component, ComponentProps } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,6 +35,13 @@ vi.mock('../lib/api/playlist', () => ({
 }));
 
 import SongsView from '../lib/views/SongsView.svelte';
+
+const testsRoot = path.dirname(fileURLToPath(import.meta.url));
+const songsViewPath = path.resolve(testsRoot, '../lib/views/SongsView.svelte');
+
+async function readSongsViewSource(): Promise<string> {
+  return readFile(songsViewPath, 'utf8');
+}
 
 function createTrack(overrides: Pick<Track, 'id' | 'title'> & Partial<Track>): Track {
   const { id, title, ...rest } = overrides;
@@ -225,6 +236,14 @@ describe('SongsView integration harness', () => {
     cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('migrates SongsView onto the shared page, panel, and empty-state primitives', async () => {
+    const source = await readSongsViewSource();
+
+    expect(source).toContain('PageHeader');
+    expect(source).toContain('SurfacePanel');
+    expect(source).toContain('EmptyState');
   });
 
   it('keeps a bulk action slot mounted before selection so first click does not shift the table layout', async () => {

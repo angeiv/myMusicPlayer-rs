@@ -9,6 +9,9 @@
     playTrack,
     setQueue,
   } from '../api/playback';
+  import EmptyState from '../components/ui/EmptyState.svelte';
+  import PageHeader from '../components/ui/PageHeader.svelte';
+  import SurfacePanel from '../components/ui/SurfacePanel.svelte';
   import SongsBulkActionBar from '../components/songs/SongsBulkActionBar.svelte';
   import SongsContextMenu from '../components/songs/SongsContextMenu.svelte';
   import SongsPlaylistPicker from '../components/songs/SongsPlaylistPicker.svelte';
@@ -143,7 +146,9 @@
     feedback = '';
   }
 
-  function cloneSelectionState(selectionState: ReturnType<typeof createSelectionState>): ReturnType<typeof createSelectionState> {
+  function cloneSelectionState(
+    selectionState: ReturnType<typeof createSelectionState>,
+  ): ReturnType<typeof createSelectionState> {
     return {
       selectedIds: [...selectionState.selectedIds],
       activeTrackId: selectionState.activeTrackId,
@@ -429,9 +434,9 @@
     }
 
     if (
-      target.closest('.context-menu-shell') ||
-      target.closest('.playlist-picker') ||
-      target.closest('.bulk-action-bar')
+      target.closest('.context-menu-shell')
+      || target.closest('.playlist-picker')
+      || target.closest('.bulk-action-bar')
     ) {
       return;
     }
@@ -481,16 +486,19 @@
 </script>
 
 <div class="songs-view">
-  <div class="header">
-    <h2>Songs</h2>
-    <p>{tracks.length} tracks in your library</p>
-  </div>
+  <PageHeader title="Songs" subtitle={`${tracks.length} tracks in your library`} />
 
   {#if feedback}
-    <p class="feedback" role="status" aria-live="polite">{feedback}</p>
+    <SurfacePanel tone="inset" padding="compact">
+      <p class="feedback" role="status" aria-live="polite">{feedback}</p>
+    </SurfacePanel>
   {/if}
 
-  <div class="bulk-action-slot" data-bulk-action-slot data-empty={visibleSelectionCount === 0 ? 'true' : 'false'}>
+  <div
+    class="bulk-action-slot"
+    data-bulk-action-slot
+    data-empty={visibleSelectionCount === 0 ? 'true' : 'false'}
+  >
     {#if visibleSelectionCount > 0}
       <SongsBulkActionBar
         selectedCount={visibleSelectionCount}
@@ -506,30 +514,38 @@
     {/if}
   </div>
 
-  {#if isLibraryLoading}
-    <div class="empty">
-      <p>Scanning library…</p>
+  <SurfacePanel padding="compact">
+    <div class="songs-view__content">
+      {#if isLibraryLoading}
+        <EmptyState
+          title="Scanning library"
+          body="We’re indexing your library and will populate songs here when the scan completes."
+          align="center"
+        />
+      {:else if visibleTracks.length === 0}
+        <EmptyState
+          title="No songs matched your search"
+          body="Try a different keyword or clear the current filter to browse the full library."
+          align="center"
+        />
+      {:else}
+        <SongsTable
+          tracks={visibleTracks}
+          selectedIds={visibleSelectedIds}
+          activeTrackId={selection.activeTrackId}
+          {playingTrackId}
+          {sortKey}
+          {sortDirection}
+          on:toggleSort={(event) => toggleSort(event.detail.key)}
+          on:rowClick={handleRowClick}
+          on:rowDoubleClick={handleRowDoubleClick}
+          on:rowFocus={handleRowFocus}
+          on:rowKeydown={handleRowKeydown}
+          on:rowContextMenu={handleRowContextMenu}
+        />
+      {/if}
     </div>
-  {:else if visibleTracks.length === 0}
-    <div class="empty">
-      <p>No songs matched your search.</p>
-    </div>
-  {:else}
-    <SongsTable
-      tracks={visibleTracks}
-      selectedIds={visibleSelectedIds}
-      activeTrackId={selection.activeTrackId}
-      {playingTrackId}
-      {sortKey}
-      {sortDirection}
-      on:toggleSort={(event) => toggleSort(event.detail.key)}
-      on:rowClick={handleRowClick}
-      on:rowDoubleClick={handleRowDoubleClick}
-      on:rowFocus={handleRowFocus}
-      on:rowKeydown={handleRowKeydown}
-      on:rowContextMenu={handleRowContextMenu}
-    />
-  {/if}
+  </SurfacePanel>
 
   {#if contextMenuOpen}
     <SongsContextMenu
@@ -558,25 +574,19 @@
 <style>
   .songs-view {
     padding: 32px 48px;
-    color: var(--app-fg);
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 18px;
+    color: var(--text-primary);
   }
 
-  .header h2 {
-    margin: 0;
-    font-size: 1.8rem;
-    color: var(--app-fg);
-  }
-
-  .header p {
-    margin: 4px 0 0 0;
-    color: var(--muted-fg);
+  .songs-view__content {
+    display: grid;
+    gap: 12px;
   }
 
   .bulk-action-slot {
-    min-height: 122px;
+    min-height: 114px;
   }
 
   .bulk-action-slot[data-empty='true'] {
@@ -584,25 +594,17 @@
   }
 
   .feedback {
-    margin: 0;
-    padding: 12px 16px;
-    border-radius: 14px;
-    border: 1px solid rgba(96, 165, 250, 0.24);
-    background: rgba(15, 23, 42, 0.72);
-    color: rgba(226, 232, 240, 0.92);
-  }
-
-  .empty {
-    padding: 80px 0;
-    text-align: center;
-    color: rgba(148, 163, 184, 0.75);
-    background: rgba(15, 23, 42, 0.65);
-    border-radius: 16px;
+    color: var(--text-secondary);
   }
 
   @media (max-width: 820px) {
     .songs-view {
       padding: 24px;
+      gap: 16px;
+    }
+
+    .bulk-action-slot {
+      min-height: 104px;
     }
   }
 </style>
