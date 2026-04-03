@@ -54,6 +54,10 @@ const tracks: Track[] = [
     date_added: '2026-03-01T00:00:00.000Z',
     artist_name: 'Night Engines',
     album_title: 'Late Transit',
+    library_root: null,
+    file_mtime_ms: null,
+    availability: 'available',
+    missing_since: null,
   },
 ];
 

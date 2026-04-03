@@ -1,3 +1,5 @@
+export type TrackAvailability = 'available' | 'missing';
+
 export interface Track {
   id: string;
   title: string;
@@ -5,7 +7,9 @@ export interface Track {
   track_number?: number | null;
   disc_number?: number | null;
   path: string;
+  library_root?: string | null;
   size: number;
+  file_mtime_ms?: number | null;
   format: string;
   bitrate: number;
   sample_rate: number;
@@ -21,6 +25,8 @@ export interface Track {
   artwork?: number[] | null;
   artwork_path?: string | null;
   lyrics?: string | null;
+  availability: TrackAvailability;
+  missing_since?: string | null;
   play_count: number;
   last_played?: string | null;
   date_added: string;
@@ -125,4 +131,24 @@ export interface ScanStatus {
   missing_tracks: number;
   error_count: number;
   sample_errors: ScanErrorSample[];
+}
+
+export function createScanStatus(overrides: Partial<ScanStatus> = {}): ScanStatus {
+  const sample_errors = overrides.sample_errors?.map((sample) => ({ ...sample })) ?? [];
+
+  return {
+    phase: 'idle',
+    started_at_ms: null,
+    ended_at_ms: null,
+    current_path: null,
+    processed_files: 0,
+    inserted_tracks: 0,
+    changed_tracks: 0,
+    unchanged_files: 0,
+    restored_tracks: 0,
+    missing_tracks: 0,
+    error_count: 0,
+    ...overrides,
+    sample_errors,
+  };
 }

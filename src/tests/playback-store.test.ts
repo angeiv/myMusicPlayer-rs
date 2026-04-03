@@ -24,6 +24,10 @@ function createTrack(overrides: Partial<Track> = {}): Track {
     artist_name: 'Example Artist',
     album_title: 'Example Album',
     ...overrides,
+    library_root: overrides.library_root ?? null,
+    file_mtime_ms: overrides.file_mtime_ms ?? null,
+    availability: overrides.availability ?? 'available',
+    missing_since: overrides.missing_since ?? null,
   };
 }
 

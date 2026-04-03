@@ -3,8 +3,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 import * as playbackApi from '../lib/api/playback';
 import { deriveAppShellRouteState } from '../lib/features/app-shell/navigation';
+import { SCAN_STATUS_POLL_INTERVAL_MS } from '../lib/features/library-scan/store';
 import { createAppShellStore } from '../lib/features/app-shell/store';
-import type { Album, Artist, Playlist, SearchResults, Track } from '../lib/types';
+import {
+  createScanStatus,
+  type Album,
+  type Artist,
+  type Playlist,
+  type ScanStatus,
+  type SearchResults,
+  type Track,
+} from '../lib/types';
 
 const tracksFixture: Track[] = [
   {
@@ -12,11 +21,15 @@ const tracksFixture: Track[] = [
     title: 'Signal Bloom',
     duration: 180,
     path: '/music/signal-bloom.flac',
+    library_root: '/music',
     size: 123,
+    file_mtime_ms: 1_710_000_000_000,
     format: 'flac',
     bitrate: 320,
     sample_rate: 48_000,
     channels: 2,
+    availability: 'available',
+    missing_since: null,
     play_count: 0,
     date_added: '2024-01-01T00:00:00Z',
   },
@@ -58,6 +71,15 @@ const searchResultsFixture: SearchResults = {
   artists: artistsFixture,
 };
 
+function createStatus(overrides: Partial<ScanStatus> = {}): ScanStatus {
+  return createScanStatus(overrides);
+}
+
+async function flushPromises(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe('deriveAppShellRouteState', () => {
   it('maps routes into shell selection state and clears search outside search routes', () => {
     expect(deriveAppShellRouteState({ name: 'home' })).toEqual({
@@ -82,98 +104,147 @@ describe('deriveAppShellRouteState', () => {
 });
 
 describe('createAppShellStore', () => {
-  it('preserves bootstrap ordering from greet through config restore and data loads', async () => {
-    await playbackApi.setOutputDevice('default');
-    await playbackApi.setVolume(0.7);
+  it('preserves bootstrap ordering, waits for terminal scan status, and keeps richer counters intact', async () => {
+    vi.useFakeTimers();
 
-    const calls: string[] = [];
-    const store = createAppShellStore({
-      bootstrapDesktopShell: async () => {
-        calls.push('bootstrapDesktopShell');
-      },
-      getConfig: async () => {
-        calls.push('getConfig');
-        return { raw: true };
-      },
-      normalizeConfigForRestore: () => {
-        calls.push('normalizeConfigForRestore');
-        return {
-          theme: 'dark',
-          outputDeviceId: 'device-1',
-          defaultVolume: 0.35,
-          autoScan: true,
-          libraryPaths: ['/music/a', '/music/b'],
-        };
-      },
-      applyTheme: (theme) => {
-        calls.push(`applyTheme:${theme}`);
-      },
-      startLibraryScan: async (paths) => {
-        calls.push(`startLibraryScan:${paths.join(',')}`);
-      },
-      getLibraryScanStatus: async () => {
-        calls.push('getLibraryScanStatus');
-        return {
-          phase: 'completed',
-          started_at_ms: 0,
-          ended_at_ms: 0,
-          current_path: null,
-          processed_files: 0,
-          inserted_tracks: 0,
-    changed_tracks: 0,
-    unchanged_files: 0,
-    restored_tracks: 0,
-    missing_tracks: 0,
-          error_count: 0,
-          sample_errors: [],
-        };
-      },
-      cancelLibraryScan: async () => {
-        calls.push('cancelLibraryScan');
-      },
-      getTracks: async () => {
-        calls.push('getTracks');
-        return tracksFixture;
-      },
-      getAlbums: async () => {
-        calls.push('getAlbums');
-        return albumsFixture;
-      },
-      getArtists: async () => {
-        calls.push('getArtists');
-        return artistsFixture;
-      },
-      getPlaylists: async () => {
-        calls.push('getPlaylists');
-        return playlistsFixture;
-      },
-      createPlaylist: async () => undefined,
-      searchLibrary: async () => searchResultsFixture,
-      prompt: () => null,
-      alert: () => undefined,
-    });
+    try {
+      await playbackApi.setOutputDevice('default');
+      await playbackApi.setVolume(0.7);
 
-    await store.bootstrap();
+      const calls: string[] = [];
+      const runningStatus = createStatus({
+        phase: 'running',
+        current_path: '/music/a/signal-bloom.flac',
+        processed_files: 3,
+        inserted_tracks: 1,
+        changed_tracks: 1,
+        unchanged_files: 1,
+        restored_tracks: 0,
+        missing_tracks: 0,
+      });
+      const completedStatus = createStatus({
+        phase: 'completed',
+        started_at_ms: 100,
+        ended_at_ms: 200,
+        processed_files: 5,
+        inserted_tracks: 1,
+        changed_tracks: 1,
+        unchanged_files: 2,
+        restored_tracks: 1,
+        missing_tracks: 1,
+        error_count: 1,
+        sample_errors: [
+          {
+            path: '/offline-drive',
+            message: 'Root path does not exist or is not a directory',
+            kind: 'invalid_path',
+          },
+        ],
+      });
 
-    expect(calls).toEqual([
-      'bootstrapDesktopShell',
-      'getConfig',
-      'normalizeConfigForRestore',
-      'applyTheme:dark',
-      'startLibraryScan:/music/a,/music/b',
-      'getLibraryScanStatus',
-      'getTracks',
-      'getAlbums',
-      'getArtists',
-      'getPlaylists',
-    ]);
+      const getLibraryScanStatus = vi
+        .fn<() => Promise<ScanStatus>>()
+        .mockImplementationOnce(async () => {
+          calls.push('getLibraryScanStatus:running');
+          return runningStatus;
+        })
+        .mockImplementationOnce(async () => {
+          calls.push('getLibraryScanStatus:completed');
+          return completedStatus;
+        })
+        .mockResolvedValue(completedStatus);
 
-    expect(await playbackApi.getOutputDevice()).toBeNull();
-    expect(await playbackApi.getVolume()).toBeCloseTo(0.7);
+      const store = createAppShellStore({
+        bootstrapDesktopShell: async () => {
+          calls.push('bootstrapDesktopShell');
+        },
+        getConfig: async () => {
+          calls.push('getConfig');
+          return { raw: true };
+        },
+        normalizeConfigForRestore: () => {
+          calls.push('normalizeConfigForRestore');
+          return {
+            theme: 'dark',
+            outputDeviceId: 'device-1',
+            defaultVolume: 0.35,
+            autoScan: true,
+            libraryPaths: ['/music/a', '/music/b'],
+          };
+        },
+        applyTheme: (theme) => {
+          calls.push(`applyTheme:${theme}`);
+        },
+        startLibraryScan: async (paths) => {
+          calls.push(`startLibraryScan:${paths.join(',')}`);
+        },
+        getLibraryScanStatus,
+        cancelLibraryScan: async () => {
+          calls.push('cancelLibraryScan');
+        },
+        getTracks: async () => {
+          calls.push('getTracks');
+          return tracksFixture;
+        },
+        getAlbums: async () => {
+          calls.push('getAlbums');
+          return albumsFixture;
+        },
+        getArtists: async () => {
+          calls.push('getArtists');
+          return artistsFixture;
+        },
+        getPlaylists: async () => {
+          calls.push('getPlaylists');
+          return playlistsFixture;
+        },
+        createPlaylist: async () => undefined,
+        searchLibrary: async () => searchResultsFixture,
+        prompt: () => null,
+        alert: () => undefined,
+      });
 
-    expect(get(store.tracks)).toEqual(tracksFixture);
-    expect(get(store.playlists)).toEqual(playlistsFixture);
-    expect(get(store.counts)).toEqual({ songs: 1, albums: 1, artists: 1 });
+      const bootstrapPromise = store.bootstrap();
+      await flushPromises();
+
+      expect(calls).toEqual([
+        'bootstrapDesktopShell',
+        'getConfig',
+        'normalizeConfigForRestore',
+        'applyTheme:dark',
+        'startLibraryScan:/music/a,/music/b',
+        'getLibraryScanStatus:running',
+      ]);
+
+      await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+      await flushPromises();
+      await bootstrapPromise;
+
+      expect(calls).toEqual([
+        'bootstrapDesktopShell',
+        'getConfig',
+        'normalizeConfigForRestore',
+        'applyTheme:dark',
+        'startLibraryScan:/music/a,/music/b',
+        'getLibraryScanStatus:running',
+        'getLibraryScanStatus:completed',
+        'getTracks',
+        'getAlbums',
+        'getArtists',
+        'getPlaylists',
+      ]);
+
+      expect(await playbackApi.getOutputDevice()).toBeNull();
+      expect(await playbackApi.getVolume()).toBeCloseTo(0.7);
+
+      expect(get(store.scanStatus)).toEqual(completedStatus);
+      expect(get(store.isScanning)).toBe(false);
+      expect(get(store.tracks)).toEqual(tracksFixture);
+      expect(get(store.playlists)).toEqual(playlistsFixture);
+      expect(get(store.counts)).toEqual({ songs: 1, albums: 1, artists: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('executes search routes and clears results for empty or non-search routes', async () => {

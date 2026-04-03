@@ -26,6 +26,10 @@ function createTrack(overrides: Pick<Track, 'id' | 'title'> & Partial<Track>): T
     play_count: 0,
     date_added: '2026-03-01T00:00:00.000Z',
     ...rest,
+    library_root: rest.library_root ?? null,
+    file_mtime_ms: rest.file_mtime_ms ?? null,
+    availability: rest.availability ?? 'available',
+    missing_since: rest.missing_since ?? null,
   };
 }
 

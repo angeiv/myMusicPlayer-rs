@@ -8,24 +8,10 @@ import {
   createLibraryScanStore,
   type LibraryScanStoreDependencies,
 } from '../lib/features/library-scan/store';
-import type { ScanStatus } from '../lib/types';
+import { createScanStatus, type ScanStatus } from '../lib/types';
 
 function createStatus(overrides: Partial<ScanStatus> = {}): ScanStatus {
-  return {
-    phase: 'idle',
-    started_at_ms: null,
-    ended_at_ms: null,
-    current_path: null,
-    processed_files: 0,
-    inserted_tracks: 0,
-    changed_tracks: 0,
-    unchanged_files: 0,
-    restored_tracks: 0,
-    missing_tracks: 0,
-    error_count: 0,
-    sample_errors: [],
-    ...overrides,
-  };
+  return createScanStatus(overrides);
 }
 
 function createDependencies(
@@ -56,10 +42,63 @@ describe('library scan store', () => {
     vi.restoreAllMocks();
   });
 
+  it('exposes a complete idle status snapshot before polling starts', () => {
+    const store = createLibraryScanStore(createDependencies());
+
+    expect(get(store.status)).toStrictEqual(createStatus());
+    expect(get(store.isScanning)).toBe(false);
+
+    store.destroy();
+  });
+
   it('polls until reaching a terminal phase and then stops polling', async () => {
-    const running1 = createStatus({ phase: 'running', processed_files: 0 });
-    const running2 = createStatus({ phase: 'running', processed_files: 4 });
-    const completed = createStatus({ phase: 'completed', processed_files: 10, ended_at_ms: 123 });
+    const running1 = createStatus({
+      phase: 'running',
+      current_path: '/music/a/first.flac',
+      processed_files: 1,
+      inserted_tracks: 1,
+      changed_tracks: 0,
+      unchanged_files: 0,
+      restored_tracks: 0,
+      missing_tracks: 0,
+    });
+    const running2 = createStatus({
+      phase: 'running',
+      current_path: '/music/a/second.flac',
+      processed_files: 4,
+      inserted_tracks: 1,
+      changed_tracks: 1,
+      unchanged_files: 1,
+      restored_tracks: 1,
+      missing_tracks: 0,
+      error_count: 1,
+      sample_errors: [
+        {
+          path: '/offline-drive',
+          message: 'Root path does not exist or is not a directory',
+          kind: 'invalid_path',
+        },
+      ],
+    });
+    const completed = createStatus({
+      phase: 'completed',
+      started_at_ms: 100,
+      ended_at_ms: 200,
+      processed_files: 10,
+      inserted_tracks: 1,
+      changed_tracks: 1,
+      unchanged_files: 5,
+      restored_tracks: 1,
+      missing_tracks: 2,
+      error_count: 1,
+      sample_errors: [
+        {
+          path: '/offline-drive',
+          message: 'Root path does not exist or is not a directory',
+          kind: 'invalid_path',
+        },
+      ],
+    });
 
     const getLibraryScanStatus = vi
       .fn<LibraryScanStoreDependencies['getLibraryScanStatus']>()
@@ -75,21 +114,21 @@ describe('library scan store', () => {
 
     expect(deps.startLibraryScan).toHaveBeenCalledWith(['/music']);
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
-    expect(get(store.status)).toMatchObject({ phase: 'running', processed_files: 0 });
+    expect(get(store.status)).toStrictEqual(running1);
     expect(get(store.isScanning)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
     await flushPromises();
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(2);
-    expect(get(store.status)).toMatchObject({ phase: 'running', processed_files: 4 });
+    expect(get(store.status)).toStrictEqual(running2);
     expect(get(store.isScanning)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
     await flushPromises();
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(3);
-    expect(get(store.status)).toMatchObject({ phase: 'completed', processed_files: 10 });
+    expect(get(store.status)).toStrictEqual(completed);
     expect(get(store.isScanning)).toBe(false);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 6);
@@ -130,9 +169,36 @@ describe('library scan store', () => {
   it('continues polling even if startLibraryScan rejects when scan is already running', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const running1 = createStatus({ phase: 'running', processed_files: 1 });
-    const running2 = createStatus({ phase: 'running', processed_files: 4 });
-    const completed = createStatus({ phase: 'completed', processed_files: 10, ended_at_ms: 123 });
+    const running1 = createStatus({
+      phase: 'running',
+      current_path: '/music/a/first.flac',
+      processed_files: 1,
+      inserted_tracks: 1,
+      changed_tracks: 0,
+      unchanged_files: 0,
+      restored_tracks: 0,
+      missing_tracks: 0,
+    });
+    const running2 = createStatus({
+      phase: 'running',
+      current_path: '/music/a/second.flac',
+      processed_files: 4,
+      inserted_tracks: 1,
+      changed_tracks: 1,
+      unchanged_files: 1,
+      restored_tracks: 0,
+      missing_tracks: 0,
+    });
+    const completed = createStatus({
+      phase: 'completed',
+      ended_at_ms: 123,
+      processed_files: 10,
+      inserted_tracks: 1,
+      changed_tracks: 1,
+      unchanged_files: 3,
+      restored_tracks: 1,
+      missing_tracks: 1,
+    });
 
     const startLibraryScan = vi
       .fn<LibraryScanStoreDependencies['startLibraryScan']>()
@@ -152,21 +218,21 @@ describe('library scan store', () => {
 
     expect(startLibraryScan).toHaveBeenCalledWith(['/music']);
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
-    expect(get(store.status)).toMatchObject({ phase: 'running', processed_files: 1 });
+    expect(get(store.status)).toStrictEqual(running1);
     expect(get(store.isScanning)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
     await flushPromises();
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(2);
-    expect(get(store.status)).toMatchObject({ phase: 'running', processed_files: 4 });
+    expect(get(store.status)).toStrictEqual(running2);
     expect(get(store.isScanning)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
     await flushPromises();
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(3);
-    expect(get(store.status)).toMatchObject({ phase: 'completed', processed_files: 10 });
+    expect(get(store.status)).toStrictEqual(completed);
     expect(get(store.isScanning)).toBe(false);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 6);
@@ -197,7 +263,7 @@ describe('library scan store', () => {
 
     expect(startLibraryScan).toHaveBeenCalledWith(['/music']);
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
-    expect(get(store.status)).toMatchObject({ phase: 'idle' });
+    expect(get(store.status)).toStrictEqual(idle);
     expect(get(store.isScanning)).toBe(false);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 10);
@@ -208,20 +274,73 @@ describe('library scan store', () => {
     store.destroy();
   });
 
-  it('recovers polling if the first status poll after start fails', async () => {
+  it('preserves the last complete status on poll errors and restores richer counters on success', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const completed1 = createStatus({ phase: 'completed', processed_files: 10, ended_at_ms: 1 });
-    const running = createStatus({ phase: 'running', processed_files: 0 });
-    const completed2 = createStatus({ phase: 'completed', processed_files: 42, ended_at_ms: 2 });
+    const completed1 = createStatus({
+      phase: 'completed',
+      ended_at_ms: 1,
+      processed_files: 10,
+      inserted_tracks: 2,
+      changed_tracks: 3,
+      unchanged_files: 4,
+      restored_tracks: 5,
+      missing_tracks: 6,
+      error_count: 1,
+      sample_errors: [
+        {
+          path: '/offline-drive',
+          message: 'Root path does not exist or is not a directory',
+          kind: 'invalid_path',
+        },
+      ],
+    });
+    const running = createStatus({
+      phase: 'running',
+      current_path: '/music/updated.flac',
+      processed_files: 11,
+      inserted_tracks: 2,
+      changed_tracks: 4,
+      unchanged_files: 4,
+      restored_tracks: 5,
+      missing_tracks: 6,
+      error_count: 1,
+      sample_errors: [
+        {
+          path: '/offline-drive',
+          message: 'Root path does not exist or is not a directory',
+          kind: 'invalid_path',
+        },
+      ],
+    });
+    const completed2 = createStatus({
+      phase: 'completed',
+      ended_at_ms: 2,
+      processed_files: 42,
+      inserted_tracks: 2,
+      changed_tracks: 5,
+      unchanged_files: 6,
+      restored_tracks: 7,
+      missing_tracks: 8,
+      error_count: 2,
+      sample_errors: [
+        {
+          path: '/offline-drive',
+          message: 'Root path does not exist or is not a directory',
+          kind: 'invalid_path',
+        },
+        {
+          path: '/music/broken.flac',
+          message: 'Failed to read metadata',
+          kind: 'read_metadata',
+        },
+      ],
+    });
 
     const getLibraryScanStatus = vi
       .fn<LibraryScanStoreDependencies['getLibraryScanStatus']>()
-      // Seed lastKnownStatus with a terminal state from a previous scan.
       .mockResolvedValueOnce(completed1)
-      // First poll after start fails.
       .mockRejectedValueOnce(new Error('transient error'))
-      // Subsequent polls succeed.
       .mockResolvedValueOnce(running)
       .mockResolvedValueOnce(completed2)
       .mockResolvedValue(completed2);
@@ -232,26 +351,25 @@ describe('library scan store', () => {
     await store.start(['/music']);
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
-    expect(get(store.status)).toMatchObject({ phase: 'completed', processed_files: 10 });
+    expect(get(store.status)).toStrictEqual(completed1);
 
     await store.start(['/music']);
 
-    // Polling failed; the store is still on the previous terminal status for now.
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(2);
-    expect(get(store.status)).toMatchObject({ phase: 'completed', processed_files: 10 });
+    expect(get(store.status)).toStrictEqual(completed1);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
     await flushPromises();
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(3);
-    expect(get(store.status)).toMatchObject({ phase: 'running', processed_files: 0 });
+    expect(get(store.status)).toStrictEqual(running);
     expect(get(store.isScanning)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
     await flushPromises();
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(4);
-    expect(get(store.status)).toMatchObject({ phase: 'completed', processed_files: 42 });
+    expect(get(store.status)).toStrictEqual(completed2);
     expect(get(store.isScanning)).toBe(false);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 6);

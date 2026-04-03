@@ -1,7 +1,7 @@
 import { derived, writable, type Readable, type Writable } from 'svelte/store';
 
 import * as libraryApi from '../../api/library';
-import type { ScanPhase, ScanStatus } from '../../types';
+import { createScanStatus, type ScanPhase, type ScanStatus } from '../../types';
 
 export const SCAN_STATUS_POLL_INTERVAL_MS = 250;
 
@@ -32,20 +32,7 @@ function defaultDependencies(): LibraryScanStoreDependencies {
 }
 
 function initialStatus(): ScanStatus {
-  return {
-    phase: 'idle',
-    started_at_ms: null,
-    ended_at_ms: null,
-    current_path: null,
-    processed_files: 0,
-    inserted_tracks: 0,
-    changed_tracks: 0,
-    unchanged_files: 0,
-    restored_tracks: 0,
-    missing_tracks: 0,
-    error_count: 0,
-    sample_errors: [],
-  };
+  return createScanStatus();
 }
 
 function isActivePhase(phase: ScanPhase): boolean {
