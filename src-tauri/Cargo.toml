@@ -6,6 +6,7 @@ authors = ["Xing Zhang <angeiv.zhang@gmail.com>"]
 license = "GPL-3.0"
 repository = "https://github.com/angeiv/myMusicPlayer-rs"
 edition = "2024"
+default-run = "music-player-rs"
 rust-version = "1.94"
 
 [lib]
