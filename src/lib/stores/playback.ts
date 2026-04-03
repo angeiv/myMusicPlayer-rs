@@ -5,6 +5,11 @@ import * as libraryApi from '../api/library';
 import * as playbackApi from '../api/playback';
 import type { AppConfig, OutputDeviceInfo, PlaybackStateInfo, Track } from '../types';
 import {
+  getMissingTrackPlayMessage,
+  getMissingTrackRestoreMessage,
+  isTrackPlayable,
+} from '../utils/track-availability';
+import {
   normalizeBackendPlayMode,
   resolveBackendPlayMode,
   type BackendPlayMode,
@@ -26,6 +31,8 @@ type PlaybackStoreState = {
   repeatMode: RepeatMode;
   uiError: string;
 };
+
+type RestoreLastSessionResult = 'restored' | 'blocked' | 'none';
 
 export type PlaybackStoreDependencies = {
   getConfig: () => Promise<AppConfig>;
@@ -159,6 +166,60 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
     store.update((state) => ({ ...state, shuffleEnabled, repeatMode }));
   }
 
+  function setUiError(message: string): void {
+    suppressedError = null;
+    store.update((state) => ({ ...state, uiError: message }));
+  }
+
+  function hasStableTrackId(track: Track | null | undefined): track is Track {
+    return typeof track?.id === 'string' && track.id.trim().length > 0;
+  }
+
+  async function reconcileTrackWithLibrary(track: Track | null): Promise<Track | null> {
+    if (!hasStableTrackId(track)) {
+      return track;
+    }
+
+    try {
+      const libraryTrack = await deps.getTrack(track.id);
+      if (!libraryTrack || libraryTrack.id !== track.id) {
+        return track;
+      }
+
+      return libraryTrack;
+    } catch (error) {
+      console.warn(`Failed to rehydrate track ${track.id} from library:`, error);
+      return track;
+    }
+  }
+
+  async function reconcileQueueTracksWithLibrary(queueTracks: Track[] | null | undefined): Promise<Track[]> {
+    const tracks = queueTracks ?? [];
+    return Promise.all(
+      tracks.map(async (track) => {
+        const resolvedTrack = await reconcileTrackWithLibrary(track);
+        return resolvedTrack ?? track;
+      })
+    );
+  }
+
+  function blockRestore(message: string): RestoreLastSessionResult {
+    setUiError(message);
+    return 'blocked';
+  }
+
+  function resolveUiError(state: PlaybackStoreState, backendError: string): string {
+    if (backendError && backendError !== suppressedError) {
+      return backendError;
+    }
+
+    if (backendError) {
+      return state.uiError;
+    }
+
+    return state.uiError;
+  }
+
   function schedulePersistSession(trackId: string, positionSeconds: number): void {
     const rounded = Math.floor(positionSeconds);
 
@@ -201,11 +262,12 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
 
   async function refreshState(): Promise<void> {
     try {
-      const [playbackState, currentTrack, volume] = await Promise.all([
+      const [playbackState, runtimeTrack, volume] = await Promise.all([
         deps.getPlaybackState(),
         deps.getCurrentTrack(),
         deps.getVolume(),
       ]);
+      const currentTrack = await reconcileTrackWithLibrary(runtimeTrack);
 
       const progress =
         playbackState.state === 'playing' || playbackState.state === 'paused'
@@ -228,7 +290,7 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
         volume,
         progress: seeking ? state.progress : progress,
         duration: seeking ? state.duration : duration,
-        uiError: backendError && backendError !== suppressedError ? backendError : '',
+        uiError: resolveUiError(state, backendError),
       }));
 
       if (
@@ -248,8 +310,9 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
 
   async function refreshQueue(): Promise<void> {
     try {
-      const queueTracks = await deps.getQueue();
-      store.update((state) => ({ ...state, queueTracks: queueTracks ?? [] }));
+      const runtimeQueueTracks = await deps.getQueue();
+      const queueTracks = await reconcileQueueTracksWithLibrary(runtimeQueueTracks);
+      store.update((state) => ({ ...state, queueTracks }));
     } catch (error) {
       console.error('Failed to load queue:', error);
     }
@@ -350,26 +413,26 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
     }
   }
 
-  async function restoreLastSession(): Promise<boolean> {
+  async function restoreLastSession(): Promise<RestoreLastSessionResult> {
     let config: AppConfig;
     try {
       config = await deps.getConfig();
     } catch (error) {
       console.warn('Failed to load config for restoring session:', error);
-      return false;
+      return blockRestore('无法恢复上次播放的歌曲。');
     }
 
     const lastTrackId = config.last_track_id ?? null;
     const lastPositionSeconds = config.last_position_seconds ?? 0;
 
-    if (!lastTrackId) return false;
+    if (!lastTrackId) return 'none';
 
     let track: Track | null;
     try {
       track = await deps.getTrack(lastTrackId);
     } catch (error) {
       console.warn('Failed to load last session track:', error);
-      return false;
+      return blockRestore('无法恢复上次播放的歌曲。');
     }
 
     if (!track) {
@@ -379,7 +442,16 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
       } catch (clearError) {
         console.warn('Failed to clear last session:', clearError);
       }
-      return false;
+      return 'none';
+    }
+
+    if (track.id !== lastTrackId) {
+      console.warn('Loaded last session track did not match the configured track id.');
+      return blockRestore('无法恢复上次播放的歌曲。');
+    }
+
+    if (!isTrackPlayable(track)) {
+      return blockRestore(getMissingTrackRestoreMessage());
     }
 
     try {
@@ -392,12 +464,7 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
       await deps.playTrack(track);
     } catch (error) {
       console.warn('Failed to play last session track:', error);
-      try {
-        await deps.setLastSession(null, 0);
-      } catch (clearError) {
-        console.warn('Failed to clear last session:', clearError);
-      }
-      return false;
+      return blockRestore('无法恢复上次播放的歌曲。');
     }
 
     if (lastPositionSeconds > 0) {
@@ -408,7 +475,7 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
       }
     }
 
-    return true;
+    return 'restored';
   }
 
   async function togglePlayPause(): Promise<void> {
@@ -427,8 +494,8 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
         return;
       }
 
-      const restored = await restoreLastSession();
-      if (!restored) {
+      const restoreResult = await restoreLastSession();
+      if (restoreResult === 'none') {
         await deps.pickAndPlayFile();
       }
       await refreshState();
@@ -596,8 +663,15 @@ export function createPlaybackStore(overrides: Partial<PlaybackStoreDependencies
   }
 
   async function playQueueTrack(track: Track): Promise<void> {
+    const resolvedTrack = (await reconcileTrackWithLibrary(track)) ?? track;
+
+    if (!isTrackPlayable(resolvedTrack)) {
+      setUiError(getMissingTrackPlayMessage('track'));
+      return;
+    }
+
     try {
-      await deps.playTrack(track);
+      await deps.playTrack(resolvedTrack);
       await refreshState();
     } catch (error) {
       console.error('Failed to play queue track:', error);
