@@ -8,10 +8,22 @@ import {
   createLibraryScanStore,
   type LibraryScanStoreDependencies,
 } from '../lib/features/library-scan/store';
-import { createScanStatus, type LibraryScanRequest, type ScanStatus } from '../lib/types';
+import {
+  createLibraryWatcherStatus,
+  createScanStatus,
+  type LibraryScanRequest,
+  type LibraryWatcherStatus,
+  type ScanStatus,
+} from '../lib/types';
 
 function createStatus(overrides: Partial<ScanStatus> = {}): ScanStatus {
   return createScanStatus(overrides);
+}
+
+function createWatcherStatus(
+  overrides: Partial<LibraryWatcherStatus> = {},
+): LibraryWatcherStatus {
+  return createLibraryWatcherStatus(overrides);
 }
 
 function createRequest(overrides: Partial<LibraryScanRequest> = {}): LibraryScanRequest {
@@ -27,6 +39,7 @@ function createDependencies(
   return {
     startLibraryScan: vi.fn().mockResolvedValue(undefined),
     getLibraryScanStatus: vi.fn().mockResolvedValue(createStatus()),
+    getLibraryWatcherStatus: vi.fn().mockResolvedValue(createWatcherStatus()),
     cancelLibraryScan: vi.fn().mockResolvedValue(undefined),
     setInterval: globalThis.setInterval.bind(globalThis),
     clearInterval: globalThis.clearInterval.bind(globalThis),
@@ -53,7 +66,170 @@ describe('library scan store', () => {
     const store = createLibraryScanStore(createDependencies());
 
     expect(get(store.status)).toStrictEqual(createStatus());
+    expect(get(store.watcherStatus)).toStrictEqual(createWatcherStatus());
+    expect(get(store.maintenance)).toMatchObject({
+      title: 'No scan running',
+      tone: 'default',
+      watchedRoots: [],
+      queuedFollowUp: false,
+      lastError: null,
+    });
     expect(get(store.isScanning)).toBe(false);
+
+    store.destroy();
+  });
+
+  it('aggregates watcher follow-up and watcher errors into a clone-safe maintenance snapshot', async () => {
+    const request = createRequest({ mode: 'incremental' });
+    const running = createStatus({
+      phase: 'running',
+      mode: 'incremental',
+      current_path: '/music/live/new-track.flac',
+      processed_files: 4,
+      inserted_tracks: 1,
+      changed_tracks: 1,
+      unchanged_files: 2,
+    });
+    const completed = createStatus({
+      phase: 'completed',
+      mode: 'incremental',
+      ended_at_ms: 200,
+      processed_files: 8,
+      inserted_tracks: 1,
+      changed_tracks: 2,
+      unchanged_files: 4,
+      restored_tracks: 1,
+    });
+    const queuedWatcher = createWatcherStatus({
+      watched_roots: ['/music', '/music/live'],
+      dirty_roots: ['/music/live'],
+      queued_follow_up: true,
+      active_scan_phase: 'running',
+      last_requested_scan: {
+        requested_at_ms: 150,
+        roots: ['/music/live'],
+      },
+      last_error: 'Failed to refresh watcher roots: /offline-drive',
+    });
+    const steadyWatcher = createWatcherStatus({
+      watched_roots: ['/music', '/music/live'],
+      dirty_roots: [],
+      queued_follow_up: false,
+      active_scan_phase: null,
+      last_requested_scan: {
+        requested_at_ms: 210,
+        roots: ['/music/live'],
+      },
+      last_error: null,
+    });
+
+    const getLibraryScanStatus = vi
+      .fn<LibraryScanStoreDependencies['getLibraryScanStatus']>()
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(completed)
+      .mockResolvedValue(completed);
+    const getLibraryWatcherStatus = vi
+      .fn<LibraryScanStoreDependencies['getLibraryWatcherStatus']>()
+      .mockResolvedValueOnce(queuedWatcher)
+      .mockResolvedValueOnce(steadyWatcher)
+      .mockResolvedValue(steadyWatcher);
+
+    const store = createLibraryScanStore(
+      createDependencies({
+        getLibraryScanStatus,
+        getLibraryWatcherStatus,
+      }),
+    );
+
+    await store.start(request);
+
+    expect(get(store.status)).toStrictEqual(running);
+    expect(get(store.watcherStatus)).toStrictEqual(queuedWatcher);
+    expect(get(store.maintenance)).toMatchObject({
+      title: 'Incremental sync in progress',
+      tone: 'active',
+      watchedRoots: ['/music', '/music/live'],
+      dirtyRoots: ['/music/live'],
+      queuedFollowUp: true,
+      activePhase: 'running',
+      lastError: 'Failed to refresh watcher roots: /offline-drive',
+      recoveryHint: 'Let the current scan finish. The queued follow-up will run automatically.',
+      nextStep: { kind: 'cancel-scan', label: 'Cancel scan' },
+    });
+    expect(get(store.maintenance).description).toContain('queued one follow-up pass');
+
+    const publicWatcher = get(store.watcherStatus);
+    publicWatcher.watched_roots.push('/mutated');
+    const publicMaintenance = get(store.maintenance);
+    publicMaintenance.watchedRoots.push('/mutated');
+    publicMaintenance.scanStatus.sample_errors.push({
+      path: '/mutated',
+      message: 'should not leak',
+      kind: 'walk',
+    });
+
+    expect(get(store.watcherStatus)).toStrictEqual(queuedWatcher);
+    expect(get(store.maintenance).watchedRoots).toStrictEqual(['/music', '/music/live']);
+    expect(get(store.maintenance).scanStatus.sample_errors).toStrictEqual([]);
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+    await flushPromises();
+
+    expect(get(store.status)).toStrictEqual(completed);
+    expect(get(store.watcherStatus)).toStrictEqual(steadyWatcher);
+    expect(get(store.maintenance)).toMatchObject({
+      title: 'Incremental sync complete',
+      watchedRoots: ['/music', '/music/live'],
+      queuedFollowUp: false,
+      activePhase: null,
+      lastError: null,
+    });
+
+    store.destroy();
+  });
+
+  it('refreshes watcher-only maintenance snapshots without starting a second polling loop', async () => {
+    const idle = createStatus({ phase: 'idle' });
+    const watcher = createWatcherStatus({
+      watched_roots: ['/music'],
+      dirty_roots: [],
+      queued_follow_up: false,
+      active_scan_phase: null,
+      last_error: 'Failed to schedule watcher batch: permissions denied',
+    });
+
+    const getLibraryScanStatus = vi
+      .fn<LibraryScanStoreDependencies['getLibraryScanStatus']>()
+      .mockResolvedValue(idle);
+    const getLibraryWatcherStatus = vi
+      .fn<LibraryScanStoreDependencies['getLibraryWatcherStatus']>()
+      .mockResolvedValue(watcher);
+
+    const store = createLibraryScanStore(
+      createDependencies({
+        getLibraryScanStatus,
+        getLibraryWatcherStatus,
+      }),
+    );
+
+    const maintenance = await store.refreshMaintenance();
+
+    expect(maintenance).toMatchObject({
+      title: 'Auto-sync needs attention',
+      tone: 'warning',
+      watchedRoots: ['/music'],
+      queuedFollowUp: false,
+      lastError: 'Failed to schedule watcher batch: permissions denied',
+      nextStep: { kind: 'rescan', label: 'Rescan Now' },
+    });
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
+    expect(getLibraryWatcherStatus).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 4);
+    await flushPromises();
+
+    expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
+    expect(getLibraryWatcherStatus).toHaveBeenCalledTimes(1);
 
     store.destroy();
   });

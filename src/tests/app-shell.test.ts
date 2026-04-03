@@ -6,10 +6,12 @@ import { deriveAppShellRouteState } from '../lib/features/app-shell/navigation';
 import { SCAN_STATUS_POLL_INTERVAL_MS } from '../lib/features/library-scan/store';
 import { createAppShellStore } from '../lib/features/app-shell/store';
 import {
+  createLibraryWatcherStatus,
   createScanStatus,
   type Album,
   type Artist,
   type LibraryScanRequest,
+  type LibraryWatcherStatus,
   type Playlist,
   type ScanStatus,
   type SearchResults,
@@ -74,6 +76,12 @@ const searchResultsFixture: SearchResults = {
 
 function createStatus(overrides: Partial<ScanStatus> = {}): ScanStatus {
   return createScanStatus(overrides);
+}
+
+function createWatcherStatus(
+  overrides: Partial<LibraryWatcherStatus> = {},
+): LibraryWatcherStatus {
+  return createLibraryWatcherStatus(overrides);
 }
 
 function formatScanRequest(requestOrPaths: LibraryScanRequest | string[]): string {
@@ -290,6 +298,47 @@ describe('createAppShellStore', () => {
     expect(startLibraryScan).toHaveBeenCalledWith({ paths: ['/music'], mode: 'full' });
     expect(result).toEqual(completedStatus);
     expect(get(store.scanStatus)).toEqual(completedStatus);
+  });
+
+  it('exposes the shared watcher-backed maintenance snapshot without creating a second app-shell policy', async () => {
+    const watcherStatus = createWatcherStatus({
+      watched_roots: ['/music', '/music/live'],
+      dirty_roots: ['/music/live'],
+      queued_follow_up: false,
+      active_scan_phase: null,
+      last_requested_scan: {
+        requested_at_ms: 125,
+        roots: ['/music/live'],
+      },
+      last_error: 'Failed to schedule watcher batch: permissions denied',
+    });
+    const getLibraryWatcherStatus = vi.fn(async () => watcherStatus);
+
+    const store = createAppShellStore({
+      getLibraryScanStatus: vi.fn(async () => createStatus({ phase: 'idle' })),
+      getLibraryWatcherStatus,
+      cancelLibraryScan: async () => undefined,
+    });
+
+    const maintenance = await store.refreshLibraryMaintenance();
+
+    expect(getLibraryWatcherStatus).toHaveBeenCalledTimes(1);
+    expect(get(store.watcherStatus)).toStrictEqual(watcherStatus);
+    expect(maintenance).toMatchObject({
+      title: 'Auto-sync needs attention',
+      tone: 'warning',
+      watchedRoots: ['/music', '/music/live'],
+      dirtyRoots: ['/music/live'],
+      lastError: 'Failed to schedule watcher batch: permissions denied',
+      nextStep: { kind: 'rescan', label: 'Rescan Now' },
+    });
+
+    const publicMaintenance = get(store.maintenance);
+    publicMaintenance.watchedRoots.push('/mutated');
+    publicMaintenance.watcherStatus.dirty_roots.push('/mutated');
+
+    expect(get(store.maintenance).watchedRoots).toStrictEqual(['/music', '/music/live']);
+    expect(get(store.maintenance).watcherStatus.dirty_roots).toStrictEqual(['/music/live']);
   });
 
   it('executes search routes and clears results for empty or non-search routes', async () => {

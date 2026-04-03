@@ -7,12 +7,14 @@ import type {
   Album,
   Artist,
   LibraryScanRequest,
+  LibraryWatcherStatus,
   Playlist,
   ScanStatus,
   SearchResults,
   ThemeOption,
   Track,
 } from '../../types';
+import type { LibraryMaintenanceState } from '../library-scan/maintenance';
 import type { RouteMatch } from '../../routing/routes';
 import { normalizeConfigForRestore } from '../../transport/config';
 import { createLibraryScanStore } from '../library-scan/store';
@@ -32,6 +34,7 @@ export type AppShellStoreDependencies = {
   hasLibraryTracks: () => Promise<boolean>;
   startLibraryScan: (requestOrPaths: LibraryScanRequest | string[]) => Promise<void>;
   getLibraryScanStatus: () => Promise<ScanStatus>;
+  getLibraryWatcherStatus: () => Promise<LibraryWatcherStatus>;
   cancelLibraryScan: () => Promise<void>;
   getTracks: () => Promise<Track[]>;
   getAlbums: () => Promise<Album[]>;
@@ -50,6 +53,8 @@ export type AppShellStore = {
   playlists: Writable<Playlist[]>;
   counts: Readable<{ songs: number; albums: number; artists: number }>;
   scanStatus: Readable<ScanStatus>;
+  watcherStatus: Readable<LibraryWatcherStatus>;
+  maintenance: Readable<LibraryMaintenanceState>;
   isScanning: Readable<boolean>;
   isLibraryLoading: Writable<boolean>;
   isSearching: Writable<boolean>;
@@ -57,6 +62,7 @@ export type AppShellStore = {
   bootstrap: () => Promise<void>;
   loadLibrary: () => Promise<void>;
   loadPlaylists: () => Promise<void>;
+  refreshLibraryMaintenance: () => Promise<LibraryMaintenanceState>;
   runLibraryScan: (requestOrPaths: LibraryScanRequest | string[]) => Promise<ScanStatus>;
   cancelLibraryScan: () => Promise<void>;
   syncRouteSearch: (route: RouteMatch) => Promise<void>;
@@ -72,6 +78,7 @@ function defaultDependencies(): AppShellStoreDependencies {
     hasLibraryTracks: libraryApi.hasLibraryTracks,
     startLibraryScan: libraryApi.startLibraryScan,
     getLibraryScanStatus: libraryApi.getLibraryScanStatus,
+    getLibraryWatcherStatus: libraryApi.getLibraryWatcherStatus,
     cancelLibraryScan: libraryApi.cancelLibraryScan,
     getTracks: libraryApi.getTracks,
     getAlbums: libraryApi.getAlbums,
@@ -119,10 +126,13 @@ export function createAppShellStore(
   const scan = createLibraryScanStore({
     startLibraryScan: deps.startLibraryScan,
     getLibraryScanStatus: deps.getLibraryScanStatus,
+    getLibraryWatcherStatus: deps.getLibraryWatcherStatus,
     cancelLibraryScan: deps.cancelLibraryScan,
   });
 
   const scanStatus = scan.status;
+  const watcherStatus = scan.watcherStatus;
+  const maintenance = scan.maintenance;
   const isScanning = scan.isScanning;
 
   const counts = derived([tracks, albums, artists], ([$tracks, $albums, $artists]) => ({
@@ -180,6 +190,10 @@ export function createAppShellStore(
       console.error('Failed to determine library scan mode:', error);
       return request;
     }
+  }
+
+  async function refreshLibraryMaintenance(): Promise<LibraryMaintenanceState> {
+    return scan.refreshMaintenance();
   }
 
   async function runLibraryScan(
@@ -293,6 +307,8 @@ export function createAppShellStore(
     playlists,
     counts,
     scanStatus,
+    watcherStatus,
+    maintenance,
     isScanning,
     isLibraryLoading,
     isSearching,
@@ -300,6 +316,7 @@ export function createAppShellStore(
     bootstrap,
     loadLibrary,
     loadPlaylists,
+    refreshLibraryMaintenance,
     runLibraryScan,
     cancelLibraryScan,
     syncRouteSearch,
