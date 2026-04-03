@@ -1,12 +1,14 @@
 import { derived, writable, type Readable, type Writable } from 'svelte/store';
 
 import * as libraryApi from '../../api/library';
-import { createScanStatus, type ScanPhase, type ScanStatus } from '../../types';
+import { createScanStatus, type LibraryScanRequest, type ScanPhase, type ScanStatus } from '../../types';
 
 export const SCAN_STATUS_POLL_INTERVAL_MS = 250;
 
+type LibraryScanStartRequest = LibraryScanRequest | string[];
+
 export type LibraryScanStoreDependencies = {
-  startLibraryScan: (paths: string[]) => Promise<void>;
+  startLibraryScan: (requestOrPaths: LibraryScanStartRequest) => Promise<void>;
   getLibraryScanStatus: () => Promise<ScanStatus>;
   cancelLibraryScan: () => Promise<void>;
   setInterval: typeof globalThis.setInterval;
@@ -16,7 +18,7 @@ export type LibraryScanStoreDependencies = {
 export type LibraryScanStore = {
   status: Writable<ScanStatus>;
   isScanning: Readable<boolean>;
-  start: (paths: string[]) => Promise<void>;
+  start: (requestOrPaths: LibraryScanStartRequest) => Promise<void>;
   cancel: () => Promise<void>;
   destroy: () => void;
 };
@@ -28,6 +30,17 @@ function defaultDependencies(): LibraryScanStoreDependencies {
     cancelLibraryScan: libraryApi.cancelLibraryScan,
     setInterval: globalThis.setInterval.bind(globalThis),
     clearInterval: globalThis.clearInterval.bind(globalThis),
+  };
+}
+
+function normalizeLibraryScanRequest(requestOrPaths: LibraryScanStartRequest): LibraryScanRequest {
+  if (Array.isArray(requestOrPaths)) {
+    return { paths: [...requestOrPaths] };
+  }
+
+  return {
+    ...requestOrPaths,
+    paths: [...requestOrPaths.paths],
   };
 }
 
@@ -118,11 +131,13 @@ export function createLibraryScanStore(
     }
   }
 
-  async function start(paths: string[]): Promise<void> {
+  async function start(requestOrPaths: LibraryScanStartRequest): Promise<void> {
     if (destroyed) return;
 
+    const request = normalizeLibraryScanRequest(requestOrPaths);
+
     try {
-      await deps.startLibraryScan(paths);
+      await deps.startLibraryScan(request);
     } catch (error) {
       // Starting can fail for reasons like "scan already running"; don't treat
       // it as fatal. We still poll once and keep polling if scan isn't terminal.

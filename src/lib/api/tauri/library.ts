@@ -85,7 +85,7 @@ export async function startLibraryScan(
   requestOrPaths: LibraryScanRequest | string[],
 ): Promise<void> {
   const request = normalizeLibraryScanRequest(requestOrPaths);
-  await invoke<void>('start_library_scan', request);
+  await invoke<void>('start_library_scan', { ...request });
 }
 
 export async function getLibraryScanStatus(): Promise<ScanStatus> {

@@ -94,6 +94,10 @@
     handleOpenArtistNavigation(event.detail.id);
   }
 
+  function runSettingsLibraryScan(paths: string[]) {
+    return runLibraryScan({ paths });
+  }
+
   onMount(() => {
     void bootstrap();
     void ensureSharedPlaybackStarted();
@@ -155,7 +159,7 @@
         <SettingsView
           {scanStatus}
           {isScanning}
-          {runLibraryScan}
+          runLibraryScan={runSettingsLibraryScan}
           {cancelLibraryScan}
           on:refreshLibrary={loadLibrary}
           on:refreshPlaylists={loadPlaylists}

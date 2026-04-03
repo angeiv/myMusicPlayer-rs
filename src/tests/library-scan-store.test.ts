@@ -8,10 +8,17 @@ import {
   createLibraryScanStore,
   type LibraryScanStoreDependencies,
 } from '../lib/features/library-scan/store';
-import { createScanStatus, type ScanStatus } from '../lib/types';
+import { createScanStatus, type LibraryScanRequest, type ScanStatus } from '../lib/types';
 
 function createStatus(overrides: Partial<ScanStatus> = {}): ScanStatus {
   return createScanStatus(overrides);
+}
+
+function createRequest(overrides: Partial<LibraryScanRequest> = {}): LibraryScanRequest {
+  return {
+    paths: [...(overrides.paths ?? ['/music'])],
+    mode: overrides.mode ?? null,
+  };
 }
 
 function createDependencies(
@@ -51,9 +58,11 @@ describe('library scan store', () => {
     store.destroy();
   });
 
-  it('polls until reaching a terminal phase and then stops polling', async () => {
+  it('accepts request objects, polls until reaching a terminal phase, and then stops polling', async () => {
+    const request = createRequest({ mode: 'incremental' });
     const running1 = createStatus({
       phase: 'running',
+      mode: 'incremental',
       current_path: '/music/a/first.flac',
       processed_files: 1,
       inserted_tracks: 1,
@@ -64,6 +73,7 @@ describe('library scan store', () => {
     });
     const running2 = createStatus({
       phase: 'running',
+      mode: 'incremental',
       current_path: '/music/a/second.flac',
       processed_files: 4,
       inserted_tracks: 1,
@@ -82,6 +92,7 @@ describe('library scan store', () => {
     });
     const completed = createStatus({
       phase: 'completed',
+      mode: 'incremental',
       started_at_ms: 100,
       ended_at_ms: 200,
       processed_files: 10,
@@ -110,9 +121,9 @@ describe('library scan store', () => {
     const deps = createDependencies({ getLibraryScanStatus });
     const store = createLibraryScanStore(deps);
 
-    await store.start(['/music']);
+    await store.start(request);
 
-    expect(deps.startLibraryScan).toHaveBeenCalledWith(['/music']);
+    expect(deps.startLibraryScan).toHaveBeenCalledWith(request);
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
     expect(get(store.status)).toStrictEqual(running1);
     expect(get(store.isScanning)).toBe(true);
@@ -139,8 +150,8 @@ describe('library scan store', () => {
     store.destroy();
   });
 
-  it('destroy() stops future polling calls', async () => {
-    const running = createStatus({ phase: 'running' });
+  it('still normalizes legacy path-array starts while destroy() stops future polling calls', async () => {
+    const running = createStatus({ phase: 'running', mode: 'incremental' });
 
     const getLibraryScanStatus = vi
       .fn<LibraryScanStoreDependencies['getLibraryScanStatus']>()
@@ -151,6 +162,7 @@ describe('library scan store', () => {
 
     await store.start(['/music']);
 
+    expect(deps.startLibraryScan).toHaveBeenCalledWith({ paths: ['/music'] });
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
@@ -166,11 +178,13 @@ describe('library scan store', () => {
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(2);
   });
 
-  it('continues polling even if startLibraryScan rejects when scan is already running', async () => {
+  it('continues polling when start rejects and preserves the backend-reported mode for an already-running scan', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
+    const request = createRequest({ mode: 'incremental' });
     const running1 = createStatus({
       phase: 'running',
+      mode: 'full',
       current_path: '/music/a/first.flac',
       processed_files: 1,
       inserted_tracks: 1,
@@ -181,6 +195,7 @@ describe('library scan store', () => {
     });
     const running2 = createStatus({
       phase: 'running',
+      mode: 'full',
       current_path: '/music/a/second.flac',
       processed_files: 4,
       inserted_tracks: 1,
@@ -191,6 +206,7 @@ describe('library scan store', () => {
     });
     const completed = createStatus({
       phase: 'completed',
+      mode: 'full',
       ended_at_ms: 123,
       processed_files: 10,
       inserted_tracks: 1,
@@ -214,11 +230,12 @@ describe('library scan store', () => {
     const deps = createDependencies({ startLibraryScan, getLibraryScanStatus });
     const store = createLibraryScanStore(deps);
 
-    await store.start(['/music']);
+    await store.start(request);
 
-    expect(startLibraryScan).toHaveBeenCalledWith(['/music']);
+    expect(startLibraryScan).toHaveBeenCalledWith(request);
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
     expect(get(store.status)).toStrictEqual(running1);
+    expect(get(store.status).mode).toBe('full');
     expect(get(store.isScanning)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
@@ -226,6 +243,7 @@ describe('library scan store', () => {
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(2);
     expect(get(store.status)).toStrictEqual(running2);
+    expect(get(store.status).mode).toBe('full');
     expect(get(store.isScanning)).toBe(true);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
@@ -233,6 +251,7 @@ describe('library scan store', () => {
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(3);
     expect(get(store.status)).toStrictEqual(completed);
+    expect(get(store.status).mode).toBe('full');
     expect(get(store.isScanning)).toBe(false);
 
     await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS * 6);
@@ -243,7 +262,7 @@ describe('library scan store', () => {
     store.destroy();
   });
 
-  it('stops polling if startLibraryScan rejects and backend reports idle', async () => {
+  it('stops polling if start rejects and backend reports idle', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const startLibraryScan = vi
@@ -261,7 +280,7 @@ describe('library scan store', () => {
 
     await store.start(['/music']);
 
-    expect(startLibraryScan).toHaveBeenCalledWith(['/music']);
+    expect(startLibraryScan).toHaveBeenCalledWith({ paths: ['/music'] });
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
     expect(get(store.status)).toStrictEqual(idle);
     expect(get(store.isScanning)).toBe(false);
@@ -279,6 +298,7 @@ describe('library scan store', () => {
 
     const completed1 = createStatus({
       phase: 'completed',
+      mode: 'incremental',
       ended_at_ms: 1,
       processed_files: 10,
       inserted_tracks: 2,
@@ -297,6 +317,7 @@ describe('library scan store', () => {
     });
     const running = createStatus({
       phase: 'running',
+      mode: 'incremental',
       current_path: '/music/updated.flac',
       processed_files: 11,
       inserted_tracks: 2,
@@ -315,6 +336,7 @@ describe('library scan store', () => {
     });
     const completed2 = createStatus({
       phase: 'completed',
+      mode: 'incremental',
       ended_at_ms: 2,
       processed_files: 42,
       inserted_tracks: 2,
@@ -348,7 +370,7 @@ describe('library scan store', () => {
     const deps = createDependencies({ getLibraryScanStatus });
     const store = createLibraryScanStore(deps);
 
-    await store.start(['/music']);
+    await store.start({ paths: ['/music'], mode: 'incremental' });
 
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
     expect(get(store.status)).toStrictEqual(completed1);

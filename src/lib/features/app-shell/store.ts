@@ -6,6 +6,7 @@ import * as playlistApi from '../../api/playlist';
 import type {
   Album,
   Artist,
+  LibraryScanRequest,
   Playlist,
   ScanStatus,
   SearchResults,
@@ -28,7 +29,8 @@ export type AppShellStoreDependencies = {
     libraryPaths: string[];
   };
   applyTheme: (theme: ThemeOption) => void;
-  startLibraryScan: (paths: string[]) => Promise<void>;
+  hasLibraryTracks: () => Promise<boolean>;
+  startLibraryScan: (requestOrPaths: LibraryScanRequest | string[]) => Promise<void>;
   getLibraryScanStatus: () => Promise<ScanStatus>;
   cancelLibraryScan: () => Promise<void>;
   getTracks: () => Promise<Track[]>;
@@ -55,7 +57,7 @@ export type AppShellStore = {
   bootstrap: () => Promise<void>;
   loadLibrary: () => Promise<void>;
   loadPlaylists: () => Promise<void>;
-  runLibraryScan: (paths: string[]) => Promise<ScanStatus>;
+  runLibraryScan: (requestOrPaths: LibraryScanRequest | string[]) => Promise<ScanStatus>;
   cancelLibraryScan: () => Promise<void>;
   syncRouteSearch: (route: RouteMatch) => Promise<void>;
   createPlaylistFromPrompt: () => Promise<void>;
@@ -67,6 +69,7 @@ function defaultDependencies(): AppShellStoreDependencies {
     getConfig: configApi.getConfig,
     normalizeConfigForRestore,
     applyTheme: applyThemeToDocument,
+    hasLibraryTracks: libraryApi.hasLibraryTracks,
     startLibraryScan: libraryApi.startLibraryScan,
     getLibraryScanStatus: libraryApi.getLibraryScanStatus,
     cancelLibraryScan: libraryApi.cancelLibraryScan,
@@ -85,6 +88,19 @@ function defaultDependencies(): AppShellStoreDependencies {
 
 function isActiveScanPhase(phase: ScanStatus['phase']): boolean {
   return phase === 'running' || phase === 'cancelling';
+}
+
+function normalizeLibraryScanRequest(
+  requestOrPaths: LibraryScanRequest | string[],
+): LibraryScanRequest {
+  if (Array.isArray(requestOrPaths)) {
+    return { paths: [...requestOrPaths] };
+  }
+
+  return {
+    ...requestOrPaths,
+    paths: [...requestOrPaths.paths],
+  };
 }
 
 export function createAppShellStore(
@@ -146,10 +162,33 @@ export function createAppShellStore(
     });
   }
 
-  async function runLibraryScan(paths: string[]): Promise<ScanStatus> {
+  async function resolveLibraryScanRequest(
+    requestOrPaths: LibraryScanRequest | string[],
+  ): Promise<LibraryScanRequest> {
+    const request = normalizeLibraryScanRequest(requestOrPaths);
+    if (request.mode) {
+      return request;
+    }
+
+    try {
+      const hasTracks = await deps.hasLibraryTracks();
+      return {
+        ...request,
+        mode: hasTracks ? 'incremental' : 'full',
+      };
+    } catch (error) {
+      console.error('Failed to determine library scan mode:', error);
+      return request;
+    }
+  }
+
+  async function runLibraryScan(
+    requestOrPaths: LibraryScanRequest | string[],
+  ): Promise<ScanStatus> {
     isLibraryLoading.set(true);
     try {
-      await scan.start(paths);
+      const request = await resolveLibraryScanRequest(requestOrPaths);
+      await scan.start(request);
       return await waitForScanToFinish();
     } finally {
       isLibraryLoading.set(false);
@@ -200,7 +239,7 @@ export function createAppShellStore(
     deps.applyTheme(restored.theme);
 
     if (restored.autoScan && restored.libraryPaths.length > 0) {
-      await runLibraryScan(restored.libraryPaths);
+      await runLibraryScan({ paths: restored.libraryPaths });
     }
 
     await loadLibrary();

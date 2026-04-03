@@ -9,6 +9,7 @@ import {
   createScanStatus,
   type Album,
   type Artist,
+  type LibraryScanRequest,
   type Playlist,
   type ScanStatus,
   type SearchResults,
@@ -75,6 +76,12 @@ function createStatus(overrides: Partial<ScanStatus> = {}): ScanStatus {
   return createScanStatus(overrides);
 }
 
+function formatScanRequest(requestOrPaths: LibraryScanRequest | string[]): string {
+  const request = Array.isArray(requestOrPaths) ? { paths: requestOrPaths } : requestOrPaths;
+  const mode = request.mode ?? 'auto';
+  return `startLibraryScan:${mode}:${request.paths.join(',')}`;
+}
+
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -104,7 +111,7 @@ describe('deriveAppShellRouteState', () => {
 });
 
 describe('createAppShellStore', () => {
-  it('preserves bootstrap ordering, waits for terminal scan status, and keeps richer counters intact', async () => {
+  it('boots with an incremental auto-scan when the backend already has library tracks', async () => {
     vi.useFakeTimers();
 
     try {
@@ -114,6 +121,7 @@ describe('createAppShellStore', () => {
       const calls: string[] = [];
       const runningStatus = createStatus({
         phase: 'running',
+        mode: 'incremental',
         current_path: '/music/a/signal-bloom.flac',
         processed_files: 3,
         inserted_tracks: 1,
@@ -124,6 +132,7 @@ describe('createAppShellStore', () => {
       });
       const completedStatus = createStatus({
         phase: 'completed',
+        mode: 'incremental',
         started_at_ms: 100,
         ended_at_ms: 200,
         processed_files: 5,
@@ -175,8 +184,12 @@ describe('createAppShellStore', () => {
         applyTheme: (theme) => {
           calls.push(`applyTheme:${theme}`);
         },
-        startLibraryScan: async (paths) => {
-          calls.push(`startLibraryScan:${paths.join(',')}`);
+        hasLibraryTracks: async () => {
+          calls.push('hasLibraryTracks');
+          return true;
+        },
+        startLibraryScan: async (request) => {
+          calls.push(formatScanRequest(request));
         },
         getLibraryScanStatus,
         cancelLibraryScan: async () => {
@@ -206,13 +219,15 @@ describe('createAppShellStore', () => {
 
       const bootstrapPromise = store.bootstrap();
       await flushPromises();
+      await flushPromises();
 
       expect(calls).toEqual([
         'bootstrapDesktopShell',
         'getConfig',
         'normalizeConfigForRestore',
         'applyTheme:dark',
-        'startLibraryScan:/music/a,/music/b',
+        'hasLibraryTracks',
+        'startLibraryScan:incremental:/music/a,/music/b',
         'getLibraryScanStatus:running',
       ]);
 
@@ -225,7 +240,8 @@ describe('createAppShellStore', () => {
         'getConfig',
         'normalizeConfigForRestore',
         'applyTheme:dark',
-        'startLibraryScan:/music/a,/music/b',
+        'hasLibraryTracks',
+        'startLibraryScan:incremental:/music/a,/music/b',
         'getLibraryScanStatus:running',
         'getLibraryScanStatus:completed',
         'getTracks',
@@ -238,6 +254,7 @@ describe('createAppShellStore', () => {
       expect(await playbackApi.getVolume()).toBeCloseTo(0.7);
 
       expect(get(store.scanStatus)).toEqual(completedStatus);
+      expect(get(store.scanStatus).mode).toBe('incremental');
       expect(get(store.isScanning)).toBe(false);
       expect(get(store.tracks)).toEqual(tracksFixture);
       expect(get(store.playlists)).toEqual(playlistsFixture);
@@ -245,6 +262,34 @@ describe('createAppShellStore', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('falls back to a full default scan when the backend reports an empty library', async () => {
+    const completedStatus = createStatus({
+      phase: 'completed',
+      mode: 'full',
+      ended_at_ms: 123,
+      processed_files: 7,
+      inserted_tracks: 7,
+    });
+
+    const hasLibraryTracks = vi.fn(async () => false);
+    const startLibraryScan = vi.fn(async () => undefined);
+    const getLibraryScanStatus = vi.fn(async () => completedStatus);
+
+    const store = createAppShellStore({
+      hasLibraryTracks,
+      startLibraryScan,
+      getLibraryScanStatus,
+      cancelLibraryScan: async () => undefined,
+    });
+
+    const result = await store.runLibraryScan(['/music']);
+
+    expect(hasLibraryTracks).toHaveBeenCalledTimes(1);
+    expect(startLibraryScan).toHaveBeenCalledWith({ paths: ['/music'], mode: 'full' });
+    expect(result).toEqual(completedStatus);
+    expect(get(store.scanStatus)).toEqual(completedStatus);
   });
 
   it('executes search routes and clears results for empty or non-search routes', async () => {

@@ -187,8 +187,8 @@ describe('tauri library bridge', () => {
       createScanStatus({
         phase: 'completed',
         mode: 'full',
-        started_at_ms: first.started_at_ms,
-        ended_at_ms: first.ended_at_ms,
+        started_at_ms: first.started_at_ms ?? null,
+        ended_at_ms: first.ended_at_ms ?? null,
       }),
     );
   });

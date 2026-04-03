@@ -27,6 +27,7 @@ const appShellMock = vi.hoisted(() => {
 
   const scanStatusValue = {
     phase: 'idle',
+    mode: null,
     started_at_ms: null,
     ended_at_ms: null,
     current_path: null,
@@ -63,6 +64,8 @@ const appShellMock = vi.hoisted(() => {
   return {
     playlistsValue,
     loadPlaylists,
+    scanStatusValue,
+    store,
     createAppShellStore: vi.fn(() => store),
   };
 });
@@ -73,6 +76,11 @@ vi.mock('../lib/features/app-shell/store', () => ({
 
 vi.mock('../lib/views/SongsView.svelte', async () => {
   const module = await import('./stubs/SongsViewSpy.svelte');
+  return { default: module.default };
+});
+
+vi.mock('../lib/views/SettingsView.svelte', async () => {
+  const module = await import('./stubs/SettingsViewSpy.svelte');
   return { default: module.default };
 });
 
@@ -99,12 +107,17 @@ type SongsViewSpyWindow = Window & {
     }>;
     refreshPlaylists: () => Promise<void>;
   };
+  __settingsViewSpyProps?: {
+    runLibraryScan: (paths: string[]) => Promise<unknown>;
+    cancelLibraryScan: () => Promise<void>;
+  };
 };
 
 describe('App songs-shell wiring', () => {
   beforeEach(() => {
     const spyWindow = window as SongsViewSpyWindow;
     delete spyWindow.__songsViewSpyProps;
+    delete spyWindow.__settingsViewSpyProps;
     nowPlayingUi.close();
     window.location.hash = '#/songs';
   });
@@ -113,9 +126,12 @@ describe('App songs-shell wiring', () => {
     const spyWindow = window as SongsViewSpyWindow;
     cleanup();
     delete spyWindow.__songsViewSpyProps;
+    delete spyWindow.__settingsViewSpyProps;
     nowPlayingUi.close();
     window.location.hash = '';
     appShellMock.loadPlaylists.mockClear();
+    appShellMock.store.runLibraryScan.mockClear();
+    appShellMock.store.cancelLibraryScan.mockClear();
   });
 
   it('passes playlists and refreshPlaylists into SongsView on the songs route', async () => {
@@ -131,6 +147,25 @@ describe('App songs-shell wiring', () => {
 
     expect(spyWindow.__songsViewSpyProps?.playlists).toEqual(appShellMock.playlistsValue);
     expect(spyWindow.__songsViewSpyProps?.refreshPlaylists).toBe(appShellMock.loadPlaylists);
+  });
+
+  it('adapts settings rescans into request objects before calling the app-shell store', async () => {
+    window.location.hash = '#/settings';
+
+    render(App);
+
+    await waitFor(() => {
+      const spyWindow = window as SongsViewSpyWindow;
+      expect(screen.getByTestId('settings-view-spy')).toBeTruthy();
+      expect(spyWindow.__settingsViewSpyProps).toBeDefined();
+    });
+
+    const spyWindow = window as SongsViewSpyWindow;
+    await spyWindow.__settingsViewSpyProps?.runLibraryScan(['/music']);
+
+    expect(appShellMock.store.runLibraryScan).toHaveBeenCalledWith({
+      paths: ['/music'],
+    });
   });
 
   it('refreshes app-shell playlists when PlaylistDetailView dispatches refreshPlaylists', async () => {
