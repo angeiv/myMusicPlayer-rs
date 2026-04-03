@@ -1,0 +1,11 @@
+- main:
+  - text: T Album
+  - heading "Tidal Currents" [level=2]
+  - paragraph: Neon Rivers
+  - button "▶ Play"
+  - button "☆ Favorite" [disabled]
+  - text: 6 tracks 31 min 2020 Added 2024/1/20
+  - table "Album tracks":
+    - row "# Title Duration"
+    - row "01 Glass Shoreline 4:38"
+    - row "02 Moonlit Ferry 5:05"

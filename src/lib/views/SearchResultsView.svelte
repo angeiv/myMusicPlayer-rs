@@ -1,6 +1,10 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
+  import EmptyState from '../components/ui/EmptyState.svelte';
+  import PageHeader from '../components/ui/PageHeader.svelte';
+  import SurfacePanel from '../components/ui/SurfacePanel.svelte';
   import type { Album, Artist, SearchResults, Track } from '../types';
   import { formatDate, formatDuration } from '../utils/format';
 
@@ -17,6 +21,10 @@
   $: tracks = searchResults?.tracks ?? [];
   $: albums = searchResults?.albums ?? [];
   $: artists = searchResults?.artists ?? [];
+  $: hasResults = tracks.length > 0 || albums.length > 0 || artists.length > 0;
+  $: subtitle = searchTerm.trim()
+    ? `Results for “${searchTerm}”`
+    : 'Search tracks, albums, and artists in your library.';
 
   async function playTrack(track: Track) {
     try {
@@ -46,58 +54,86 @@
 </script>
 
 <section class="search-results">
-  <header>
-    <h2>Search</h2>
-    {#if searchTerm.trim()}
-      <p>Results for “{searchTerm}”</p>
-    {/if}
-  </header>
+  <PageHeader title="Search" subtitle={subtitle} />
 
   {#if isSearching}
-    <div class="state">Searching…</div>
-  {:else if !tracks.length && !albums.length && !artists.length}
-    <div class="state">No results yet. Try a different keyword.</div>
+    <SurfacePanel tone="inset" padding="spacious">
+      <EmptyState
+        title="Searching library"
+        body="We’re checking tracks, albums, and artists for your latest keyword."
+        align="center"
+      />
+    </SurfacePanel>
+  {:else if !hasResults}
+    <SurfacePanel tone="inset" padding="spacious">
+      <EmptyState
+        title="No matches yet"
+        body="No results yet. Try a different keyword."
+        align="center"
+      />
+    </SurfacePanel>
   {:else}
     <div class="columns">
-      <section>
-        <h3>Tracks</h3>
+      <SurfacePanel padding="spacious">
+        <div class="section-heading">
+          <span class="eyebrow">Tracks</span>
+          <h3>Quick play results</h3>
+        </div>
+
         {#if tracks.length === 0}
-          <p class="muted">No tracks found.</p>
+          <p class="empty-note">No tracks found.</p>
         {:else}
-          <ul>
+          <ul class="result-list">
             {#each tracks.slice(0, 10) as track}
-              <li>
+              <li class="result-list__row">
                 <div
-                  class="info"
+                  class="track-copy"
                   role="button"
                   tabindex="0"
+                  aria-label={`打开 ${track.title}`}
                   on:dblclick={() => playTrack(track)}
                   on:keydown={(event) => handleTrackKeydown(event, track)}
                 >
                   <strong>{track.title}</strong>
                   <span>{track.artist_name ?? 'Unknown artist'} • {track.album_title ?? 'Unknown album'}</span>
                 </div>
-                <div class="meta">
+                <div class="track-meta">
                   <span>{formatDuration(track.duration)}</span>
-                  <button on:click={() => playTrack(track)}>▶</button>
+                  <button
+                    class="result-icon-button"
+                    type="button"
+                    aria-label={`播放 ${track.title}`}
+                    on:click={() => playTrack(track)}
+                  >
+                    ▶
+                  </button>
                 </div>
               </li>
             {/each}
           </ul>
         {/if}
-      </section>
+      </SurfacePanel>
 
-      <section>
-        <h3>Albums</h3>
+      <SurfacePanel padding="spacious">
+        <div class="section-heading">
+          <span class="eyebrow">Albums</span>
+          <h3>Open album detail</h3>
+        </div>
+
         {#if albums.length === 0}
-          <p class="muted">No albums found.</p>
+          <p class="empty-note">No albums found.</p>
         {:else}
-          <ul>
+          <ul class="result-list">
             {#each albums.slice(0, 8) as album}
               <li>
-                <button class="list-button" on:click={() => openAlbum(album)}>
+                <button
+                  class="list-button"
+                  type="button"
+                  aria-label={`打开专辑 ${album.title}`}
+                  on:click={() => openAlbum(album)}
+                >
                   <div class="artwork">{album.title.charAt(0)}</div>
-                  <div>
+                  <div class="list-copy">
                     <strong>{album.title}</strong>
                     <span>{album.artist_name ?? 'Various artists'} · {album.track_count} tracks</span>
                     <span>Released {album.year ?? 'unknown'}</span>
@@ -107,19 +143,28 @@
             {/each}
           </ul>
         {/if}
-      </section>
+      </SurfacePanel>
 
-      <section>
-        <h3>Artists</h3>
+      <SurfacePanel padding="spacious">
+        <div class="section-heading">
+          <span class="eyebrow">Artists</span>
+          <h3>Jump to artist</h3>
+        </div>
+
         {#if artists.length === 0}
-          <p class="muted">No artists found.</p>
+          <p class="empty-note">No artists found.</p>
         {:else}
-          <ul>
+          <ul class="result-list">
             {#each artists.slice(0, 8) as artist}
               <li>
-                <button class="list-button" on:click={() => openArtist(artist)}>
+                <button
+                  class="list-button"
+                  type="button"
+                  aria-label={`打开艺人 ${artist.name}`}
+                  on:click={() => openArtist(artist)}
+                >
                   <div class="avatar">{artist.name.charAt(0)}</div>
-                  <div>
+                  <div class="list-copy">
                     <strong>{artist.name}</strong>
                     <span>{artist.album_count} albums · {artist.track_count} tracks</span>
                     <span>Added {formatDate(artist.date_added) || 'recently'}</span>
@@ -129,7 +174,7 @@
             {/each}
           </ul>
         {/if}
-      </section>
+      </SurfacePanel>
     </div>
   {/if}
 </section>
@@ -137,58 +182,42 @@
 <style>
   .search-results {
     padding: 32px 48px;
-    color: #e2e8f0;
+    color: var(--text-primary);
     display: flex;
     flex-direction: column;
-    gap: 24px;
-  }
-
-  header h2 {
-    margin: 0;
-    font-size: 1.8rem;
-    color: #f8fafc;
-  }
-
-  header p {
-    margin: 4px 0 0 0;
-    color: rgba(148, 163, 184, 0.75);
-  }
-
-  .state {
-    padding: 60px 0;
-    text-align: center;
-    border-radius: 20px;
-    background: rgba(15, 23, 42, 0.65);
-    color: rgba(148, 163, 184, 0.75);
+    gap: 20px;
   }
 
   .columns {
     display: grid;
     grid-template-columns: 1.2fr 1fr 1fr;
-    gap: 24px;
+    gap: 20px;
   }
 
-  section {
-    background: rgba(15, 23, 42, 0.78);
-    border-radius: 20px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+  .section-heading {
+    display: grid;
+    gap: 0.35rem;
+    margin-bottom: 1rem;
   }
 
-  section h3 {
+  .eyebrow {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+
+  .section-heading h3 {
     margin: 0;
-    font-size: 1.2rem;
-    color: #f8fafc;
+    font-size: 1.05rem;
+    color: var(--text-primary);
   }
 
-  .muted {
-    color: rgba(148, 163, 184, 0.75);
+  .empty-note {
+    color: var(--text-secondary);
   }
 
-  ul {
+  .result-list {
     list-style: none;
     margin: 0;
     padding: 0;
@@ -197,83 +226,114 @@
     gap: 12px;
   }
 
-  li {
+  .result-list__row,
+  .list-button {
+    width: 100%;
+    border-radius: 18px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
+    transition:
+      border-color 0.18s ease,
+      box-shadow 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .result-list__row {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    padding: 12px;
-    border-radius: 14px;
-    background: rgba(30, 41, 59, 0.4);
+    padding: 12px 14px;
   }
 
-  li .info {
+  .track-copy {
+    min-width: 0;
+    display: grid;
+    gap: 0.2rem;
+    cursor: pointer;
+    border-radius: 12px;
+  }
+
+  .track-copy strong,
+  .list-copy strong {
+    color: var(--text-primary);
+  }
+
+  .track-copy span,
+  .list-copy span,
+  .track-meta span {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+
+  .track-copy:focus-visible,
+  .list-button:focus-visible,
+  .result-icon-button:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  .result-list__row:hover,
+  .result-list__row:focus-within,
+  .list-button:hover,
+  .list-button:focus-visible {
+    border-color: color-mix(in srgb, var(--accent) 22%, var(--border-default));
+    box-shadow: var(--shadow-soft);
+    transform: translateY(-1px);
+  }
+
+  .track-meta {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    cursor: pointer;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
   }
 
-  li strong {
-    color: #f8fafc;
-  }
-
-  li span {
-    color: rgba(148, 163, 184, 0.75);
-    font-size: 0.8rem;
-  }
-
-  li button {
-    border: none;
+  .result-icon-button {
+    width: 38px;
+    height: 38px;
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-default));
     border-radius: 999px;
-    background: rgba(59, 130, 246, 0.25);
-    color: #bfdbfe;
-    width: 36px;
-    height: 36px;
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface-panel-subtle));
+    color: var(--text-primary);
     cursor: pointer;
-  }
-
-  .info:focus {
-    outline: 2px solid rgba(96, 165, 250, 0.6);
-    outline-offset: 2px;
   }
 
   .list-button {
     display: flex;
     align-items: center;
-    gap: 12px;
-    width: 100%;
-    border: none;
-    background: transparent;
+    gap: 14px;
+    padding: 12px 14px;
     color: inherit;
     text-align: left;
     cursor: pointer;
-  }
-
-  .list-button:hover {
-    background: rgba(59, 130, 246, 0.16);
-  }
-
-  .list-button:focus {
-    outline: 2px solid rgba(96, 165, 250, 0.6);
-    outline-offset: 2px;
   }
 
   .artwork,
   .avatar {
     width: 48px;
     height: 48px;
-    border-radius: 14px;
-    background: rgba(15, 23, 42, 0.6);
+    border-radius: 16px;
+    background: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      color-mix(in srgb, var(--surface-panel-subtle) 92%, transparent)
+    );
     display: grid;
     place-items: center;
     font-weight: 700;
     letter-spacing: 0.1em;
-    margin-right: 12px;
+    flex-shrink: 0;
   }
 
   .avatar {
     border-radius: 50%;
+  }
+
+  .list-copy {
+    min-width: 0;
+    display: grid;
+    gap: 0.2rem;
   }
 
   @media (max-width: 1024px) {

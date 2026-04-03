@@ -4,7 +4,7 @@ import { buildSettingsLibraryScanPresentation } from '../lib/views/settings-libr
 import { createScanStatus } from '../lib/types';
 
 describe('settings library scan presentation', () => {
-  it('describes incremental scans with richer summary counters', () => {
+  it('describes incremental scans with active state copy and richer counter tones', () => {
     const presentation = buildSettingsLibraryScanPresentation(
       createScanStatus({
         phase: 'running',
@@ -31,15 +31,16 @@ describe('settings library scan presentation', () => {
     expect(presentation.description).toBe(
       'Default rescans compare your selected folders against the library and only apply changes.',
     );
+    expect(presentation.statusTone).toBe('active');
     expect(presentation.currentPathLabel).toBe('Current path');
     expect(presentation.currentPath).toBe('/music/new-track.flac');
     expect(presentation.metrics).toEqual([
       { label: 'Files checked', value: '12' },
-      { label: 'Added', value: '3' },
-      { label: 'Changed', value: '2' },
+      { label: 'Added', value: '3', tone: 'success' },
+      { label: 'Changed', value: '2', tone: 'success' },
       { label: 'Unchanged', value: '5' },
-      { label: 'Restored', value: '1' },
-      { label: 'Missing', value: '1', tone: 'danger' },
+      { label: 'Restored', value: '1', tone: 'success' },
+      { label: 'Missing', value: '1', tone: 'warning' },
       { label: 'Errors', value: '1', tone: 'danger' },
     ]);
     expect(presentation.sampleError).toEqual({
@@ -48,7 +49,7 @@ describe('settings library scan presentation', () => {
     });
   });
 
-  it('keeps unavailable roots phrased as scan errors during full scans', () => {
+  it('keeps unavailable roots phrased as scan errors and marks issue-bearing completions as warnings', () => {
     const presentation = buildSettingsLibraryScanPresentation(
       createScanStatus({
         phase: 'completed',
@@ -58,7 +59,7 @@ describe('settings library scan presentation', () => {
         changed_tracks: 0,
         unchanged_files: 25,
         restored_tracks: 0,
-        missing_tracks: 0,
+        missing_tracks: 2,
         error_count: 1,
         sample_errors: [
           {
@@ -74,8 +75,28 @@ describe('settings library scan presentation', () => {
     expect(presentation.description).toBe(
       'Full scans re-read every selected folder and rebuild the library state from disk.',
     );
+    expect(presentation.statusTone).toBe('warning');
     expect(presentation.sampleError?.title).toBe('Latest scan error');
     expect(presentation.sampleError?.description).toContain('/detached-disk');
     expect(presentation.sampleError?.description.toLowerCase()).not.toContain('missing track');
+  });
+
+  it('marks clean completed scans as success state for maintenance surfaces', () => {
+    const presentation = buildSettingsLibraryScanPresentation(
+      createScanStatus({
+        phase: 'completed',
+        mode: 'incremental',
+        processed_files: 24,
+        inserted_tracks: 1,
+        changed_tracks: 0,
+        unchanged_files: 23,
+        restored_tracks: 0,
+        missing_tracks: 0,
+        error_count: 0,
+      }),
+    );
+
+    expect(presentation.statusTone).toBe('success');
+    expect(presentation.sampleError).toBeNull();
   });
 });

@@ -108,7 +108,7 @@ describe('SettingsView library scan panel', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders mode-aware scan feedback, richer counters, and a visible full scan action', async () => {
+  it('renders maintenance controls with active, disabled, warning, and danger semantics while scanning', async () => {
     renderSettingsView({
       status: createStatus({
         phase: 'running',
@@ -134,7 +134,8 @@ describe('SettingsView library scan panel', () => {
 
     await screen.findByText('/music');
 
-    expect(screen.getByText('Incremental sync in progress')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy();
+    expect(screen.getAllByText('Incremental sync in progress').length).toBeGreaterThan(0);
     expect(
       screen.getByText(
         'Default rescans compare your selected folders against the library and only apply changes.',
@@ -142,22 +143,31 @@ describe('SettingsView library scan panel', () => {
     ).toBeTruthy();
     expect(screen.getByText('/music/new-track.flac')).toBeTruthy();
 
+    const scanStatus = document.querySelector('[data-testid="settings-scan-status"]');
+    expect(scanStatus?.getAttribute('data-tone')).toBe('active');
+
     const summary = screen.getByRole('list', { name: 'Scan summary' });
     expect(within(summary).getByText('Files checked')).toBeTruthy();
-    expect(within(summary).getByText('Added')).toBeTruthy();
-    expect(within(summary).getByText('Changed')).toBeTruthy();
-    expect(within(summary).getByText('Unchanged')).toBeTruthy();
-    expect(within(summary).getByText('Restored')).toBeTruthy();
-    expect(within(summary).getByText('Missing')).toBeTruthy();
-    expect(within(summary).getByText('Errors')).toBeTruthy();
+    expect(within(summary).getByText('Added').closest('li')?.getAttribute('data-tone')).toBe('success');
+    expect(within(summary).getByText('Changed').closest('li')?.getAttribute('data-tone')).toBe('success');
+    expect(within(summary).getByText('Restored').closest('li')?.getAttribute('data-tone')).toBe('success');
+    expect(within(summary).getByText('Missing').closest('li')?.getAttribute('data-tone')).toBe('warning');
+    expect(within(summary).getByText('Errors').closest('li')?.getAttribute('data-tone')).toBe('danger');
 
-    expect(screen.getByText('Latest scan error')).toBeTruthy();
+    expect(screen.getByText('Latest scan error').closest('[data-tone="danger"]')).not.toBeNull();
     expect(
       screen.getByText('/offline-drive — Root path does not exist or is not a directory'),
     ).toBeTruthy();
+
     const fullScanButton = screen.getByRole('button', { name: 'Full Scan' });
     expect(fullScanButton.getAttribute('disabled')).not.toBeNull();
-    expect(screen.getByRole('button', { name: /cancel scan/i })).toBeTruthy();
+    expect(fullScanButton.getAttribute('data-variant')).toBe('secondary');
+
+    const cancelButton = screen.getByRole('button', { name: /cancel scan/i });
+    expect(cancelButton.getAttribute('data-variant')).toBe('danger');
+
+    const systemThemeOption = screen.getByText('Follow System').closest('[data-active]');
+    expect(systemThemeOption?.getAttribute('data-active')).toBe('true');
   });
 
   it('keeps refresh and full-scan actions wired through the settings controls', async () => {
@@ -195,5 +205,32 @@ describe('SettingsView library scan panel', () => {
     await fireEvent.click(screen.getByRole('button', { name: /cancel scan/i }));
 
     expect(cancelLibraryScan).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks clean completed scans as success and preserves disabled maintenance controls', async () => {
+    renderSettingsView({
+      status: createStatus({
+        phase: 'completed',
+        mode: 'full',
+        processed_files: 24,
+        inserted_tracks: 2,
+        changed_tracks: 0,
+        unchanged_files: 22,
+        restored_tracks: 0,
+        missing_tracks: 0,
+        error_count: 0,
+      }),
+      isScanning: false,
+    });
+
+    await screen.findByText('/music');
+
+    expect(screen.getAllByText('Full scan complete').length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-testid="settings-scan-status"]')?.getAttribute('data-tone')).toBe(
+      'success',
+    );
+    expect(
+      (screen.getByRole('button', { name: 'Advanced audio settings' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });

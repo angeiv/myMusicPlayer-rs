@@ -1,5 +1,16 @@
 import type { OutputDeviceInfo } from '../types';
 
+export function describeSelectedOutputDevice(
+  outputDevices: OutputDeviceInfo[],
+  selectedDeviceId: string,
+): string {
+  if (!selectedDeviceId || selectedDeviceId === 'default') {
+    return 'System default';
+  }
+
+  return outputDevices.find((device) => device.id === selectedDeviceId)?.name ?? 'System default';
+}
+
 export async function hydrateOutputDeviceState(deps: {
   getOutputDevices: () => Promise<OutputDeviceInfo[]>;
   getOutputDevice: () => Promise<string | null>;
@@ -16,7 +27,7 @@ export async function switchOutputDeviceWithHydration(
     getOutputDevice: () => Promise<string | null>;
   },
   requestedDeviceId: string,
-  previousDeviceId: string
+  previousDeviceId: string,
 ): Promise<{ selectedDeviceId: string; committed: boolean }> {
   const normalize = (value: string | null | undefined) => value ?? 'default';
 
@@ -34,4 +45,3 @@ export async function switchOutputDeviceWithHydration(
     }
   }
 }
-

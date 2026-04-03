@@ -2,6 +2,10 @@
   import { onMount } from 'svelte';
   import { createEventDispatcher } from 'svelte';
   import type { Readable } from 'svelte/store';
+
+  import EmptyState from '../components/ui/EmptyState.svelte';
+  import PageHeader from '../components/ui/PageHeader.svelte';
+  import SurfacePanel from '../components/ui/SurfacePanel.svelte';
   import { applyThemeToDocument } from '../features/app-shell/theme';
   import {
     buildNextConfigForSettingsSave,
@@ -23,6 +27,7 @@
     setVolume,
   } from '../api/playback';
   import {
+    describeSelectedOutputDevice,
     hydrateOutputDeviceState,
     switchOutputDeviceWithHydration,
   } from './settings-output-device';
@@ -41,6 +46,28 @@
   export let runFullLibraryScan: (paths: string[]) => Promise<ScanStatus>;
   export let cancelLibraryScan: () => Promise<void>;
 
+  const themeOptions: Array<{
+    value: ThemeOption;
+    label: string;
+    description: string;
+  }> = [
+    {
+      value: 'light',
+      label: 'Light',
+      description: 'Use the calm neutral light theme for the full app shell.',
+    },
+    {
+      value: 'dark',
+      label: 'Dark',
+      description: 'Use the dark theme with the same playback and library hierarchy.',
+    },
+    {
+      value: 'system',
+      label: 'Follow System',
+      description: 'Match the current operating-system theme automatically.',
+    },
+  ];
+
   let libraryPaths: string[] = [];
   let isUpdatingPaths = false;
   let theme: ThemeOption = 'system';
@@ -51,6 +78,7 @@
   let appVersion = 'unknown';
 
   $: scanPresentation = buildSettingsLibraryScanPresentation($scanStatus);
+  $: activeOutputDeviceLabel = describeSelectedOutputDevice(outputDevices, selectedDeviceId);
 
   onMount(async () => {
     await loadLibraryPaths();
@@ -247,23 +275,51 @@
 </script>
 
 <section class="settings">
-  <h2>Settings</h2>
+  <PageHeader title="Settings" subtitle="Manage library maintenance, appearance, playback output, and app details.">
+    <div slot="actions" class="header-chip">
+      <span>Version {appVersion || 'unknown'}</span>
+      <small>Desktop build</small>
+    </div>
+  </PageHeader>
 
-  <div class="grid">
-    <section class="panel">
-      <header>
-        <h3>Library</h3>
-        <p>Manage your music folders</p>
-      </header>
-      <div class="content">
+  <div class="settings-grid">
+    <SurfacePanel padding="spacious">
+      <div class="panel-head">
+        <div class="panel-copy">
+          <span class="eyebrow">Maintenance</span>
+          <h3>Library</h3>
+          <p>Manage the watched folders and use the same scan controls in both themes.</p>
+        </div>
+        <span class="status-pill" data-tone={scanPresentation.statusTone}>{scanPresentation.title}</span>
+      </div>
+
+      <div class="panel-body">
         {#if libraryPaths.length === 0}
-          <p class="muted">No folders selected yet.</p>
+          <EmptyState
+            title="No folders selected yet"
+            body="Add one or more folders to start scanning and keep your library in sync."
+            align="start"
+          >
+            <button
+              slot="actions"
+              class="settings-button"
+              data-variant="primary"
+              type="button"
+              on:click={handleAddFolder}
+              disabled={isUpdatingPaths}
+            >
+              Add Folder
+            </button>
+          </EmptyState>
         {:else}
-          <ul class="paths">
+          <ul class="settings-list paths">
             {#each libraryPaths as path}
               <li>
                 <span>{path}</span>
                 <button
+                  class="settings-button settings-button--compact"
+                  data-variant="danger"
+                  type="button"
                   on:click={() => handleRemovePath(path)}
                   disabled={isUpdatingPaths}
                   aria-label={`Remove folder ${path}`}
@@ -275,7 +331,11 @@
           </ul>
         {/if}
 
-        <div class="scan-status">
+        <div
+          class="scan-status"
+          data-testid="settings-scan-status"
+          data-tone={scanPresentation.statusTone}
+        >
           <div class="scan-status-headline" role="status" aria-live="polite" aria-atomic="true">
             <span class="scan-phase">{scanPresentation.title}</span>
           </div>
@@ -284,14 +344,14 @@
 
           {#if scanPresentation.currentPath}
             <div class="scan-status-row">
-              <span class="muted">{scanPresentation.currentPathLabel}</span>
+              <span class="scan-label">{scanPresentation.currentPathLabel}</span>
               <span class="scan-current">{scanPresentation.currentPath}</span>
             </div>
           {/if}
 
           <ul class="scan-metrics" aria-label="Scan summary">
             {#each scanPresentation.metrics as metric}
-              <li class:scan-metric-danger={metric.tone === 'danger'}>
+              <li data-tone={metric.tone ?? 'default'}>
                 <span>{metric.label}</span>
                 <strong>{metric.value}</strong>
               </li>
@@ -299,83 +359,121 @@
           </ul>
 
           {#if scanPresentation.sampleError}
-            <div class="scan-error-sample" role="note">
-              <span class="muted">{scanPresentation.sampleError.title}</span>
+            <div class="scan-callout" data-tone="danger" role="note">
+              <span class="scan-label">{scanPresentation.sampleError.title}</span>
               <p class="scan-error-message">{scanPresentation.sampleError.description}</p>
             </div>
           {/if}
         </div>
       </div>
-      <footer>
-        <button class="primary" on:click={handleAddFolder} disabled={isUpdatingPaths}>
-          ➕ Add Folder
+
+      <div class="action-row">
+        <button
+          class="settings-button"
+          data-variant="primary"
+          type="button"
+          on:click={handleAddFolder}
+          disabled={isUpdatingPaths}
+        >
+          Add Folder
         </button>
         <button
+          class="settings-button"
+          data-variant="secondary"
+          type="button"
           on:click={handleRescan}
           disabled={libraryPaths.length === 0 || isUpdatingPaths || $isScanning}
         >
-          🔄 Rescan Now
+          Rescan Now
         </button>
         <button
+          class="settings-button"
+          data-variant="secondary"
+          type="button"
           on:click={handleFullScan}
           disabled={libraryPaths.length === 0 || isUpdatingPaths || $isScanning}
         >
           Full Scan
         </button>
         {#if $isScanning}
-          <button class="danger" on:click={handleCancelScan} disabled={isUpdatingPaths}>
-            ✋ Cancel Scan
+          <button
+            class="settings-button"
+            data-variant="danger"
+            type="button"
+            on:click={handleCancelScan}
+            disabled={isUpdatingPaths}
+          >
+            Cancel Scan
           </button>
         {/if}
-      </footer>
-    </section>
+      </div>
+    </SurfacePanel>
 
-    <section class="panel">
-      <header>
-        <h3>Appearance</h3>
-        <p>Customize the interface</p>
-      </header>
-      <div class="content">
-        <div class="theme-options" on:change={handleThemeChange}>
-          <label>
-            <input type="radio" name="theme" value="light" checked={theme === 'light'} />
-            <span>Light</span>
-          </label>
-          <label>
-            <input type="radio" name="theme" value="dark" checked={theme === 'dark'} />
-            <span>Dark</span>
-          </label>
-          <label>
-            <input type="radio" name="theme" value="system" checked={theme === 'system'} />
-            <span>Follow System</span>
-          </label>
+    <SurfacePanel padding="spacious">
+      <div class="panel-head">
+        <div class="panel-copy">
+          <span class="eyebrow">Appearance</span>
+          <h3>Theme</h3>
+          <p>Keep dark and light on the same shell and playback hierarchy.</p>
         </div>
-        <label class="toggle">
+      </div>
+
+      <div class="panel-body panel-body--stacked">
+        <div class="option-grid" on:change={handleThemeChange} role="radiogroup" aria-label="Theme options">
+          {#each themeOptions as option}
+            <label class="option-card" data-active={theme === option.value ? 'true' : 'false'}>
+              <input type="radio" name="theme" value={option.value} checked={theme === option.value} />
+              <span class="option-copy">
+                <strong>{option.label}</strong>
+                <small>{option.description}</small>
+              </span>
+            </label>
+          {/each}
+        </div>
+
+        <label class="toggle-row">
+          <span>
+            <strong>Scan library on startup</strong>
+            <small>Automatically run the default sync flow when the app launches.</small>
+          </span>
           <input type="checkbox" checked={autoScan} on:change={handleAutoScanChange} />
-          <span>Scan library on startup</span>
         </label>
-        <label class="slider">
-          <span>Default volume</span>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={Math.round(defaultVolume * 100)}
-            on:input={handleDefaultVolumeChange}
-          />
-          <span class="value">{Math.round(defaultVolume * 100)}%</span>
+
+        <label class="slider-row">
+          <span>
+            <strong>Default volume</strong>
+            <small>Apply this level to the player before playback starts.</small>
+          </span>
+          <div class="slider-control">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={Math.round(defaultVolume * 100)}
+              on:input={handleDefaultVolumeChange}
+            />
+            <span class="slider-value">{Math.round(defaultVolume * 100)}%</span>
+          </div>
         </label>
       </div>
-    </section>
+    </SurfacePanel>
 
-    <section class="panel">
-      <header>
-        <h3>Audio</h3>
-        <p>Playback device</p>
-      </header>
-      <div class="content">
-        <label class="select">
-          <span>Output device</span>
+    <SurfacePanel padding="spacious">
+      <div class="panel-head">
+        <div class="panel-copy">
+          <span class="eyebrow">Playback</span>
+          <h3>Audio</h3>
+          <p>Route playback to the right device and keep the selected output visible.</p>
+        </div>
+        <span class="status-pill" data-tone="active">{activeOutputDeviceLabel}</span>
+      </div>
+
+      <div class="panel-body panel-body--stacked">
+        <label class="field">
+          <span>
+            <strong>Output device</strong>
+            <small>Current output: {activeOutputDeviceLabel}</small>
+          </span>
           <select on:change={handleOutputDeviceChange} value={selectedDeviceId}>
             <option value="default">System default</option>
             {#each outputDevices as device}
@@ -386,18 +484,25 @@
           </select>
         </label>
       </div>
-      <footer>
-        <button disabled title="Coming soon">Advanced audio settings</button>
-      </footer>
-    </section>
 
-    <section class="panel">
-      <header>
-        <h3>About</h3>
-        <p>Application information</p>
-      </header>
-      <div class="content about">
-        <dl>
+      <div class="action-row">
+        <button class="settings-button" data-variant="secondary" type="button" disabled title="Coming soon">
+          Advanced audio settings
+        </button>
+      </div>
+    </SurfacePanel>
+
+    <SurfacePanel padding="spacious">
+      <div class="panel-head">
+        <div class="panel-copy">
+          <span class="eyebrow">Maintenance</span>
+          <h3>About</h3>
+          <p>Quick application info and a lightweight playlist refresh control.</p>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <dl class="about-grid">
           <div>
             <dt>Version</dt>
             <dd>{appVersion || 'unknown'}</dd>
@@ -412,63 +517,115 @@
           </div>
         </dl>
       </div>
-      <footer>
-        <button on:click={() => dispatch('refreshPlaylists')}>Reload playlists</button>
-      </footer>
-    </section>
+
+      <div class="action-row">
+        <button class="settings-button" data-variant="secondary" type="button" on:click={() => dispatch('refreshPlaylists')}>
+          Reload playlists
+        </button>
+      </div>
+    </SurfacePanel>
   </div>
 </section>
 
 <style>
   .settings {
     padding: 32px 48px;
-    color: var(--app-fg);
+    color: var(--text-primary);
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 20px;
   }
 
-  h2 {
-    margin: 0;
-    font-size: 1.8rem;
-    color: var(--app-fg);
+  .header-chip,
+  .status-pill {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.18rem;
+    min-width: 0;
+    padding: 0.8rem 1rem;
+    border-radius: 18px;
+    border: 1px solid var(--border-default);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
+    color: var(--text-primary);
+    text-align: right;
   }
 
-  .grid {
+  .header-chip small {
+    color: var(--text-tertiary);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .status-pill[data-tone='active'] {
+    border-color: color-mix(in srgb, var(--accent) 22%, var(--border-default));
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface-panel));
+    box-shadow: var(--shadow-soft);
+  }
+
+  .status-pill[data-tone='success'] {
+    border-color: color-mix(in srgb, #22c55e 30%, var(--border-default));
+    background: color-mix(in srgb, var(--state-success) 52%, var(--surface-panel));
+  }
+
+  .status-pill[data-tone='warning'] {
+    border-color: color-mix(in srgb, #f59e0b 28%, var(--border-default));
+    background: color-mix(in srgb, var(--state-warning) 52%, var(--surface-panel));
+  }
+
+  .status-pill[data-tone='danger'] {
+    border-color: color-mix(in srgb, #ef4444 28%, var(--border-default));
+    background: color-mix(in srgb, var(--state-danger) 54%, var(--surface-panel));
+  }
+
+  .settings-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 24px;
+    gap: 20px;
   }
 
-  .panel {
-    background: rgba(15, 23, 42, 0.78);
-    border-radius: 20px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
+  .panel-head {
     display: flex;
-    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
   }
 
-  header {
-    padding: 20px 24px 12px 24px;
+  .panel-copy {
+    display: grid;
+    gap: 0.35rem;
   }
 
-  header h3 {
+  .eyebrow {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+
+  .panel-copy h3 {
     margin: 0;
-    font-size: 1.2rem;
-    color: #f8fafc;
+    font-size: 1.15rem;
+    color: var(--text-primary);
   }
 
-  header p {
-    margin: 6px 0 0 0;
-    color: rgba(148, 163, 184, 0.75);
+  .panel-copy p {
+    margin: 0;
+    color: var(--text-secondary);
+    line-height: 1.5;
   }
 
-  .content {
-    padding: 0 24px 16px 24px;
-    flex: 1;
+  .panel-body {
+    display: grid;
+    gap: 1rem;
   }
 
-  .paths {
+  .panel-body--stacked {
+    gap: 1.25rem;
+  }
+
+  .settings-list {
     list-style: none;
     margin: 0;
     padding: 0;
@@ -477,49 +634,73 @@
     gap: 12px;
   }
 
-  .paths li {
+  .settings-list li {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: rgba(30, 41, 59, 0.4);
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
   }
 
-  .paths span {
+  .settings-list span {
     overflow-wrap: anywhere;
   }
 
-  .paths button {
-    border: none;
-    border-radius: 8px;
-    padding: 6px 12px;
-    background: rgba(239, 68, 68, 0.25);
-    color: #fecaca;
-    cursor: pointer;
-  }
-
-  .paths button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   .scan-status {
-    margin-top: 16px;
-    padding: 12px;
-    border-radius: 12px;
-    background: rgba(30, 41, 59, 0.4);
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    font-size: 0.95rem;
+    display: grid;
+    gap: 0.9rem;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 90%, transparent);
+  }
+
+  .scan-status[data-tone='active'] {
+    border-color: color-mix(in srgb, var(--accent) 22%, var(--border-default));
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-panel-subtle));
+  }
+
+  .scan-status[data-tone='success'] {
+    border-color: color-mix(in srgb, #22c55e 24%, var(--border-default));
+    background: color-mix(in srgb, var(--state-success) 42%, var(--surface-panel-subtle));
+  }
+
+  .scan-status[data-tone='warning'] {
+    border-color: color-mix(in srgb, #f59e0b 24%, var(--border-default));
+    background: color-mix(in srgb, var(--state-warning) 42%, var(--surface-panel-subtle));
+  }
+
+  .scan-status[data-tone='danger'] {
+    border-color: color-mix(in srgb, #ef4444 24%, var(--border-default));
+    background: color-mix(in srgb, var(--state-danger) 42%, var(--surface-panel-subtle));
   }
 
   .scan-status-headline {
     display: flex;
     align-items: baseline;
     gap: 12px;
+  }
+
+  .scan-phase {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .scan-description,
+  .scan-current,
+  .scan-label,
+  .scan-error-message {
+    color: var(--text-secondary);
+    line-height: 1.45;
+  }
+
+  .scan-description,
+  .scan-error-message {
+    margin: 0;
   }
 
   .scan-status-row {
@@ -529,22 +710,9 @@
     gap: 12px;
   }
 
-  .scan-phase {
-    color: #f8fafc;
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-  }
-
-  .scan-description {
-    margin: 0;
-    color: rgba(226, 232, 240, 0.82);
-    line-height: 1.45;
-  }
-
   .scan-current {
-    overflow-wrap: anywhere;
     text-align: right;
-    color: rgba(226, 232, 240, 0.9);
+    overflow-wrap: anywhere;
   }
 
   .scan-metrics {
@@ -562,131 +730,230 @@
     flex-direction: column;
     gap: 4px;
     padding: 10px 12px;
-    border-radius: 10px;
-    background: rgba(15, 23, 42, 0.45);
-    color: rgba(148, 163, 184, 0.85);
+    border-radius: 12px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-panel) 88%, transparent);
+    color: var(--text-secondary);
   }
 
-  .scan-metrics strong {
-    color: #f8fafc;
+  .scan-metrics li strong {
+    color: var(--text-primary);
     font-size: 1rem;
   }
 
-  .scan-metric-danger {
-    border: 1px solid rgba(248, 113, 113, 0.28);
-    color: #fecaca;
+  .scan-metrics li[data-tone='success'] {
+    border-color: color-mix(in srgb, #22c55e 20%, var(--border-default));
+    background: color-mix(in srgb, var(--state-success) 40%, var(--surface-panel));
   }
 
-  .scan-metric-danger strong {
-    color: #fecaca;
+  .scan-metrics li[data-tone='warning'] {
+    border-color: color-mix(in srgb, #f59e0b 20%, var(--border-default));
+    background: color-mix(in srgb, var(--state-warning) 42%, var(--surface-panel));
   }
 
-  .scan-error-sample {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: rgba(127, 29, 29, 0.22);
-    border: 1px solid rgba(248, 113, 113, 0.24);
+  .scan-metrics li[data-tone='danger'] {
+    border-color: color-mix(in srgb, #ef4444 22%, var(--border-default));
+    background: color-mix(in srgb, var(--state-danger) 44%, var(--surface-panel));
   }
 
-  .scan-error-message {
-    margin: 0;
-    color: #fecaca;
-    overflow-wrap: anywhere;
-    line-height: 1.4;
+  .scan-callout {
+    display: grid;
+    gap: 0.35rem;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, #ef4444 22%, var(--border-default));
+    background: color-mix(in srgb, var(--state-danger) 48%, var(--surface-panel));
   }
 
-  footer {
-    padding: 0 24px 20px 24px;
+  .action-row {
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
+    margin-top: 1rem;
   }
 
-  footer button {
-    border: none;
+  .settings-button {
+    border: 1px solid var(--border-default);
     border-radius: 999px;
-    padding: 10px 20px;
+    padding: 10px 18px;
+    font-weight: 600;
     cursor: pointer;
-    background: rgba(30, 41, 59, 0.6);
-    color: #bfdbfe;
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
+    color: var(--text-primary);
+    transition:
+      transform 0.16s ease,
+      box-shadow 0.16s ease,
+      border-color 0.16s ease,
+      background 0.16s ease;
   }
 
-  footer button:disabled {
+  .settings-button:hover:not(:disabled),
+  .settings-button:focus-visible:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-soft);
+    outline: none;
+  }
+
+  .settings-button[data-variant='primary'] {
+    border-color: color-mix(in srgb, var(--accent) 20%, var(--border-default));
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface-panel));
+    box-shadow: var(--glow-accent);
+  }
+
+  .settings-button[data-variant='secondary'] {
+    background: color-mix(in srgb, var(--surface-panel-subtle) 92%, transparent);
+  }
+
+  .settings-button[data-variant='danger'] {
+    border-color: color-mix(in srgb, #ef4444 24%, var(--border-default));
+    background: color-mix(in srgb, var(--state-danger) 54%, var(--surface-panel));
+  }
+
+  .settings-button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
   }
 
-  .primary {
-    background: rgba(34, 197, 94, 0.3);
-    color: #dcfce7;
-    box-shadow: 0 12px 24px rgba(34, 197, 94, 0.2);
+  .settings-button--compact {
+    padding: 6px 12px;
+    font-size: 0.82rem;
   }
 
-  .danger {
-    background: rgba(239, 68, 68, 0.25);
-    color: #fecaca;
+  .option-grid {
+    display: grid;
+    gap: 12px;
   }
 
-  .muted {
-    color: rgba(148, 163, 184, 0.75);
-  }
-
-  .theme-options {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .theme-options label {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: rgba(30, 41, 59, 0.4);
+  .option-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
     cursor: pointer;
+    transition:
+      border-color 0.16s ease,
+      box-shadow 0.16s ease,
+      transform 0.16s ease;
   }
 
-  .theme-options input {
-    accent-color: #60a5fa;
+  .option-card[data-active='true'] {
+    border-color: color-mix(in srgb, var(--accent) 22%, var(--border-default));
+    background: color-mix(in srgb, var(--state-selected) 64%, var(--surface-panel));
+    box-shadow: var(--shadow-soft);
   }
 
-  .select {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  .option-card:hover,
+  .option-card:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 18%, var(--border-default));
+    box-shadow: var(--shadow-soft);
+    transform: translateY(-1px);
+  }
+
+  .option-card input {
+    margin-top: 2px;
+    accent-color: var(--accent);
+  }
+
+  .option-copy {
+    display: grid;
+    gap: 0.2rem;
+  }
+
+  .option-copy strong,
+  .toggle-row strong,
+  .slider-row strong,
+  .field strong {
+    color: var(--text-primary);
+  }
+
+  .option-copy small,
+  .toggle-row small,
+  .slider-row small,
+  .field small {
+    color: var(--text-secondary);
+    line-height: 1.45;
+  }
+
+  .toggle-row,
+  .slider-row,
+  .field {
+    display: grid;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
+  }
+
+  .toggle-row {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+
+  .toggle-row input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+  }
+
+  .slider-control {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .slider-value {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    font-weight: 600;
   }
 
   select {
-    border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    width: 100%;
+    border-radius: 14px;
+    border: 1px solid var(--border-default);
     padding: 10px 12px;
-    background: rgba(15, 23, 42, 0.6);
-    color: inherit;
+    background: color-mix(in srgb, var(--surface-panel) 94%, transparent);
+    color: var(--text-primary);
   }
 
-  .about dl {
+  .about-grid {
     margin: 0;
     display: grid;
     grid-template-columns: auto 1fr;
     gap: 12px 16px;
   }
 
-  dt {
-    color: rgba(148, 163, 184, 0.75);
+  .about-grid dt {
+    color: var(--text-tertiary);
   }
 
-  dd {
+  .about-grid dd {
     margin: 0;
-    color: #f8fafc;
+    color: var(--text-primary);
   }
 
   @media (max-width: 820px) {
     .settings {
       padding: 24px;
+    }
+
+    .panel-head {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .header-chip,
+    .status-pill {
+      align-items: flex-start;
+      text-align: left;
     }
   }
 </style>

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  describeSelectedOutputDevice,
   hydrateOutputDeviceState,
   switchOutputDeviceWithHydration,
 } from '../lib/views/settings-output-device';
@@ -19,6 +20,16 @@ describe('settings output device state helpers', () => {
       outputDevices: [{ id: 'usb-dac', name: 'USB DAC', is_default: false }],
       selectedDeviceId: 'usb-dac',
     });
+  });
+
+  it('describes the selected output device for maintenance surfaces', () => {
+    expect(
+      describeSelectedOutputDevice(
+        [{ id: 'usb-dac', name: 'USB DAC', is_default: false }],
+        'usb-dac',
+      ),
+    ).toBe('USB DAC');
+    expect(describeSelectedOutputDevice([], 'default')).toBe('System default');
   });
 
   it('rolls UI selection back to actual device when switch fails', async () => {
