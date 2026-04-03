@@ -163,6 +163,7 @@ pub fn run() {
             crate::api::library::has_library_tracks,
             crate::api::library::start_library_scan,
             crate::api::library::get_library_scan_status,
+            crate::api::library::get_library_watcher_status,
             crate::api::library::cancel_library_scan,
             crate::api::library::get_tracks,
             crate::api::library::get_track,

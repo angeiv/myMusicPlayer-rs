@@ -1,8 +1,10 @@
 import {
+  createLibraryWatcherStatus,
   createScanStatus,
   type Album,
   type Artist,
   type LibraryScanRequest,
+  type LibraryWatcherStatus,
   type ScanMode,
   type ScanStatus,
   type SearchResults,
@@ -21,6 +23,7 @@ import {
 } from '../../mocks/library';
 
 let scanStatus: ScanStatus = createScanStatus();
+let watcherStatus: LibraryWatcherStatus = createLibraryWatcherStatus();
 
 function normalizeLibraryScanRequest(
   requestOrPaths: LibraryScanRequest | string[],
@@ -55,10 +58,26 @@ export async function startLibraryScan(
     started_at_ms: now,
     ended_at_ms: now,
   });
+  watcherStatus = createLibraryWatcherStatus({
+    watched_roots: [...request.paths],
+    dirty_roots: [],
+    queued_follow_up: false,
+    active_scan_phase: null,
+    last_requested_scan: {
+      requested_at_ms: now,
+      roots: [...request.paths],
+    },
+    last_trigger: null,
+    last_error: null,
+  });
 }
 
 export async function getLibraryScanStatus(): Promise<ScanStatus> {
   return createScanStatus(scanStatus);
+}
+
+export async function getLibraryWatcherStatus(): Promise<LibraryWatcherStatus> {
+  return createLibraryWatcherStatus(watcherStatus);
 }
 
 export async function cancelLibraryScan(): Promise<void> {

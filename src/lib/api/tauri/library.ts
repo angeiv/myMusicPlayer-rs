@@ -4,6 +4,7 @@ import type {
   Album,
   Artist,
   LibraryScanRequest,
+  LibraryWatcherStatus,
   ScanStatus,
   SearchResults,
   Track,
@@ -90,6 +91,10 @@ export async function startLibraryScan(
 
 export async function getLibraryScanStatus(): Promise<ScanStatus> {
   return invoke<ScanStatus>('get_library_scan_status');
+}
+
+export async function getLibraryWatcherStatus(): Promise<LibraryWatcherStatus> {
+  return invoke<LibraryWatcherStatus>('get_library_watcher_status');
 }
 
 export async function cancelLibraryScan(): Promise<void> {

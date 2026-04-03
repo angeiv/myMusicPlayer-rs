@@ -161,3 +161,79 @@ export function createScanStatus(overrides: Partial<ScanStatus> = {}): ScanStatu
     sample_errors,
   };
 }
+
+export interface LibraryWatcherScanRequest {
+  requested_at_ms: number;
+  roots: string[];
+}
+
+export interface LibraryWatcherTriggerMetadata {
+  triggered_at_ms: number;
+  event_count: number;
+  observed_paths: string[];
+  dirty_roots: string[];
+}
+
+export interface LibraryWatcherStatus {
+  watched_roots: string[];
+  dirty_roots: string[];
+  queued_follow_up: boolean;
+  active_scan_phase?: ScanPhase | null;
+  last_requested_scan?: LibraryWatcherScanRequest | null;
+  last_trigger?: LibraryWatcherTriggerMetadata | null;
+  last_error?: string | null;
+}
+
+function cloneLibraryWatcherScanRequest(
+  request?: LibraryWatcherScanRequest | null,
+): LibraryWatcherScanRequest | null {
+  if (!request) {
+    return null;
+  }
+
+  return {
+    ...request,
+    roots: [...request.roots],
+  };
+}
+
+function cloneLibraryWatcherTriggerMetadata(
+  trigger?: LibraryWatcherTriggerMetadata | null,
+): LibraryWatcherTriggerMetadata | null {
+  if (!trigger) {
+    return null;
+  }
+
+  return {
+    ...trigger,
+    observed_paths: [...trigger.observed_paths],
+    dirty_roots: [...trigger.dirty_roots],
+  };
+}
+
+export function createLibraryWatcherStatus(
+  overrides: Partial<LibraryWatcherStatus> = {},
+): LibraryWatcherStatus {
+  const watched_roots = [...(overrides.watched_roots ?? [])];
+  const dirty_roots = [...(overrides.dirty_roots ?? [])];
+  const last_requested_scan = cloneLibraryWatcherScanRequest(overrides.last_requested_scan);
+  const last_trigger = cloneLibraryWatcherTriggerMetadata(overrides.last_trigger);
+
+  const status: LibraryWatcherStatus = {
+    watched_roots: [],
+    dirty_roots: [],
+    queued_follow_up: false,
+    active_scan_phase: null,
+    last_requested_scan: null,
+    last_trigger: null,
+    last_error: null,
+    ...overrides,
+  };
+
+  status.watched_roots = watched_roots;
+  status.dirty_roots = dirty_roots;
+  status.last_requested_scan = last_requested_scan;
+  status.last_trigger = last_trigger;
+
+  return status;
+}

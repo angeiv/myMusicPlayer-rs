@@ -8,6 +8,7 @@ export const scanDirectory = impl.scanDirectory;
 export const hasLibraryTracks = impl.hasLibraryTracks;
 export const startLibraryScan = impl.startLibraryScan;
 export const getLibraryScanStatus = impl.getLibraryScanStatus;
+export const getLibraryWatcherStatus = impl.getLibraryWatcherStatus;
 export const cancelLibraryScan = impl.cancelLibraryScan;
 export const getTracks = impl.getTracks;
 export const getTrack = impl.getTrack;

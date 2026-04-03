@@ -10,6 +10,7 @@ use notify_debouncer_full::{
     new_debouncer,
     notify::{EventKind, RecommendedWatcher, RecursiveMode},
 };
+use serde::{Deserialize, Serialize};
 
 use super::{
     LibraryPathKind, LibraryPathVisibility, ScanPhase, classify_library_path,
@@ -60,12 +61,29 @@ pub enum WatcherRuntimeOutcome {
     Scheduled(WatcherScheduleAction),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WatcherTriggerMetadata {
     pub triggered_at_ms: i64,
     pub event_count: usize,
     pub observed_paths: Vec<PathBuf>,
     pub dirty_roots: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WatcherScanRequestMetadata {
+    pub requested_at_ms: i64,
+    pub roots: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryWatcherStatus {
+    pub watched_roots: Vec<PathBuf>,
+    pub dirty_roots: Vec<PathBuf>,
+    pub queued_follow_up: bool,
+    pub active_scan_phase: Option<ScanPhase>,
+    pub last_requested_scan: Option<WatcherScanRequestMetadata>,
+    pub last_trigger: Option<WatcherTriggerMetadata>,
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -77,6 +95,7 @@ pub struct WatcherCoordinatorState {
     pub last_attempted_at_ms: Option<i64>,
     pub last_scheduler_error: Option<String>,
     pub last_runtime_error: Option<String>,
+    pub last_error: Option<String>,
     pub last_trigger: Option<WatcherTriggerMetadata>,
 }
 
@@ -90,7 +109,36 @@ impl WatcherCoordinatorState {
     }
 
     pub fn set_runtime_error(&mut self, error: Option<String>) {
+        if let Some(message) = error.as_ref() {
+            self.last_error = Some(message.clone());
+        }
+
         self.last_runtime_error = error;
+    }
+
+    pub fn set_scheduler_error(&mut self, error: Option<String>) {
+        if let Some(message) = error.as_ref() {
+            self.last_error = Some(message.clone());
+        }
+
+        self.last_scheduler_error = error;
+    }
+
+    pub fn snapshot(&self, scan_phase: ScanPhase) -> LibraryWatcherStatus {
+        LibraryWatcherStatus {
+            watched_roots: dedupe_overlapping_roots(&self.watched_roots),
+            dirty_roots: dedupe_overlapping_roots(&self.dirty_roots),
+            queued_follow_up: self.queued_follow_up,
+            active_scan_phase: is_scan_phase_active(scan_phase).then_some(scan_phase),
+            last_requested_scan: self.last_attempted_at_ms.map(|requested_at_ms| {
+                WatcherScanRequestMetadata {
+                    requested_at_ms,
+                    roots: dedupe_overlapping_roots(&self.last_attempted_roots),
+                }
+            }),
+            last_trigger: self.last_trigger.clone(),
+            last_error: self.last_error.clone(),
+        }
     }
 
     pub fn set_last_trigger(
@@ -168,7 +216,7 @@ impl WatcherCoordinatorState {
     {
         if !is_scan_phase_terminal(scan_phase) {
             let message = "watcher scheduler expected a terminal scan phase".to_string();
-            self.last_scheduler_error = Some(message.clone());
+            self.set_scheduler_error(Some(message.clone()));
             return Err(message);
         }
 
@@ -178,7 +226,7 @@ impl WatcherCoordinatorState {
 
         if self.dirty_roots.is_empty() {
             let message = "watcher scheduler queued follow-up without dirty roots".to_string();
-            self.last_scheduler_error = Some(message.clone());
+            self.set_scheduler_error(Some(message.clone()));
             return Err(message);
         }
 
@@ -208,13 +256,13 @@ impl WatcherCoordinatorState {
         match launch_scan(roots.clone()) {
             Ok(()) => {
                 self.queued_follow_up = false;
-                self.last_scheduler_error = None;
+                self.set_scheduler_error(None);
                 Ok(WatcherScheduleAction::Launched)
             }
             Err(err) => {
                 self.merge_dirty_roots(&roots);
                 self.queued_follow_up = preserve_follow_up_on_error;
-                self.last_scheduler_error = Some(err.clone());
+                self.set_scheduler_error(Some(err.clone()));
                 Err(err)
             }
         }

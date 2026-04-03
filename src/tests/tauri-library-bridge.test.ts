@@ -9,6 +9,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 import {
   cancelLibraryScan,
   getLibraryScanStatus,
+  getLibraryWatcherStatus,
   getTrack,
   getTracks,
   hasLibraryTracks,
@@ -18,11 +19,19 @@ import {
 } from '../lib/api/tauri/library';
 import {
   getLibraryScanStatus as getMockLibraryScanStatus,
+  getLibraryWatcherStatus as getMockLibraryWatcherStatus,
   getTracks as getMockTracks,
   hasLibraryTracks as getMockHasLibraryTracks,
   startLibraryScan as startMockLibraryScan,
 } from '../lib/api/mock/library';
-import { createScanStatus, type LibraryScanRequest, type ScanStatus, type Track } from '../lib/types';
+import {
+  createLibraryWatcherStatus,
+  createScanStatus,
+  type LibraryScanRequest,
+  type LibraryWatcherStatus,
+  type ScanStatus,
+  type Track,
+} from '../lib/types';
 
 function createTrack(overrides: Partial<Track> = {}): Track {
   return {
@@ -51,6 +60,10 @@ function createTrack(overrides: Partial<Track> = {}): Track {
 
 function createStatus(overrides: Partial<ScanStatus> = {}): ScanStatus {
   return createScanStatus(overrides);
+}
+
+function createWatcherStatus(overrides: Partial<LibraryWatcherStatus> = {}): LibraryWatcherStatus {
+  return createLibraryWatcherStatus(overrides);
 }
 
 describe('tauri library bridge', () => {
@@ -104,6 +117,31 @@ describe('tauri library bridge', () => {
 
     await expect(getLibraryScanStatus()).resolves.toEqual(status);
     expect(invokeMock).toHaveBeenCalledWith('get_library_scan_status');
+  });
+
+  it('returns watcher status payloads unchanged', async () => {
+    const status = createWatcherStatus({
+      watched_roots: ['/music', '/music/live'],
+      dirty_roots: ['/music/live'],
+      queued_follow_up: true,
+      active_scan_phase: 'running',
+      last_requested_scan: {
+        requested_at_ms: 125,
+        roots: ['/music/live'],
+      },
+      last_trigger: {
+        triggered_at_ms: 120,
+        event_count: 3,
+        observed_paths: ['/music/live/song.flac', '/music/live/.DS_Store'],
+        dirty_roots: ['/music/live'],
+      },
+      last_error: 'Rejected watcher roots: /Volumes',
+    });
+
+    invokeMock.mockResolvedValueOnce(status);
+
+    await expect(getLibraryWatcherStatus()).resolves.toEqual(status);
+    expect(invokeMock).toHaveBeenCalledWith('get_library_watcher_status');
   });
 
   it('invokes has_library_tracks without a payload', async () => {
@@ -189,6 +227,45 @@ describe('tauri library bridge', () => {
         mode: 'full',
         started_at_ms: first.started_at_ms ?? null,
         ended_at_ms: first.ended_at_ms ?? null,
+      }),
+    );
+  });
+
+  it('keeps the web mock watcher status shape clone-safe and aligned with the canonical frontend contract', async () => {
+    await startMockLibraryScan({
+      paths: ['/music'],
+      mode: 'incremental',
+    });
+
+    const first = await getMockLibraryWatcherStatus();
+    expect(first).toMatchObject({
+      watched_roots: ['/music'],
+      dirty_roots: [],
+      queued_follow_up: false,
+      active_scan_phase: null,
+      last_requested_scan: {
+        requested_at_ms: expect.any(Number),
+        roots: ['/music'],
+      },
+      last_trigger: null,
+      last_error: null,
+    });
+
+    first.watched_roots.push('/mutated');
+    first.last_requested_scan?.roots.push('/mutated');
+
+    await expect(getMockLibraryWatcherStatus()).resolves.toStrictEqual(
+      createLibraryWatcherStatus({
+        watched_roots: ['/music'],
+        dirty_roots: [],
+        queued_follow_up: false,
+        active_scan_phase: null,
+        last_requested_scan: {
+          requested_at_ms: first.last_requested_scan?.requested_at_ms ?? 0,
+          roots: ['/music'],
+        },
+        last_trigger: null,
+        last_error: null,
       }),
     );
   });

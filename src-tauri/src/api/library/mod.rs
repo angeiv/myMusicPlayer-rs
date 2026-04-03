@@ -11,9 +11,9 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::models::{Album, Artist, Track};
 use crate::services::library::{
-    LibraryScanState, LibraryService, ScanErrorKind, ScanErrorSample, ScanMode, ScanPhase,
-    ScanStatus, WatcherCoordinatorState, dedupe_overlapping_roots, handle_debounced_event_result,
-    is_dangerous_root, is_scan_phase_active, now_ms,
+    LibraryScanState, LibraryService, LibraryWatcherStatus, ScanErrorKind, ScanErrorSample,
+    ScanMode, ScanPhase, ScanStatus, WatcherCoordinatorState, dedupe_overlapping_roots,
+    handle_debounced_event_result, is_dangerous_root, is_scan_phase_active, now_ms,
 };
 
 type LibrarySearchResult = (Vec<Track>, Vec<Album>, Vec<Artist>);
@@ -475,6 +475,27 @@ pub async fn get_library_scan_status(state: State<'_, AppState>) -> Result<ScanS
     })?;
 
     Ok(scan.status.clone())
+}
+
+/// Get current library watcher diagnostics snapshot.
+#[tauri::command]
+pub async fn get_library_watcher_status(
+    state: State<'_, AppState>,
+) -> Result<LibraryWatcherStatus, String> {
+    let scan_phase = {
+        let scan = state.library_scan.lock().map_err(|e| {
+            error!("Failed to acquire library_scan lock: {}", e);
+            "Failed to access library scan state".to_string()
+        })?;
+        scan.status.phase
+    };
+
+    let watcher = state.library_watcher.lock().map_err(|e| {
+        error!("Failed to acquire watcher state lock: {}", e);
+        "Failed to access watcher coordinator state".to_string()
+    })?;
+
+    Ok(watcher.snapshot(scan_phase))
 }
 
 /// Request cancellation of a running library scan
