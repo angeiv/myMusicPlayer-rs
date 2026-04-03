@@ -26,6 +26,7 @@
     hydrateOutputDeviceState,
     switchOutputDeviceWithHydration,
   } from './settings-output-device';
+  import { buildSettingsLibraryScanPresentation } from './settings-library-scan';
 
   import type { AppConfig, OutputDeviceInfo, ScanStatus, ThemeOption } from '../types';
 
@@ -37,6 +38,7 @@
   export let scanStatus: Readable<ScanStatus>;
   export let isScanning: Readable<boolean>;
   export let runLibraryScan: (paths: string[]) => Promise<ScanStatus>;
+  export let runFullLibraryScan: (paths: string[]) => Promise<ScanStatus>;
   export let cancelLibraryScan: () => Promise<void>;
 
   let libraryPaths: string[] = [];
@@ -47,6 +49,8 @@
   let outputDevices: OutputDeviceInfo[] = [];
   let selectedDeviceId = 'default';
   let appVersion = 'unknown';
+
+  $: scanPresentation = buildSettingsLibraryScanPresentation($scanStatus);
 
   onMount(async () => {
     await loadLibraryPaths();
@@ -168,6 +172,16 @@
     }
   }
 
+  async function handleFullScan() {
+    try {
+      await runFullLibraryScan(libraryPaths);
+      dispatch('refreshLibrary');
+    } catch (error) {
+      console.error('Full scan failed:', error);
+      alert('Full scan failed.');
+    }
+  }
+
   async function handleCancelScan() {
     try {
       await cancelLibraryScan();
@@ -262,25 +276,34 @@
         {/if}
 
         <div class="scan-status">
-          <div class="scan-status-row" role="status" aria-live="polite" aria-atomic="true">
-            <span class="muted">Scan</span>
-            <span class="scan-phase">{$scanStatus.phase}</span>
+          <div class="scan-status-headline" role="status" aria-live="polite" aria-atomic="true">
+            <span class="scan-phase">{scanPresentation.title}</span>
           </div>
 
-          {#if $scanStatus.current_path}
+          <p class="scan-description">{scanPresentation.description}</p>
+
+          {#if scanPresentation.currentPath}
             <div class="scan-status-row">
-              <span class="muted">Current</span>
-              <span class="scan-current">{$scanStatus.current_path}</span>
+              <span class="muted">{scanPresentation.currentPathLabel}</span>
+              <span class="scan-current">{scanPresentation.currentPath}</span>
             </div>
           {/if}
 
-          <div class="scan-metrics">
-            <span>Files: {$scanStatus.processed_files}</span>
-            <span>Tracks: {$scanStatus.inserted_tracks}</span>
-            {#if $scanStatus.error_count > 0}
-              <span class="scan-errors">Errors: {$scanStatus.error_count}</span>
-            {/if}
-          </div>
+          <ul class="scan-metrics" aria-label="Scan summary">
+            {#each scanPresentation.metrics as metric}
+              <li class:scan-metric-danger={metric.tone === 'danger'}>
+                <span>{metric.label}</span>
+                <strong>{metric.value}</strong>
+              </li>
+            {/each}
+          </ul>
+
+          {#if scanPresentation.sampleError}
+            <div class="scan-error-sample" role="note">
+              <span class="muted">{scanPresentation.sampleError.title}</span>
+              <p class="scan-error-message">{scanPresentation.sampleError.description}</p>
+            </div>
+          {/if}
         </div>
       </div>
       <footer>
@@ -292,6 +315,12 @@
           disabled={libraryPaths.length === 0 || isUpdatingPaths || $isScanning}
         >
           🔄 Rescan Now
+        </button>
+        <button
+          on:click={handleFullScan}
+          disabled={libraryPaths.length === 0 || isUpdatingPaths || $isScanning}
+        >
+          Full Scan
         </button>
         {#if $isScanning}
           <button class="danger" on:click={handleCancelScan} disabled={isUpdatingPaths}>
@@ -483,8 +512,14 @@
     background: rgba(30, 41, 59, 0.4);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     font-size: 0.95rem;
+  }
+
+  .scan-status-headline {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
   }
 
   .scan-status-row {
@@ -495,9 +530,15 @@
   }
 
   .scan-phase {
-    text-transform: capitalize;
     color: #f8fafc;
     font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .scan-description {
+    margin: 0;
+    color: rgba(226, 232, 240, 0.82);
+    line-height: 1.45;
   }
 
   .scan-current {
@@ -507,15 +548,54 @@
   }
 
   .scan-metrics {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 12px;
-    color: rgba(148, 163, 184, 0.75);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
     font-variant-numeric: tabular-nums;
   }
 
-  .scan-errors {
+  .scan-metrics li {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.45);
+    color: rgba(148, 163, 184, 0.85);
+  }
+
+  .scan-metrics strong {
+    color: #f8fafc;
+    font-size: 1rem;
+  }
+
+  .scan-metric-danger {
+    border: 1px solid rgba(248, 113, 113, 0.28);
     color: #fecaca;
+  }
+
+  .scan-metric-danger strong {
+    color: #fecaca;
+  }
+
+  .scan-error-sample {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(127, 29, 29, 0.22);
+    border: 1px solid rgba(248, 113, 113, 0.24);
+  }
+
+  .scan-error-message {
+    margin: 0;
+    color: #fecaca;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
   }
 
   footer {

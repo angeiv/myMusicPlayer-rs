@@ -5,13 +5,15 @@
 
   export let scanStatus: Readable<ScanStatus>;
   export let isScanning: Readable<boolean>;
-  export let runLibraryScan: (paths: string[]) => Promise<unknown> = async () => undefined;
+  export let runLibraryScan: (requestOrPaths: { paths: string[]; mode?: 'full' | 'incremental' | null } | string[]) => Promise<unknown> = async () => undefined;
+  export let runFullLibraryScan: (paths: string[]) => Promise<unknown> = async () => undefined;
   export let cancelLibraryScan: () => Promise<void> = async () => undefined;
 
   type SettingsViewSpyProps = {
     scanStatus: Readable<ScanStatus>;
     isScanning: Readable<boolean>;
-    runLibraryScan: (paths: string[]) => Promise<unknown>;
+    runLibraryScan: (requestOrPaths: { paths: string[]; mode?: 'full' | 'incremental' | null } | string[]) => Promise<unknown>;
+    runFullLibraryScan: (paths: string[]) => Promise<unknown>;
     cancelLibraryScan: () => Promise<void>;
   };
 
@@ -26,6 +28,7 @@
       scanStatus,
       isScanning,
       runLibraryScan,
+      runFullLibraryScan,
       cancelLibraryScan,
     };
   }

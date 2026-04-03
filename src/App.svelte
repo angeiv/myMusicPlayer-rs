@@ -28,7 +28,7 @@
   import { createAppShellStore } from './lib/features/app-shell/store';
   import { matchRoute, normalizeRoutePath, type RouteMatch } from './lib/routing/routes';
   import { hashPath } from './lib/stores/router';
-  import type { AppSection, LibraryView } from './lib/types';
+  import type { AppSection, LibraryScanRequest, LibraryView } from './lib/types';
 
   const appShell = createAppShellStore();
   const nowPlayingState = nowPlayingUi.state;
@@ -94,8 +94,16 @@
     handleOpenArtistNavigation(event.detail.id);
   }
 
-  function runSettingsLibraryScan(paths: string[]) {
-    return runLibraryScan({ paths });
+  function runSettingsLibraryScan(requestOrPaths: LibraryScanRequest | string[]) {
+    if (Array.isArray(requestOrPaths)) {
+      return runLibraryScan({ paths: requestOrPaths });
+    }
+
+    return runLibraryScan(requestOrPaths);
+  }
+
+  function runSettingsFullLibraryScan(paths: string[]) {
+    return runLibraryScan({ paths, mode: 'full' });
   }
 
   onMount(() => {
@@ -160,6 +168,7 @@
           {scanStatus}
           {isScanning}
           runLibraryScan={runSettingsLibraryScan}
+          runFullLibraryScan={runSettingsFullLibraryScan}
           {cancelLibraryScan}
           on:refreshLibrary={loadLibrary}
           on:refreshPlaylists={loadPlaylists}
