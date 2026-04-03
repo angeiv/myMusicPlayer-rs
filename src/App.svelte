@@ -50,6 +50,7 @@
     cancelLibraryScan,
     syncRouteSearch,
     createPlaylistFromPrompt,
+    destroy,
   } = appShell;
 
   let route: RouteMatch = { name: 'home' };
@@ -112,6 +113,7 @@
   });
 
   onDestroy(() => {
+    destroy();
     destroySharedPlayback();
   });
 </script>

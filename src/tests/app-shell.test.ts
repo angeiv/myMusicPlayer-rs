@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import * as playbackApi from '../lib/api/playback';
 import { deriveAppShellRouteState } from '../lib/features/app-shell/navigation';
 import { SCAN_STATUS_POLL_INTERVAL_MS } from '../lib/features/library-scan/store';
-import { createAppShellStore } from '../lib/features/app-shell/store';
+import {
+  MAINTENANCE_HEARTBEAT_INTERVAL_MS,
+  createAppShellStore,
+} from '../lib/features/app-shell/store';
 import {
   createLibraryWatcherStatus,
   createScanStatus,
@@ -170,6 +173,46 @@ describe('createAppShellStore', () => {
           return completedStatus;
         })
         .mockResolvedValue(completedStatus);
+      const getLibraryWatcherStatus = vi
+        .fn<() => Promise<LibraryWatcherStatus>>()
+        .mockImplementationOnce(async () => {
+          calls.push('getLibraryWatcherStatus:running');
+          return createWatcherStatus({
+            watched_roots: ['/music/a', '/music/b'],
+            dirty_roots: ['/music/a'],
+            queued_follow_up: false,
+            active_scan_phase: 'running',
+            last_requested_scan: {
+              requested_at_ms: 100,
+              roots: ['/music/a', '/music/b'],
+            },
+          });
+        })
+        .mockImplementationOnce(async () => {
+          calls.push('getLibraryWatcherStatus:completed');
+          return createWatcherStatus({
+            watched_roots: ['/music/a', '/music/b'],
+            dirty_roots: [],
+            queued_follow_up: false,
+            active_scan_phase: null,
+            last_requested_scan: {
+              requested_at_ms: 100,
+              roots: ['/music/a', '/music/b'],
+            },
+          });
+        })
+        .mockResolvedValue(
+          createWatcherStatus({
+            watched_roots: ['/music/a', '/music/b'],
+            dirty_roots: [],
+            queued_follow_up: false,
+            active_scan_phase: null,
+            last_requested_scan: {
+              requested_at_ms: 100,
+              roots: ['/music/a', '/music/b'],
+            },
+          }),
+        );
 
       const store = createAppShellStore({
         bootstrapDesktopShell: async () => {
@@ -200,6 +243,7 @@ describe('createAppShellStore', () => {
           calls.push(formatScanRequest(request));
         },
         getLibraryScanStatus,
+        getLibraryWatcherStatus,
         cancelLibraryScan: async () => {
           calls.push('cancelLibraryScan');
         },
@@ -229,14 +273,13 @@ describe('createAppShellStore', () => {
       await flushPromises();
       await flushPromises();
 
-      expect(calls).toEqual([
+      expect(calls.slice(0, 6)).toEqual([
         'bootstrapDesktopShell',
         'getConfig',
         'normalizeConfigForRestore',
         'applyTheme:dark',
-        'hasLibraryTracks',
-        'startLibraryScan:incremental:/music/a,/music/b',
         'getLibraryScanStatus:running',
+        'getLibraryWatcherStatus:running',
       ]);
 
       await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
@@ -248,10 +291,12 @@ describe('createAppShellStore', () => {
         'getConfig',
         'normalizeConfigForRestore',
         'applyTheme:dark',
+        'getLibraryScanStatus:running',
+        'getLibraryWatcherStatus:running',
         'hasLibraryTracks',
         'startLibraryScan:incremental:/music/a,/music/b',
-        'getLibraryScanStatus:running',
         'getLibraryScanStatus:completed',
+        'getLibraryWatcherStatus:completed',
         'getTracks',
         'getAlbums',
         'getArtists',
@@ -298,6 +343,277 @@ describe('createAppShellStore', () => {
     expect(startLibraryScan).toHaveBeenCalledWith({ paths: ['/music'], mode: 'full' });
     expect(result).toEqual(completedStatus);
     expect(get(store.scanStatus)).toEqual(completedStatus);
+  });
+
+  it('waits for watcher follow-up maintenance to settle before resolving manual scans', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const startLibraryScan = vi.fn(async () => undefined);
+      const getLibraryScanStatus = vi
+        .fn<() => Promise<ScanStatus>>()
+        .mockResolvedValueOnce(
+          createStatus({
+            phase: 'running',
+            mode: 'incremental',
+            started_at_ms: 100,
+            current_path: '/music/intro.flac',
+            processed_files: 1,
+          }),
+        )
+        .mockResolvedValueOnce(
+          createStatus({
+            phase: 'completed',
+            mode: 'incremental',
+            started_at_ms: 100,
+            ended_at_ms: 200,
+            processed_files: 8,
+            changed_tracks: 1,
+          }),
+        )
+        .mockResolvedValueOnce(
+          createStatus({
+            phase: 'running',
+            mode: 'incremental',
+            started_at_ms: 220,
+            current_path: '/music/outro.flac',
+            processed_files: 2,
+          }),
+        )
+        .mockResolvedValue(
+          createStatus({
+            phase: 'completed',
+            mode: 'incremental',
+            started_at_ms: 220,
+            ended_at_ms: 320,
+            processed_files: 12,
+            changed_tracks: 2,
+          }),
+        );
+      const getLibraryWatcherStatus = vi
+        .fn<() => Promise<LibraryWatcherStatus>>()
+        .mockResolvedValueOnce(
+          createWatcherStatus({
+            watched_roots: ['/music'],
+            dirty_roots: ['/music'],
+            queued_follow_up: true,
+            active_scan_phase: 'running',
+            last_requested_scan: {
+              requested_at_ms: 110,
+              roots: ['/music'],
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          createWatcherStatus({
+            watched_roots: ['/music'],
+            dirty_roots: ['/music'],
+            queued_follow_up: true,
+            active_scan_phase: null,
+            last_requested_scan: {
+              requested_at_ms: 110,
+              roots: ['/music'],
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          createWatcherStatus({
+            watched_roots: ['/music'],
+            dirty_roots: ['/music'],
+            queued_follow_up: false,
+            active_scan_phase: 'running',
+            last_requested_scan: {
+              requested_at_ms: 230,
+              roots: ['/music'],
+            },
+          }),
+        )
+        .mockResolvedValue(
+          createWatcherStatus({
+            watched_roots: ['/music'],
+            dirty_roots: [],
+            queued_follow_up: false,
+            active_scan_phase: null,
+            last_requested_scan: {
+              requested_at_ms: 230,
+              roots: ['/music'],
+            },
+          }),
+        );
+
+      const store = createAppShellStore({
+        hasLibraryTracks: async () => true,
+        startLibraryScan,
+        getLibraryScanStatus,
+        getLibraryWatcherStatus,
+        cancelLibraryScan: async () => undefined,
+      });
+
+      let settled = false;
+      const runPromise = store.runLibraryScan(['/music']).then((result) => {
+        settled = true;
+        return result;
+      });
+
+      await flushPromises();
+
+      await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+      await flushPromises();
+      expect(settled).toBe(false);
+      expect(get(store.maintenance)).toMatchObject({
+        title: 'Auto-sync follow-up queued',
+        queuedFollowUp: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+      await flushPromises();
+      expect(settled).toBe(false);
+      expect(get(store.maintenance)).toMatchObject({
+        title: 'Incremental sync in progress',
+        activePhase: 'running',
+      });
+
+      await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+      await flushPromises();
+
+      await expect(runPromise).resolves.toMatchObject({
+        phase: 'completed',
+        ended_at_ms: 320,
+      });
+      expect(startLibraryScan).toHaveBeenCalledWith({ paths: ['/music'], mode: 'incremental' });
+      expect(get(store.maintenance)).toMatchObject({
+        title: 'Incremental sync complete',
+        queuedFollowUp: false,
+        activePhase: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reloads library after watcher-triggered maintenance completes on the shell heartbeat', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const baseTrack = tracksFixture[0]!;
+      const lateWindowTrack: Track = {
+        id: 'track-2',
+        title: 'Late Window',
+        duration: baseTrack.duration,
+        path: '/music/late-window.flac',
+        library_root: baseTrack.library_root ?? null,
+        size: baseTrack.size,
+        file_mtime_ms: 1_710_000_000_100,
+        format: baseTrack.format,
+        bitrate: baseTrack.bitrate,
+        sample_rate: baseTrack.sample_rate,
+        channels: baseTrack.channels,
+        availability: baseTrack.availability,
+        missing_since: null,
+        play_count: 0,
+        date_added: '2024-01-02T00:00:00Z',
+      };
+      const getTracks = vi
+        .fn<() => Promise<Track[]>>()
+        .mockResolvedValueOnce(tracksFixture)
+        .mockResolvedValueOnce([...tracksFixture, lateWindowTrack]);
+
+      const store = createAppShellStore({
+        bootstrapDesktopShell: async () => undefined,
+        getConfig: async () => ({ raw: true }),
+        normalizeConfigForRestore: () => ({
+          theme: 'dark',
+          outputDeviceId: null,
+          defaultVolume: 0.7,
+          autoScan: false,
+          libraryPaths: ['/music'],
+        }),
+        applyTheme: () => undefined,
+        getLibraryScanStatus: vi
+          .fn<() => Promise<ScanStatus>>()
+          .mockResolvedValueOnce(createStatus({ phase: 'idle' }))
+          .mockResolvedValueOnce(
+            createStatus({
+              phase: 'running',
+              mode: 'incremental',
+              started_at_ms: 500,
+              current_path: '/music/follow-up.flac',
+              processed_files: 2,
+            }),
+          )
+          .mockResolvedValue(
+            createStatus({
+              phase: 'completed',
+              mode: 'incremental',
+              started_at_ms: 500,
+              ended_at_ms: 650,
+              processed_files: 4,
+              changed_tracks: 1,
+            }),
+          ),
+        getLibraryWatcherStatus: vi
+          .fn<() => Promise<LibraryWatcherStatus>>()
+          .mockResolvedValueOnce(createWatcherStatus({ watched_roots: ['/music'] }))
+          .mockResolvedValueOnce(
+            createWatcherStatus({
+              watched_roots: ['/music'],
+              dirty_roots: ['/music'],
+              queued_follow_up: true,
+              active_scan_phase: 'running',
+              last_requested_scan: {
+                requested_at_ms: 500,
+                roots: ['/music'],
+              },
+            }),
+          )
+          .mockResolvedValue(
+            createWatcherStatus({
+              watched_roots: ['/music'],
+              dirty_roots: [],
+              queued_follow_up: false,
+              active_scan_phase: null,
+              last_requested_scan: {
+                requested_at_ms: 500,
+                roots: ['/music'],
+              },
+            }),
+          ),
+        cancelLibraryScan: async () => undefined,
+        getTracks,
+        getAlbums: async () => albumsFixture,
+        getArtists: async () => artistsFixture,
+        getPlaylists: async () => playlistsFixture,
+        createPlaylist: async () => undefined,
+        searchLibrary: async () => searchResultsFixture,
+        prompt: () => null,
+        alert: () => undefined,
+      });
+
+      await store.bootstrap();
+      expect(getTracks).toHaveBeenCalledTimes(1);
+      expect(get(store.tracks)).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(MAINTENANCE_HEARTBEAT_INTERVAL_MS);
+      await flushPromises();
+      expect(getTracks).toHaveBeenCalledTimes(1);
+      expect(get(store.maintenance)).toMatchObject({
+        title: 'Incremental sync in progress',
+        queuedFollowUp: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(SCAN_STATUS_POLL_INTERVAL_MS);
+      await flushPromises();
+      await flushPromises();
+
+      expect(getTracks).toHaveBeenCalledTimes(2);
+      expect(get(store.maintenance)).toMatchObject({
+        title: 'Incremental sync complete',
+        queuedFollowUp: false,
+      });
+      expect(get(store.tracks)).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('exposes the shared watcher-backed maintenance snapshot without creating a second app-shell policy', async () => {

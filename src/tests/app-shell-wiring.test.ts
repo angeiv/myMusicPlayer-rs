@@ -59,6 +59,7 @@ const appShellMock = vi.hoisted(() => {
     cancelLibraryScan: vi.fn(async () => undefined),
     syncRouteSearch: vi.fn(async () => undefined),
     createPlaylistFromPrompt: vi.fn(async () => undefined),
+    destroy: vi.fn(() => undefined),
   };
 
   return {
@@ -109,6 +110,7 @@ type SongsViewSpyWindow = Window & {
   };
   __settingsViewSpyProps?: {
     runLibraryScan: (paths: string[]) => Promise<unknown>;
+    runFullLibraryScan: (paths: string[]) => Promise<unknown>;
     cancelLibraryScan: () => Promise<void>;
   };
 };
@@ -129,9 +131,19 @@ describe('App songs-shell wiring', () => {
     delete spyWindow.__settingsViewSpyProps;
     nowPlayingUi.close();
     window.location.hash = '';
+    appShellMock.store.bootstrap.mockClear();
+    appShellMock.store.destroy.mockClear();
     appShellMock.loadPlaylists.mockClear();
     appShellMock.store.runLibraryScan.mockClear();
     appShellMock.store.cancelLibraryScan.mockClear();
+  });
+
+  it('boots the app shell on mount so startup maintenance stays in one orchestration seam', async () => {
+    render(App);
+
+    await waitFor(() => {
+      expect(appShellMock.store.bootstrap).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('passes playlists and refreshPlaylists into SongsView on the songs route', async () => {
@@ -165,6 +177,26 @@ describe('App songs-shell wiring', () => {
 
     expect(appShellMock.store.runLibraryScan).toHaveBeenCalledWith({
       paths: ['/music'],
+    });
+  });
+
+  it('adapts settings full scans into mode-aware request objects before calling the app-shell store', async () => {
+    window.location.hash = '#/settings';
+
+    render(App);
+
+    await waitFor(() => {
+      const spyWindow = window as SongsViewSpyWindow;
+      expect(screen.getByTestId('settings-view-spy')).toBeTruthy();
+      expect(spyWindow.__settingsViewSpyProps).toBeDefined();
+    });
+
+    const spyWindow = window as SongsViewSpyWindow;
+    await spyWindow.__settingsViewSpyProps?.runFullLibraryScan(['/music']);
+
+    expect(appShellMock.store.runLibraryScan).toHaveBeenCalledWith({
+      paths: ['/music'],
+      mode: 'full',
     });
   });
 
