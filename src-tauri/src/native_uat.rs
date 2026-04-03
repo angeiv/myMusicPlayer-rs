@@ -115,8 +115,12 @@ pub fn teardown_native_uat_fixture(project_root: &Path) -> Result<bool> {
         return Ok(false);
     }
 
-    fs::remove_dir_all(&runtime_root)
-        .with_context(|| format!("Failed to remove native UAT runtime root {}", runtime_root.display()))?;
+    fs::remove_dir_all(&runtime_root).with_context(|| {
+        format!(
+            "Failed to remove native UAT runtime root {}",
+            runtime_root.display()
+        )
+    })?;
     Ok(true)
 }
 
@@ -143,10 +147,17 @@ fn setup_native_uat_fixture_with_host_paths(
     let readme_path = runtime_root.join(README_FILE_NAME);
 
     utils::ensure_dir_exists(&config_dir).with_context(|| {
-        format!("Failed to create native UAT config dir {}", config_dir.display())
+        format!(
+            "Failed to create native UAT config dir {}",
+            config_dir.display()
+        )
     })?;
-    utils::ensure_dir_exists(&data_dir)
-        .with_context(|| format!("Failed to create native UAT data dir {}", data_dir.display()))?;
+    utils::ensure_dir_exists(&data_dir).with_context(|| {
+        format!(
+            "Failed to create native UAT data dir {}",
+            data_dir.display()
+        )
+    })?;
 
     let host_snapshot = capture_host_snapshot(&runtime_root, host_paths)?;
     let fixture = create_fixture_library(&library_root)?;
@@ -163,16 +174,10 @@ fn setup_native_uat_fixture_with_host_paths(
     };
     write_json_file(&config_dir.join(CONFIG_FILE_NAME), &config)?;
 
-    fs::write(
-        &env_path,
-        render_env_sh(&config_dir, &data_dir),
-    )
-    .with_context(|| format!("Failed to write {}", env_path.display()))?;
-    fs::write(
-        &powershell_env_path,
-        render_env_ps1(&config_dir, &data_dir),
-    )
-    .with_context(|| format!("Failed to write {}", powershell_env_path.display()))?;
+    fs::write(&env_path, render_env_sh(&config_dir, &data_dir))
+        .with_context(|| format!("Failed to write {}", env_path.display()))?;
+    fs::write(&powershell_env_path, render_env_ps1(&config_dir, &data_dir))
+        .with_context(|| format!("Failed to write {}", powershell_env_path.display()))?;
 
     let runtime = RuntimePaths {
         runtime_root: runtime_root.clone(),
@@ -263,8 +268,12 @@ fn capture_host_snapshot(runtime_root: &Path, host_paths: &HostPaths) -> Result<
 
     snapshot.config_exists = true;
     let backup_path = snapshot_dir.join(CONFIG_FILE_NAME);
-    fs::write(&backup_path, &bytes)
-        .with_context(|| format!("Failed to write host config snapshot {}", backup_path.display()))?;
+    fs::write(&backup_path, &bytes).with_context(|| {
+        format!(
+            "Failed to write host config snapshot {}",
+            backup_path.display()
+        )
+    })?;
     snapshot.config_backup_path = Some(backup_path);
 
     match serde_json::from_slice::<Config>(&bytes) {
@@ -286,8 +295,12 @@ fn capture_host_snapshot(runtime_root: &Path, host_paths: &HostPaths) -> Result<
 }
 
 fn create_fixture_library(library_root: &Path) -> Result<FixtureLibraryManifest> {
-    utils::ensure_dir_exists(library_root)
-        .with_context(|| format!("Failed to create fixture library root {}", library_root.display()))?;
+    utils::ensure_dir_exists(library_root).with_context(|| {
+        format!(
+            "Failed to create fixture library root {}",
+            library_root.display()
+        )
+    })?;
 
     let album_one = library_root.join("Fixture Album A");
     let album_two = library_root.join("Fixture Album B");
@@ -460,7 +473,11 @@ fn render_readme(manifest: &NativeUatManifest) -> String {
         manifest.fixture.track_count,
         manifest.fixture.scenario_paths.add_directory.display(),
         manifest.fixture.scenario_paths.modify_track.display(),
-        manifest.fixture.scenario_paths.remove_restore_track.display(),
+        manifest
+            .fixture
+            .scenario_paths
+            .remove_restore_track
+            .display(),
         manifest.fixture.scenario_paths.unavailable_root.display(),
     )
 }
@@ -530,17 +547,28 @@ mod tests {
         let manifest: NativeUatManifest =
             serde_json::from_slice(&fs::read(&setup.manifest_path).unwrap()).unwrap();
         assert_eq!(manifest.proof_boundary, NATIVE_UAT_PROOF_BOUNDARY);
-        assert_eq!(manifest.playback_guardrail_context, PLAYBACK_GUARDRAIL_CONTEXT);
+        assert_eq!(
+            manifest.playback_guardrail_context,
+            PLAYBACK_GUARDRAIL_CONTEXT
+        );
         assert_eq!(manifest.fixture.track_count, 3);
         assert!(manifest.host_snapshot.config_exists);
-        assert_eq!(manifest.host_snapshot.library_paths, vec![PathBuf::from("/Users/example/Music")]);
-        assert_eq!(manifest.host_snapshot.last_track_id.as_deref(), Some("host-track"));
+        assert_eq!(
+            manifest.host_snapshot.library_paths,
+            vec![PathBuf::from("/Users/example/Music")]
+        );
+        assert_eq!(
+            manifest.host_snapshot.last_track_id.as_deref(),
+            Some("host-track")
+        );
 
-        let fixture_config: Config = serde_json::from_slice(
-            &fs::read(setup.config_dir.join(CONFIG_FILE_NAME)).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(fixture_config.library_paths, vec![setup.library_root.clone()]);
+        let fixture_config: Config =
+            serde_json::from_slice(&fs::read(setup.config_dir.join(CONFIG_FILE_NAME)).unwrap())
+                .unwrap();
+        assert_eq!(
+            fixture_config.library_paths,
+            vec![setup.library_root.clone()]
+        );
         assert!(fixture_config.auto_scan);
 
         let env_text = fs::read_to_string(&setup.env_path).unwrap();
@@ -570,10 +598,14 @@ mod tests {
     #[test]
     fn scan_native_uat_teardown_removes_fixture_state() {
         let project_root = TempDir::new().unwrap();
-        let setup = setup_native_uat_fixture_with_host_paths(project_root.path(), &host_paths(project_root.path()))
-            .expect("setup should succeed");
+        let setup = setup_native_uat_fixture_with_host_paths(
+            project_root.path(),
+            &host_paths(project_root.path()),
+        )
+        .expect("setup should succeed");
 
-        let removed = teardown_native_uat_fixture(project_root.path()).expect("teardown should succeed");
+        let removed =
+            teardown_native_uat_fixture(project_root.path()).expect("teardown should succeed");
 
         assert!(removed);
         assert!(!setup.runtime_root.exists());

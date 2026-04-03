@@ -130,12 +130,14 @@ pub async fn start_library_scan(
                 "Failed to access library service".to_string()
             })?;
 
-            library.has_library_tracks().map_err(|e| {
+            if library.has_library_tracks().map_err(|e| {
                 error!("Failed to query library occupancy: {}", e);
                 e.to_string()
-            })?
-            .then_some(ScanMode::Incremental)
-            .unwrap_or(ScanMode::Full)
+            })? {
+                ScanMode::Incremental
+            } else {
+                ScanMode::Full
+            }
         }
     };
 

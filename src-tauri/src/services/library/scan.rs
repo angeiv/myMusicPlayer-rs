@@ -131,10 +131,55 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn normalize_root(root: &Path) -> PathBuf {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryPathKind {
+    File,
+    Directory,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryPathVisibility {
+    Visible,
+    Hidden,
+    NoisePath,
+}
+
+pub fn classify_library_path(path: &Path, path_kind: LibraryPathKind) -> LibraryPathVisibility {
+    let components: Vec<_> = path.components().collect();
+
+    for (index, component) in components.iter().enumerate() {
+        let Component::Normal(name) = component else {
+            continue;
+        };
+
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+
+        if name.starts_with('.') {
+            return LibraryPathVisibility::Hidden;
+        }
+
+        let is_last = index + 1 == components.len();
+        let treat_as_directory = !is_last
+            || matches!(
+                path_kind,
+                LibraryPathKind::Directory | LibraryPathKind::Unknown
+            );
+
+        if treat_as_directory && matches!(name, "node_modules" | "target") {
+            return LibraryPathVisibility::NoisePath;
+        }
+    }
+
+    LibraryPathVisibility::Visible
+}
+
+pub fn normalize_path(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
 
-    for component in root.components() {
+    for component in path.components() {
         match component {
             Component::CurDir => {}
             other => normalized.push(other.as_os_str()),
@@ -145,7 +190,7 @@ fn normalize_root(root: &Path) -> PathBuf {
 }
 
 pub fn dedupe_overlapping_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut sorted: Vec<PathBuf> = roots.iter().map(|r| normalize_root(r)).collect();
+    let mut sorted: Vec<PathBuf> = roots.iter().map(|r| normalize_path(r)).collect();
     sorted.sort_by_key(|p| p.components().count());
 
     let mut kept: Vec<PathBuf> = Vec::new();

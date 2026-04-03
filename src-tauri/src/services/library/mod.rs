@@ -2,8 +2,11 @@
 
 mod artwork;
 mod scan;
+mod watcher;
 #[allow(unused_imports)]
 pub use scan::*;
+#[allow(unused_imports)]
+pub use watcher::*;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -81,17 +84,16 @@ fn scan_entry_is_visible(entry: &DirEntry) -> bool {
         return true;
     };
 
-    // Skip hidden files and directories.
-    if name.starts_with('.') {
-        return false;
-    }
+    let path_kind = if entry.file_type().is_dir() {
+        LibraryPathKind::Directory
+    } else {
+        LibraryPathKind::File
+    };
 
-    // Skip common noise directories.
-    if entry.file_type().is_dir() && matches!(name, "node_modules" | "target") {
-        return false;
-    }
-
-    true
+    matches!(
+        classify_library_path(Path::new(name), path_kind),
+        LibraryPathVisibility::Visible
+    )
 }
 
 fn push_scan_error(
@@ -575,11 +577,11 @@ impl LibraryService {
 
     /// Return whether the library currently has any persisted tracks.
     pub fn has_library_tracks(&self) -> Result<bool> {
-        let has_tracks = self.conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM tracks LIMIT 1)",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
+        let has_tracks =
+            self.conn
+                .query_row("SELECT EXISTS(SELECT 1 FROM tracks LIMIT 1)", [], |row| {
+                    row.get::<_, i64>(0)
+                })?;
 
         Ok(has_tracks != 0)
     }
