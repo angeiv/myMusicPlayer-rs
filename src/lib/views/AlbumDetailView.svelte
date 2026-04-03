@@ -1,27 +1,43 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+
   import { getAlbum, getTracksByAlbum } from '../api/library';
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
   import type { Album, Track } from '../types';
+  import {
+    getMissingTrackPlayMessage,
+    getPlayableTracks,
+    getTrackAvailabilityBadge,
+    getTrackAvailabilityDescription,
+    getTrackAvailabilityState,
+    isTrackPlayable,
+  } from '../utils/track-availability';
   import { formatDate, formatDuration, formatLongDuration, formatTrackIndex } from '../utils/format';
   import { createStaleRequestTracker, runGuardedRequest } from './stale-request';
 
   export let albumId: string | null = null;
 
   const dispatch = createEventDispatcher<{ playTrack: { track: Track } }>();
+  const requestTracker = createStaleRequestTracker();
+  const heroPlayHintId = 'album-detail-play-hint';
 
   let album: Album | null = null;
   let tracks: Track[] = [];
   let loading = false;
   let error = '';
+  let feedback = '';
   let lastRequestedId: string | null = null;
-  const requestTracker = createStaleRequestTracker();
+
+  $: playableTracks = getPlayableTracks(tracks);
+  $: canPlayAlbum = playableTracks.length > 0;
+  $: heroPlayHint = canPlayAlbum ? '' : getMissingTrackPlayMessage('collection');
 
   $: if (albumId) {
-    loadAlbum(albumId);
+    void loadAlbum(albumId);
   } else {
     album = null;
     tracks = [];
+    feedback = '';
   }
 
   async function loadAlbum(id: string) {
@@ -31,6 +47,7 @@
 
     loading = true;
     error = '';
+    feedback = '';
     lastRequestedId = id;
 
     await runGuardedRequest({
@@ -39,6 +56,7 @@
       onStart: () => {
         loading = true;
         error = '';
+        feedback = '';
       },
       request: async () => {
         const [albumResponse, tracksResponse] = await Promise.all([
@@ -65,28 +83,42 @@
     });
   }
 
-  async function playTrack(track: Track) {
+  async function startTrackPlayback(track: Track) {
+    if (!isTrackPlayable(track)) {
+      feedback = getMissingTrackPlayMessage('track');
+      return;
+    }
+
+    const queue = getPlayableTracks(tracks);
+    if (queue.length === 0) {
+      feedback = getMissingTrackPlayMessage('collection');
+      return;
+    }
+
     try {
-      await setQueue(tracks);
+      await setQueue(queue);
       await playTrackCommand(track);
+      feedback = '';
+      dispatch('playTrack', { track });
     } catch (err) {
       console.error('Failed to play track:', err);
     }
-
-    dispatch('playTrack', { track });
   }
 
   function handlePlayAll() {
-    const first = tracks[0];
-    if (first) {
-      playTrack(first);
+    const firstPlayableTrack = playableTracks[0];
+    if (!firstPlayableTrack) {
+      feedback = heroPlayHint;
+      return;
     }
+
+    void startTrackPlayback(firstPlayableTrack);
   }
 
   function handleRowKeydown(event: KeyboardEvent, track: Track) {
-    if (event.key === 'Enter' || event.key === ' ') {
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Space') {
       event.preventDefault();
-      playTrack(track);
+      void startTrackPlayback(track);
     }
   }
 </script>
@@ -109,6 +141,10 @@
       <p>Album not found.</p>
     </div>
   {:else}
+    {#if feedback}
+      <p class="feedback" role="status" aria-live="polite">{feedback}</p>
+    {/if}
+
     <div class="hero">
       <div class="artwork">{album.title.charAt(0)}</div>
       <div class="info">
@@ -124,8 +160,19 @@
           <span>Added {formatDate(album.date_added) || 'recently'}</span>
         </div>
         <div class="actions">
-          <button class="primary" on:click={handlePlayAll}>▶ Play</button>
+          <button
+            class="primary"
+            disabled={!canPlayAlbum}
+            aria-describedby={!canPlayAlbum ? heroPlayHintId : undefined}
+            title={!canPlayAlbum ? heroPlayHint : undefined}
+            on:click={handlePlayAll}
+          >
+            ▶ Play
+          </button>
           <button disabled title="Coming soon">☆ Favorite</button>
+          {#if !canPlayAlbum}
+            <span id={heroPlayHintId} class="sr-only">{heroPlayHint}</span>
+          {/if}
         </div>
       </div>
     </div>
@@ -138,18 +185,37 @@
       </div>
       <div class="track-body">
         {#each tracks as track, index}
+          {@const playable = isTrackPlayable(track)}
+          {@const availability = getTrackAvailabilityState(track)}
+          {@const availabilityBadge = getTrackAvailabilityBadge(track)}
+          {@const availabilityDescription = getTrackAvailabilityDescription(track)}
+          {@const availabilityDescriptionId = !playable ? `album-track-availability-${index}` : undefined}
           <div
             class="track-row"
+            class:is-missing={!playable}
             role="row"
             tabindex="0"
-            on:dblclick={() => playTrack(track)}
+            data-availability={availability}
+            aria-disabled={!playable ? 'true' : undefined}
+            aria-describedby={availabilityDescriptionId}
+            on:dblclick={() => void startTrackPlayback(track)}
             on:keydown={(event) => handleRowKeydown(event, track)}
           >
             <div class="index">{formatTrackIndex(index)}</div>
             <div class="title">
               <span>{track.title}</span>
-              {#if track.artist_name && track.artist_name !== album?.artist_name}
-                <small>{track.artist_name}</small>
+              {#if availabilityBadge || (track.artist_name && track.artist_name !== album?.artist_name)}
+                <div class="meta-line">
+                  {#if availabilityBadge}
+                    <span class="availability-badge">{availabilityBadge}</span>
+                  {/if}
+                  {#if track.artist_name && track.artist_name !== album?.artist_name}
+                    <small>{track.artist_name}</small>
+                  {/if}
+                </div>
+              {/if}
+              {#if availabilityDescriptionId}
+                <span id={availabilityDescriptionId} class="sr-only">{availabilityDescription}</span>
               {/if}
             </div>
             <div class="duration">{formatDuration(track.duration)}</div>
@@ -175,6 +241,15 @@
     border-radius: 24px;
     background: rgba(15, 23, 42, 0.65);
     color: rgba(148, 163, 184, 0.75);
+  }
+
+  .feedback {
+    margin: 0;
+    padding: 12px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(248, 113, 113, 0.28);
+    background: rgba(15, 23, 42, 0.72);
+    color: rgba(254, 202, 202, 0.92);
   }
 
   .hero {
@@ -248,6 +323,11 @@
     color: #bfdbfe;
   }
 
+  .actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
   .actions .primary {
     background: rgba(59, 130, 246, 0.35);
     color: #e0f2fe;
@@ -293,26 +373,88 @@
     background: rgba(59, 130, 246, 0.16);
   }
 
+  .track-row:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.5);
+  }
+
+  .track-row.is-missing {
+    cursor: not-allowed;
+  }
+
+  .track-row.is-missing:hover {
+    background: rgba(148, 163, 184, 0.08);
+  }
+
+  .track-row.is-missing .title > span {
+    color: rgba(226, 232, 240, 0.82);
+  }
+
+  .track-row.is-missing .duration,
+  .track-row.is-missing .index,
+  .track-row.is-missing .meta-line small {
+    color: rgba(148, 163, 184, 0.78);
+  }
+
   .index {
     font-variant-numeric: tabular-nums;
     color: rgba(148, 163, 184, 0.8);
   }
 
-  .title span {
+  .title {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .title > span {
     display: block;
     font-weight: 600;
     color: #f8fafc;
   }
 
-  .title small {
+  .meta-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .meta-line small {
     color: rgba(148, 163, 184, 0.75);
     font-size: 0.75rem;
+  }
+
+  .availability-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    background: rgba(127, 29, 29, 0.28);
+    color: rgba(254, 202, 202, 0.92);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
   }
 
   .duration {
     text-align: right;
     font-variant-numeric: tabular-nums;
     color: rgba(148, 163, 184, 0.8);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   @media (max-width: 900px) {

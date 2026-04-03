@@ -13,6 +13,7 @@
 
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
   import {
     getPlaylist,
@@ -21,6 +22,14 @@
     updatePlaylistMetadata,
   } from '../api/playlist';
   import type { Playlist, Track } from '../types';
+  import {
+    getMissingTrackPlayMessage,
+    getPlayableTracks,
+    getTrackAvailabilityBadge,
+    getTrackAvailabilityDescription,
+    getTrackAvailabilityState,
+    isTrackPlayable,
+  } from '../utils/track-availability';
   import { formatDate, formatDuration, formatLongDuration, formatTrackIndex } from '../utils/format';
   import { createStaleRequestTracker, runGuardedRequest } from './stale-request';
 
@@ -31,22 +40,30 @@
     refreshPlaylists: void;
   }>();
 
+  const requestTracker = createStaleRequestTracker();
+  const heroPlayHintId = 'playlist-detail-play-hint';
+
   let playlist: Playlist | null = null;
   let tracks: Track[] = [];
   let loading = false;
   let error = '';
+  let feedback = '';
   let lastRequestedId: string | null = null;
-  const requestTracker = createStaleRequestTracker();
 
   type LoadPlaylistOptions = {
     force?: boolean;
   };
 
+  $: playableTracks = getPlayableTracks(tracks);
+  $: canPlayPlaylist = playableTracks.length > 0;
+  $: heroPlayHint = canPlayPlaylist ? '' : getMissingTrackPlayMessage('collection');
+
   $: if (playlistId) {
-    loadPlaylist(playlistId);
+    void loadPlaylist(playlistId);
   } else {
     playlist = null;
     tracks = [];
+    feedback = '';
   }
 
   async function loadPlaylist(id: string, options: LoadPlaylistOptions = {}) {
@@ -63,6 +80,7 @@
 
     loading = true;
     error = '';
+    feedback = '';
     lastRequestedId = id;
 
     await runGuardedRequest({
@@ -71,6 +89,7 @@
       onStart: () => {
         loading = true;
         error = '';
+        feedback = '';
       },
       request: async () => {
         const playlistData = await getPlaylist(id);
@@ -99,21 +118,36 @@
     });
   }
 
-  async function playTrack(track: Track) {
+  async function startTrackPlayback(track: Track) {
+    if (!isTrackPlayable(track)) {
+      feedback = getMissingTrackPlayMessage('track');
+      return;
+    }
+
+    const queue = getPlayableTracks(tracks);
+    if (queue.length === 0) {
+      feedback = getMissingTrackPlayMessage('collection');
+      return;
+    }
+
     try {
-      await setQueue(tracks);
+      await setQueue(queue);
       await playTrackCommand(track);
+      feedback = '';
+      dispatch('playTrack', { track });
     } catch (err) {
       console.error('Failed to play track:', err);
     }
-    dispatch('playTrack', { track });
   }
 
   function handlePlayAll() {
-    const first = tracks[0];
-    if (first) {
-      playTrack(first);
+    const firstPlayableTrack = playableTracks[0];
+    if (!firstPlayableTrack) {
+      feedback = heroPlayHint;
+      return;
     }
+
+    void startTrackPlayback(firstPlayableTrack);
   }
 
   async function handleRemoveTrack(index: number) {
@@ -156,6 +190,10 @@
   {:else if !playlist}
     <div class="empty">Playlist not found.</div>
   {:else}
+    {#if feedback}
+      <p class="feedback" role="status" aria-live="polite">{feedback}</p>
+    {/if}
+
     <div class="hero">
       <div class="artwork">{playlist.name.charAt(0)}</div>
       <div class="info">
@@ -170,10 +208,21 @@
           <span>Created {formatDate(playlist.created_at) || 'recently'}</span>
           <span>Updated {formatDate(playlist.updated_at) || 'recently'}</span>
         </div>
-        <div class="actions">
-          <button class="primary" on:click={handlePlayAll}>▶ Play</button>
+        <div class="hero-actions">
+          <button
+            class="primary"
+            disabled={!canPlayPlaylist}
+            aria-describedby={!canPlayPlaylist ? heroPlayHintId : undefined}
+            title={!canPlayPlaylist ? heroPlayHint : undefined}
+            on:click={handlePlayAll}
+          >
+            ▶ Play
+          </button>
           <button on:click={handleRename}>✏ Rename</button>
           <button disabled title="Coming soon">➕ Add tracks</button>
+          {#if !canPlayPlaylist}
+            <span id={heroPlayHintId} class="sr-only">{heroPlayHint}</span>
+          {/if}
         </div>
       </div>
     </div>
@@ -188,17 +237,45 @@
       </div>
       <div class="track-body">
         {#each tracks as track, index}
-          <div class="track-row" role="row">
+          {@const playable = isTrackPlayable(track)}
+          {@const availability = getTrackAvailabilityState(track)}
+          {@const availabilityBadge = getTrackAvailabilityBadge(track)}
+          {@const availabilityDescription = getTrackAvailabilityDescription(track)}
+          {@const availabilityDescriptionId = !playable ? `playlist-track-availability-${index}` : undefined}
+          <div class="track-row" class:is-missing={!playable} role="row" data-availability={availability}>
             <div class="index">{formatTrackIndex(index)}</div>
             <div class="title">
               <span>{track.title}</span>
-              <small>{track.artist_name ?? 'Unknown artist'}</small>
+              <div class="meta-line">
+                {#if availabilityBadge}
+                  <span class="availability-badge">{availabilityBadge}</span>
+                {/if}
+                <small>{track.artist_name ?? 'Unknown artist'}</small>
+              </div>
+              {#if availabilityDescriptionId}
+                <span id={availabilityDescriptionId} class="sr-only">{availabilityDescription}</span>
+              {/if}
             </div>
             <div class="album">{track.album_title ?? 'Unknown album'}</div>
             <div class="duration">{formatDuration(track.duration)}</div>
-            <div class="actions">
-              <button class="ghost" on:click={() => playTrack(track)}>▶</button>
-              <button class="ghost" on:click={() => handleRemoveTrack(index)}>🗑</button>
+            <div class="track-actions">
+              <button
+                class="ghost"
+                aria-label={`播放 ${track.title}`}
+                disabled={!playable}
+                aria-describedby={!playable ? availabilityDescriptionId : undefined}
+                title={!playable ? availabilityDescription : undefined}
+                on:click={() => void startTrackPlayback(track)}
+              >
+                ▶
+              </button>
+              <button
+                class="ghost"
+                aria-label={`从歌单移除 ${track.title}`}
+                on:click={() => void handleRemoveTrack(index)}
+              >
+                🗑
+              </button>
             </div>
           </div>
         {/each}
@@ -222,6 +299,15 @@
     border-radius: 24px;
     background: rgba(15, 23, 42, 0.65);
     color: rgba(148, 163, 184, 0.75);
+  }
+
+  .feedback {
+    margin: 0;
+    padding: 12px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(248, 113, 113, 0.28);
+    background: rgba(15, 23, 42, 0.72);
+    color: rgba(254, 202, 202, 0.92);
   }
 
   .hero {
@@ -276,12 +362,12 @@
     color: rgba(191, 219, 254, 0.75);
   }
 
-  .actions {
+  .hero-actions {
     display: flex;
     gap: 12px;
   }
 
-  .actions button {
+  .hero-actions button {
     border: none;
     border-radius: 999px;
     padding: 10px 20px;
@@ -291,7 +377,13 @@
     color: #bfdbfe;
   }
 
-  .actions .primary {
+  .hero-actions button:disabled,
+  .track-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .hero-actions .primary {
     background: rgba(99, 102, 241, 0.35);
     color: #eef2ff;
     box-shadow: 0 18px 30px rgba(99, 102, 241, 0.3);
@@ -335,20 +427,62 @@
     background: rgba(79, 70, 229, 0.18);
   }
 
+  .track-row.is-missing:hover {
+    background: rgba(148, 163, 184, 0.08);
+  }
+
+  .track-row.is-missing .title > span {
+    color: rgba(226, 232, 240, 0.82);
+  }
+
+  .track-row.is-missing .album,
+  .track-row.is-missing .duration,
+  .track-row.is-missing .index,
+  .track-row.is-missing .meta-line small {
+    color: rgba(148, 163, 184, 0.78);
+  }
+
   .index {
     font-variant-numeric: tabular-nums;
     color: rgba(148, 163, 184, 0.8);
   }
 
-  .title span {
+  .title {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .title > span {
     display: block;
     font-weight: 600;
     color: #f8fafc;
   }
 
-  .title small {
+  .meta-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .meta-line small {
     color: rgba(148, 163, 184, 0.75);
     font-size: 0.75rem;
+  }
+
+  .availability-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    background: rgba(127, 29, 29, 0.28);
+    color: rgba(254, 202, 202, 0.92);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
   }
 
   .album {
@@ -360,7 +494,7 @@
     color: rgba(148, 163, 184, 0.8);
   }
 
-  .track-row .actions {
+  .track-actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
@@ -378,6 +512,18 @@
 
   .ghost:hover {
     background: rgba(96, 165, 250, 0.3);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   @media (max-width: 940px) {
