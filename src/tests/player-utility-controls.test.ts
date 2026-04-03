@@ -196,6 +196,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  document.documentElement.removeAttribute('data-theme');
 });
 
 describe('BottomPlayerBar cover art rendering', () => {
@@ -272,6 +273,36 @@ describe('BottomPlayerBar cover art rendering', () => {
     expect(within(trigger).queryByRole('img')).toBeNull();
     expect(fallback.getAttribute('aria-hidden')).toBe('true');
   });
+});
+
+describe('BottomPlayerBar current-track cluster geometry', () => {
+  it('uses a dedicated artwork slot and bottom-bar cover variant instead of external geometry patching', async () => {
+    const source = await readPlayerBar();
+
+    expect(source).toContain('data-testid="bottom-player-artwork-slot"');
+    expect(source).toContain('variant="bottom-bar"');
+    expect(source).not.toContain('className="bottom-player-bar__artwork"');
+    expect(source).not.toContain(':global(.bottom-player-bar__artwork)');
+    expect(source).toMatch(/\.current-track-cluster__artwork-slot\s*\{[\s\S]*inline-size:\s*72px;/);
+    expect(source).toMatch(/\.current-track-cluster__artwork-slot\s*\{[\s\S]*block-size:\s*72px;/);
+    expect(source).toMatch(/\.current-track-cluster__artwork-slot\s*\{[\s\S]*flex:\s*0\s+0\s+72px;/);
+  });
+
+  for (const theme of ['dark', 'light'] as const) {
+    it(`keeps the artwork slot, title, and favorite button stable in ${theme}`, () => {
+      document.documentElement.dataset['theme'] = theme;
+
+      render(BottomPlayerBar);
+
+      const trigger = screen.getByRole('button', { name: /^打开正在播放：/ });
+      const artworkSlot = within(trigger).getByTestId('bottom-player-artwork-slot');
+      const artworkRoot = artworkSlot.querySelector('[data-cover-art-variant="bottom-bar"]');
+
+      expect(artworkRoot).toBeTruthy();
+      expect(within(trigger).getByText('Midnight City')).toBeTruthy();
+      expect(screen.getByRole('button', { name: '收藏' })).toBeTruthy();
+    });
+  }
 });
 
 describe('player utility controls styling', () => {

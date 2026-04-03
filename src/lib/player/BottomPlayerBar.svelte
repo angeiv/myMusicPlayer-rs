@@ -227,33 +227,37 @@
       aria-label={currentTrack ? `打开正在播放：${currentTrack.title}` : '当前没有正在播放内容'}
       aria-pressed={currentTrack ? isNowPlayingOpen : undefined}
     >
-      <CoverArt
-        className="bottom-player-bar__artwork"
-        artworkPath={currentTrack?.artwork_path}
-        title={currentTrack?.title ?? '暂无播放'}
-        alt=""
-      />
-      <div class="track-meta" data-availability={currentTrackAvailability?.availability ?? 'available'}>
-        <div class="title">{currentTrack ? currentTrack.title : '暂无播放'}</div>
-        <div class="artist">
-          {#if currentTrack}
-            {currentTrack.artist_name ?? '未知艺术家'} • {currentTrack.album_title ?? '单曲'}
-          {:else}
-            选择歌曲后即可在这里查看播放详情
+      <div class="current-track-cluster">
+        <div class="current-track-cluster__artwork-slot" data-testid="bottom-player-artwork-slot">
+          <CoverArt
+            variant="bottom-bar"
+            artworkPath={currentTrack?.artwork_path}
+            title={currentTrack?.title ?? '暂无播放'}
+            alt=""
+          />
+        </div>
+        <div class="track-meta" data-availability={currentTrackAvailability?.availability ?? 'available'}>
+          <div class="title">{currentTrack ? currentTrack.title : '暂无播放'}</div>
+          <div class="artist">
+            {#if currentTrack}
+              {currentTrack.artist_name ?? '未知艺术家'} • {currentTrack.album_title ?? '单曲'}
+            {:else}
+              选择歌曲后即可在这里查看播放详情
+            {/if}
+          </div>
+          <div class="badges">
+            <span class="badge">{currentTrack?.genre ?? '未分类'}</span>
+            {#if currentTrack?.year}
+              <span class="badge subtle">{currentTrack.year}</span>
+            {/if}
+            {#if currentTrackAvailability?.badge}
+              <span class="badge availability">{currentTrackAvailability.badge}</span>
+            {/if}
+          </div>
+          {#if currentTrackAvailability?.description}
+            <p class="availability-copy">{currentTrackAvailability.description}</p>
           {/if}
         </div>
-        <div class="badges">
-          <span class="badge">{currentTrack?.genre ?? '未分类'}</span>
-          {#if currentTrack?.year}
-            <span class="badge subtle">{currentTrack.year}</span>
-          {/if}
-          {#if currentTrackAvailability?.badge}
-            <span class="badge availability">{currentTrackAvailability.badge}</span>
-          {/if}
-        </div>
-        {#if currentTrackAvailability?.description}
-          <p class="availability-copy">{currentTrackAvailability.description}</p>
-        {/if}
       </div>
     </button>
     <button
@@ -537,7 +541,6 @@
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 16px;
     padding: 10px 12px;
     border: none;
     border-radius: 20px;
@@ -564,14 +567,26 @@
     cursor: not-allowed;
   }
 
-  :global(.bottom-player-bar__artwork) {
-    width: 68px;
-    height: 68px;
-    border-radius: 12px;
-    flex-shrink: 0;
+  .current-track-cluster {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .current-track-cluster__artwork-slot {
+    inline-size: 72px;
+    block-size: 72px;
+    aspect-ratio: 1;
+    flex: 0 0 72px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .track-meta {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -598,6 +613,7 @@
   .badges {
     display: flex;
     gap: 8px;
+    flex-wrap: wrap;
     font-size: 0.75rem;
     color: var(--player-muted);
   }
@@ -628,6 +644,7 @@
   }
 
   .favorite {
+    flex: 0 0 auto;
     border: none;
     background: transparent;
     color: rgba(248, 113, 113, 0.65);
