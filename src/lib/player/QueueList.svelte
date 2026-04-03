@@ -38,7 +38,7 @@
   }
 </script>
 
-<div class="queue-root">
+<div class="queue-root" data-surface="queue-list">
   <div class="queue-toolbar">
     <button type="button" class="queue-clear" on:click={() => onClear()} aria-label="清空队列">
       清空
@@ -126,22 +126,26 @@
   }
 
   .queue-clear {
-    border: none;
+    border: 1px solid var(--border-default);
     border-radius: 999px;
     padding: 6px 12px;
-    background: color-mix(in srgb, var(--player-border) 55%, transparent);
-    color: rgba(226, 232, 240, 0.95);
+    background: var(--surface-panel-subtle);
+    color: var(--text-primary);
     font-size: 0.75rem;
     cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
   }
 
-  .queue-clear:hover {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  .queue-clear:hover,
+  .queue-clear:focus-visible {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 24%, var(--border-default));
+    outline: none;
   }
 
   .queue-empty {
     font-size: 0.8rem;
-    color: rgba(148, 163, 184, 0.8);
+    color: var(--text-secondary);
   }
 
   .queue-list {
@@ -168,25 +172,34 @@
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    border: none;
-    background: color-mix(in srgb, var(--player-border) 55%, transparent);
-    border-radius: 10px;
+    border: 1px solid transparent;
+    background: var(--surface-panel-subtle);
+    border-radius: 12px;
     padding: 8px 10px;
     color: inherit;
     cursor: pointer;
     text-align: left;
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
   }
 
-  .queue-item:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  .queue-item:hover:not(:disabled),
+  .queue-item:focus-visible {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 22%, var(--border-default));
+    box-shadow: var(--shadow-soft);
+    outline: none;
   }
 
   li.active .queue-item {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    background: var(--state-selected);
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border-default));
   }
 
   li.is-missing .queue-item {
-    border: 1px solid rgba(248, 113, 113, 0.18);
+    border-color: color-mix(in srgb, var(--state-danger) 68%, var(--border-default));
   }
 
   .queue-item:disabled {
@@ -206,26 +219,31 @@
     height: 34px;
     display: grid;
     place-items: center;
-    border: none;
+    border: 1px solid var(--border-default);
     border-radius: 10px;
-    background: color-mix(in srgb, var(--player-border) 55%, transparent);
-    color: rgba(226, 232, 240, 0.95);
+    background: var(--surface-panel-subtle);
+    color: var(--text-primary);
     cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
   }
 
-  .queue-remove:hover {
-    background: rgba(239, 68, 68, 0.18);
-    color: rgba(254, 226, 226, 0.95);
+  .queue-remove:hover,
+  .queue-remove:focus-visible {
+    background: color-mix(in srgb, var(--state-danger) 78%, var(--surface-panel-subtle));
+    border-color: color-mix(in srgb, var(--state-danger) 72%, var(--border-default));
+    color: var(--text-primary);
+    outline: none;
   }
 
   .queue-title {
     font-size: 0.85rem;
     font-weight: 600;
+    color: var(--text-primary);
   }
 
   .queue-artist {
     font-size: 0.75rem;
-    color: var(--player-muted);
+    color: var(--text-secondary);
   }
 
   .queue-meta-line {
@@ -238,9 +256,9 @@
   .availability-badge {
     padding: 2px 8px;
     border-radius: 999px;
-    background: rgba(127, 29, 29, 0.32);
-    border: 1px solid rgba(248, 113, 113, 0.35);
-    color: rgba(254, 226, 226, 0.95);
+    background: color-mix(in srgb, var(--state-danger) 84%, var(--surface-elevated));
+    border: 1px solid color-mix(in srgb, var(--state-danger) 72%, var(--border-default));
+    color: var(--text-primary);
     font-size: 0.7rem;
     font-weight: 600;
     line-height: 1.3;
@@ -249,17 +267,18 @@
   .queue-status {
     font-size: 0.72rem;
     line-height: 1.4;
-    color: rgba(254, 226, 226, 0.9);
+    color: color-mix(in srgb, var(--text-primary) 86%, var(--state-danger));
   }
 
   .queue-time {
     font-size: 0.75rem;
-    color: var(--player-muted);
+    color: var(--text-secondary);
   }
 
   .index {
     font-variant-numeric: tabular-nums;
     font-size: 0.8rem;
     width: 1.5rem;
+    color: var(--text-tertiary);
   }
 </style>

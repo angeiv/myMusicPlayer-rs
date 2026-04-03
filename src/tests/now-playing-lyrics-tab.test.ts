@@ -146,6 +146,33 @@ describe('NowPlayingLyricsTab', () => {
     });
   });
 
+  it('publishes stable surface and state hooks for timed lyrics chrome', async () => {
+    const timedTrack = createTrack({
+      lyrics: '[00:01.00]第一句\n[00:04.20]第二句\n[00:08.00]第三句',
+    });
+
+    render(NowPlayingLyricsTab, {
+      track: timedTrack,
+      progress: 1.2,
+      playbackState: createPlaybackState({ position: 1.2 }),
+      onSeekToTimestamp: vi.fn(),
+    });
+
+    const scrollRegion = screen.getByTestId('lyrics-scroll-region');
+    configureTimedLayout(scrollRegion, ['第一句', '第二句', '第三句']);
+
+    expect(scrollRegion.getAttribute('data-surface')).toBe('lyrics');
+    expect(getLyricsLine('第一句').getAttribute('data-line-state')).toBe('active');
+
+    await fireEvent.wheel(scrollRegion);
+
+    await waitFor(() => {
+      expect(getLyricsLine('第二句').getAttribute('data-line-state')).toBe('selected');
+      expect(screen.getByTestId('lyrics-guide-line').getAttribute('data-line-state')).toBe('guide');
+      expect(screen.getByRole('button', { name: '跳转到 0:04' }).getAttribute('data-variant')).toBe('utility');
+    });
+  });
+
   it('renders plain lyrics without browse guide affordances', () => {
     render(NowPlayingLyricsTab, {
       track: createTrack({ lyrics: '第一行\n第二行' }),

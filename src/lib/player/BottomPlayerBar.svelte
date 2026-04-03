@@ -206,22 +206,23 @@
   }
 
   $: playingClass = isPlaying ? 'playing' : '';
-
 </script>
 
-<div class="player-bar">
+<div class="player-bar" data-surface="player-chrome">
   {#if uiError}
-    <div class="error-banner" role="status">
+    <div class="error-banner" data-surface="feedback" data-tone="danger" role="status">
       <span>{uiError}</span>
       <button type="button" on:click={() => playback.dismissError()} aria-label="关闭错误提示">✕</button>
     </div>
   {/if}
+
   <div class="now-playing">
     <button
       bind:this={nowPlayingTrigger}
       type="button"
       class="now-playing-trigger"
       class:active={isNowPlayingOpen}
+      data-variant="current-track"
       on:click={toggleNowPlaying}
       disabled={!currentTrack}
       aria-label={currentTrack ? `打开正在播放：${currentTrack.title}` : '当前没有正在播放内容'}
@@ -319,7 +320,10 @@
         </span>
       </button>
       <button class={`play ${playingClass}`} type="button" on:click={togglePlayPause} aria-label="播放或暂停">
-        <span class={`transport-icon transport-play-icon ${isPlaying ? 'pause-glyph' : 'play-glyph'}`} aria-hidden="true">
+        <span
+          class={`transport-icon transport-play-icon ${isPlaying ? 'pause-glyph' : 'play-glyph'}`}
+          aria-hidden="true"
+        >
           <svg viewBox="0 0 24 24" fill="none">
             {#if isPlaying}
               <path d="M9.25 7.5v9" />
@@ -357,7 +361,7 @@
           <span class="transport-badge" aria-hidden="true">1</span>
         {/if}
       </button>
-      <button class="pill" on:click={promptAndPlayFile}>打开文件</button>
+      <button class="pill" type="button" on:click={promptAndPlayFile}>打开文件</button>
     </div>
   </div>
 
@@ -366,6 +370,7 @@
       <button
         type="button"
         class="utility-trigger utility-icon-button"
+        data-variant="utility"
         on:click={toggleQueuePopover}
         disabled={isNowPlayingOpen}
         aria-expanded={showQueue}
@@ -381,7 +386,7 @@
         </span>
       </button>
       {#if showQueue}
-        <div class="popover queue-popover">
+        <div class="popover queue-popover" data-surface="popover">
           <p class="heading">接下来播放</p>
           <QueueList
             tracks={queueTracks}
@@ -395,11 +400,12 @@
       {/if}
     </div>
 
-  <div class="volume-wrap popover-group">
+    <div class="volume-wrap popover-group">
       <button
         type="button"
         class="utility-trigger utility-icon-button volume-trigger"
         class:active={isMuted}
+        data-variant="utility"
         on:click={() => void toggleMute()}
         aria-label={isMuted ? '取消静音' : '静音'}
         aria-pressed={isMuted}
@@ -419,7 +425,7 @@
           </svg>
         </span>
       </button>
-      <div class="popover volume-popover" role="group" aria-label="音量">
+      <div class="popover volume-popover" data-surface="popover" role="group" aria-label="音量">
         <div class="volume-header">
           <span class="volume-title">音量</span>
           <span class="volume-value">{Math.round(volumePercentUi)}%</span>
@@ -432,6 +438,7 @@
       <button
         type="button"
         class="utility-trigger utility-icon-button"
+        data-variant="utility"
         on:click={toggleDevicePopover}
         aria-expanded={showDevicePicker}
         aria-label="输出设备"
@@ -444,7 +451,7 @@
         </span>
       </button>
       {#if showDevicePicker}
-        <div class="popover device-popover">
+        <div class="popover device-popover" data-surface="popover">
           <p class="heading">输出设备</p>
           <ul>
             <li>
@@ -473,7 +480,6 @@
         </div>
       {/if}
     </div>
-
   </div>
 </div>
 
@@ -485,10 +491,16 @@
     align-items: center;
     gap: 24px;
     padding: 16px 28px;
-    background: var(--player-bg);
-    border-top: 1px solid var(--player-border);
-    color: var(--player-fg);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--surface-shell) 95%, var(--surface-canvas)),
+        color-mix(in srgb, var(--surface-shell) 88%, var(--surface-canvas))
+      );
+    border-top: 1px solid var(--border-default);
+    color: var(--text-primary);
     min-height: 110px;
+    box-shadow: 0 -12px 28px color-mix(in srgb, var(--surface-canvas) 18%, transparent);
   }
 
   .error-banner {
@@ -501,12 +513,13 @@
     gap: 12px;
     padding: 8px 12px;
     border-radius: 999px;
-    background: rgba(239, 68, 68, 0.15);
-    border: 1px solid rgba(239, 68, 68, 0.35);
-    color: rgba(254, 226, 226, 0.95);
+    background: color-mix(in srgb, var(--state-danger) 88%, var(--surface-elevated));
+    border: 1px solid color-mix(in srgb, var(--state-danger) 85%, var(--border-default));
+    color: var(--text-primary);
     font-size: 0.85rem;
     max-width: min(900px, calc(100% - 32px));
     z-index: 10;
+    box-shadow: var(--shadow-soft);
   }
 
   .error-banner span {
@@ -525,8 +538,10 @@
     cursor: pointer;
   }
 
-  .error-banner button:hover {
-    background: rgba(239, 68, 68, 0.22);
+  .error-banner button:hover,
+  .error-banner button:focus-visible {
+    background: color-mix(in srgb, var(--state-danger) 72%, transparent);
+    outline: none;
   }
 
   .now-playing {
@@ -542,7 +557,7 @@
     display: flex;
     align-items: center;
     padding: 10px 12px;
-    border: none;
+    border: 1px solid transparent;
     border-radius: 20px;
     background: transparent;
     color: inherit;
@@ -550,6 +565,7 @@
     text-align: left;
     transition:
       background 0.2s ease,
+      border-color 0.2s ease,
       box-shadow 0.2s ease,
       transform 0.16s ease;
   }
@@ -557,8 +573,9 @@
   .now-playing-trigger:hover:not(:disabled),
   .now-playing-trigger:focus-visible,
   .now-playing-trigger.active {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+    box-shadow: var(--glow-accent);
     outline: none;
     transform: translateY(-1px);
   }
@@ -596,7 +613,7 @@
   .track-meta .title {
     font-size: 1.05rem;
     font-weight: 600;
-    color: #fff;
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -604,7 +621,7 @@
 
   .track-meta .artist {
     font-size: 0.85rem;
-    color: rgba(226, 232, 240, 0.72);
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -615,46 +632,46 @@
     gap: 8px;
     flex-wrap: wrap;
     font-size: 0.75rem;
-    color: var(--player-muted);
+    color: var(--text-secondary);
   }
 
   .badge {
     padding: 2px 8px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--player-border));
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-default));
   }
 
   .badge.subtle {
-    background: color-mix(in srgb, var(--player-border) 60%, transparent);
-    border-color: color-mix(in srgb, var(--player-border) 85%, transparent);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 90%, transparent);
+    border-color: var(--border-subtle);
   }
 
   .badge.availability {
-    background: rgba(127, 29, 29, 0.32);
-    border-color: rgba(248, 113, 113, 0.34);
-    color: rgba(254, 226, 226, 0.95);
+    background: color-mix(in srgb, var(--state-danger) 88%, var(--surface-elevated));
+    border-color: color-mix(in srgb, var(--state-danger) 82%, var(--border-default));
+    color: var(--text-primary);
   }
 
   .availability-copy {
     margin: 0;
     font-size: 0.76rem;
     line-height: 1.4;
-    color: rgba(254, 226, 226, 0.9);
+    color: color-mix(in srgb, var(--text-primary) 88%, var(--state-danger));
   }
 
   .favorite {
     flex: 0 0 auto;
     border: none;
     background: transparent;
-    color: rgba(248, 113, 113, 0.65);
+    color: color-mix(in srgb, var(--text-secondary) 74%, var(--state-danger));
     font-size: 1.5rem;
     cursor: pointer;
     transition: transform 0.2s ease, color 0.2s ease;
   }
 
   .favorite.active {
-    color: rgba(248, 113, 113, 0.95);
+    color: color-mix(in srgb, var(--text-primary) 86%, var(--state-danger));
     transform: scale(1.05);
   }
 
@@ -678,7 +695,7 @@
 
   .time {
     font-size: 0.8rem;
-    color: var(--player-muted);
+    color: var(--text-secondary);
     min-width: 40px;
     text-align: center;
   }
@@ -686,7 +703,7 @@
   .progress-rail {
     position: relative;
     height: 6px;
-    background: color-mix(in srgb, var(--player-border) 55%, transparent);
+    background: color-mix(in srgb, var(--border-default) 55%, transparent);
     border-radius: 999px;
     overflow: hidden;
   }
@@ -719,8 +736,8 @@
     width: 14px;
     height: 14px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--player-progress-from) 75%, #ffffff);
-    border: 2px solid color-mix(in srgb, var(--player-progress-from) 70%, #000000);
+    background: color-mix(in srgb, var(--player-progress-from) 76%, var(--text-on-accent));
+    border: 2px solid color-mix(in srgb, var(--player-progress-from) 38%, var(--surface-shell));
   }
 
   .controls {
@@ -733,7 +750,7 @@
     position: relative;
     border: none;
     background: transparent;
-    color: rgba(226, 232, 240, 0.88);
+    color: var(--text-secondary);
     width: 40px;
     height: 40px;
     display: grid;
@@ -749,8 +766,8 @@
 
   .controls button:hover:not(:disabled),
   .controls button:focus-visible {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
-    color: #f8fbff;
+    background: var(--accent-soft);
+    color: var(--text-primary);
     transform: translateY(-1px);
     outline: none;
   }
@@ -762,11 +779,11 @@
 
   .controls button.active,
   .controls button[aria-pressed='true'] {
-    background: rgba(37, 99, 235, 0.24);
-    color: #eff6ff;
+    background: var(--state-selected);
+    color: var(--text-primary);
     box-shadow:
-      inset 0 0 0 1px rgba(147, 197, 253, 0.18),
-      0 8px 20px rgba(37, 99, 235, 0.18);
+      inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent),
+      var(--shadow-soft);
   }
 
   .transport-icon {
@@ -799,14 +816,14 @@
   .controls .play {
     width: 52px;
     height: 52px;
-    background: rgba(59, 130, 246, 0.3);
-    color: #f8fbff;
-    box-shadow: 0 12px 28px rgba(59, 130, 246, 0.28);
+    background: var(--accent-soft);
+    color: var(--text-on-accent);
+    box-shadow: var(--glow-accent);
   }
 
   .controls .play.playing {
-    background: rgba(16, 185, 129, 0.34);
-    box-shadow: 0 12px 28px rgba(16, 185, 129, 0.28);
+    background: color-mix(in srgb, var(--state-playing) 80%, var(--surface-shell));
+    box-shadow: 0 14px 30px color-mix(in srgb, var(--state-playing) 32%, transparent);
   }
 
   .transport-badge {
@@ -820,20 +837,20 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: rgba(59, 130, 246, 0.95);
-    color: #eff6ff;
+    background: var(--accent);
+    color: var(--text-on-accent);
     font-size: 0.58rem;
     font-weight: 700;
     line-height: 1;
-    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.28);
+    box-shadow: var(--shadow-soft);
   }
 
   .controls .pill {
     width: auto;
     padding: 0 18px;
     font-size: 0.9rem;
-    background: rgba(16, 185, 129, 0.25);
-    border: 1px solid rgba(16, 185, 129, 0.45);
+    background: color-mix(in srgb, var(--state-playing) 72%, var(--surface-panel-subtle));
+    border: 1px solid color-mix(in srgb, var(--state-playing) 78%, var(--border-default));
   }
 
   .extras {
@@ -847,29 +864,26 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(96, 165, 250, 0.14);
-    background: rgba(15, 23, 42, 0.72);
-    color: rgba(226, 232, 240, 0.92);
+    border: 1px solid var(--border-default);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 92%, var(--surface-shell));
+    color: var(--text-primary);
     cursor: pointer;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.04),
-      0 10px 24px rgba(2, 6, 23, 0.18);
+    box-shadow: var(--shadow-soft);
     transition:
       background 0.2s ease,
       border-color 0.2s ease,
       color 0.2s ease,
+      box-shadow 0.2s ease,
       transform 0.16s ease;
   }
 
   .utility-trigger.active,
   .utility-trigger[aria-expanded='true'],
   .utility-trigger[aria-pressed='true'] {
-    background: rgba(37, 99, 235, 0.32);
-    border-color: rgba(96, 165, 250, 0.36);
-    color: #eff6ff;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 12px 28px rgba(37, 99, 235, 0.22);
+    background: var(--state-selected);
+    border-color: color-mix(in srgb, var(--accent) 34%, var(--border-default));
+    color: var(--text-primary);
+    box-shadow: var(--glow-accent);
   }
 
   .utility-trigger:disabled {
@@ -879,9 +893,9 @@
 
   .utility-trigger:hover:not(:disabled),
   .utility-trigger:focus-visible {
-    background: rgba(37, 99, 235, 0.22);
-    border-color: rgba(96, 165, 250, 0.28);
-    color: #eff6ff;
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 26%, var(--border-default));
+    color: var(--text-primary);
     transform: translateY(-1px);
     outline: none;
   }
@@ -923,12 +937,13 @@
     position: absolute;
     bottom: 120%;
     right: 0;
-    background: rgba(15, 23, 42, 0.95);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: color-mix(in srgb, var(--surface-elevated) 96%, var(--surface-shell));
+    border: 1px solid var(--border-default);
     padding: 14px;
-    border-radius: 14px;
+    border-radius: 16px;
     min-width: 220px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--shadow-elevated);
+    color: var(--text-primary);
     z-index: 20;
   }
 
@@ -940,7 +955,7 @@
     font-size: 0.85rem;
     font-weight: 600;
     margin-bottom: 8px;
-    color: #e2e8f0;
+    color: var(--text-primary);
   }
 
   .device-popover ul {
@@ -962,15 +977,14 @@
     margin-bottom: 10px;
   }
 
-  .volume-title {
+  .volume-title,
+  .volume-value {
     font-size: 0.85rem;
-    color: var(--player-muted);
+    color: var(--text-secondary);
   }
 
   .volume-value {
     font-variant-numeric: tabular-nums;
-    font-size: 0.85rem;
-    color: var(--player-muted);
   }
 
   .volume-wrap {
@@ -1013,20 +1027,29 @@
   .device-popover button {
     width: 100%;
     text-align: left;
-    border: none;
-    background: rgba(30, 41, 59, 0.55);
+    border: 1px solid transparent;
+    background: var(--surface-panel-subtle);
     border-radius: 10px;
     padding: 8px 10px;
     color: inherit;
     cursor: pointer;
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease;
   }
 
-  .device-popover button:hover {
-    background: rgba(59, 130, 246, 0.2);
+  .device-popover button:hover,
+  .device-popover button:focus-visible {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 22%, var(--border-default));
+    box-shadow: var(--shadow-soft);
+    outline: none;
   }
 
   .device-popover button.selected {
-    border: 1px solid rgba(96, 165, 250, 0.7);
+    background: var(--state-selected);
+    border-color: color-mix(in srgb, var(--accent) 34%, var(--border-default));
   }
 
   .device-name {
@@ -1036,9 +1059,8 @@
 
   .device-desc {
     font-size: 0.75rem;
-    color: rgba(148, 163, 184, 0.85);
+    color: var(--text-secondary);
   }
-
 
   @media (max-width: 1100px) {
     .player-bar {

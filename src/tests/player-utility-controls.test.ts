@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Track } from '../lib/types';
@@ -326,6 +326,24 @@ describe('player utility controls styling', () => {
     expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*height:\s*44px;/);
     expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*padding:\s*0;/);
     expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*border-radius:\s*16px;/);
+  });
+
+  it('exposes queue, volume, and device popovers through one shared utility surface contract', async () => {
+    render(BottomPlayerBar);
+
+    const queueButton = screen.getByRole('button', { name: '队列' });
+    const deviceButton = screen.getByRole('button', { name: '输出设备' });
+    const volumeGroup = screen.getByRole('group', { name: '音量' });
+
+    expect(queueButton.getAttribute('data-variant')).toBe('utility');
+    expect(deviceButton.getAttribute('data-variant')).toBe('utility');
+    expect(volumeGroup.closest('[data-surface="popover"]')).toBeTruthy();
+
+    await fireEvent.click(queueButton);
+    expect(screen.getByText('接下来播放').closest('[data-surface="popover"]')).toBeTruthy();
+
+    await fireEvent.click(deviceButton);
+    expect(screen.getByText('输出设备').closest('[data-surface="popover"]')).toBeTruthy();
   });
 
   it('renders the shuffle, previous, play-pause, next, and repeat controls as svg icons', async () => {

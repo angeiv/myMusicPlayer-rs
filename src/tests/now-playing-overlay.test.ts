@@ -279,9 +279,12 @@ describe('NowPlayingOverlay', () => {
 
     overlayMock.nowPlayingState.set({ isOpen: true, activeTab: 'lyrics' });
 
-    expect(await screen.findByRole('region', { name: '正在播放' })).toBeTruthy();
+    const region = await screen.findByRole('region', { name: '正在播放' });
+    expect(region.getAttribute('data-surface')).toBe('overlay');
     expect(screen.getByRole('tab', { name: '歌词' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: '歌词' }).getAttribute('data-variant')).toBe('tab');
     expect(screen.getByRole('tab', { name: '队列' }).getAttribute('aria-selected')).toBe('false');
+    expect(screen.getByRole('tab', { name: '队列' }).getAttribute('data-variant')).toBe('tab');
   });
 
   it('moves focus into the header when the overlay opens', async () => {

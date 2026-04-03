@@ -188,10 +188,14 @@ describe('App songs-shell wiring', () => {
       expect(container.querySelector('.app-shell')).toBeTruthy();
     });
 
+    const appContainer = container.querySelector('.app-container');
     const shell = container.querySelector('.app-shell');
     const mainContent = container.querySelector('.main-content');
     const bottomBarStub = screen.getByTestId('empty-stub');
 
+    expect(appContainer?.getAttribute('data-surface')).toBe('canvas');
+    expect(shell?.getAttribute('data-surface')).toBe('shell');
+    expect(mainContent?.getAttribute('data-surface')).toBe('workspace');
     expect(shell?.getAttribute('aria-hidden')).toBe('true');
     expect(shell?.className).toContain('app-shell--inactive');
     expect(mainContent?.className).toContain('main-content--locked');

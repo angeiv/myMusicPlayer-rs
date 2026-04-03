@@ -116,12 +116,13 @@
   });
 </script>
 
-<div class="app-container" class:overlay-open={isNowPlayingOpen}>
+<div class="app-container" class:overlay-open={isNowPlayingOpen} data-surface="canvas">
   <div
     class="app-shell"
     class:app-shell--inactive={isNowPlayingOpen}
     inert={isNowPlayingOpen}
     aria-hidden={isNowPlayingOpen ? 'true' : undefined}
+    data-surface="shell"
   >
     <TopBar bind:searchTerm={searchInput} on:searchTermChange={handleSearchTermChange} />
 
@@ -136,7 +137,7 @@
       on:createPlaylist={createPlaylistFromPrompt}
     />
 
-    <main class="main-content" class:main-content--locked={isNowPlayingOpen}>
+    <main class="main-content" class:main-content--locked={isNowPlayingOpen} data-surface="workspace">
       {#if route.name === "home"}
         <HomeView tracks={$tracks} albums={$albums} artists={$artists} playlists={$playlists} />
       {:else if route.name === "songs"}
@@ -188,8 +189,10 @@
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto;
     height: 100dvh;
-    background-color: var(--app-bg);
-    color: var(--app-fg);
+    background:
+      radial-gradient(circle at top, color-mix(in srgb, var(--accent) 6%, transparent), transparent 42%),
+      var(--surface-canvas);
+    color: var(--text-primary);
   }
 
   .app-shell {
@@ -201,6 +204,7 @@
       "sidebar topbar"
       "sidebar main";
     overflow: hidden;
+    background: color-mix(in srgb, var(--surface-shell) 78%, var(--surface-canvas));
   }
 
   .app-shell--inactive {
@@ -223,7 +227,8 @@
     min-height: 0;
     overflow: auto;
     overscroll-behavior: contain;
-    padding: 20px;
+    padding: 24px;
+    background: color-mix(in srgb, var(--surface-canvas) 84%, var(--surface-shell));
   }
 
   .main-content--locked {
