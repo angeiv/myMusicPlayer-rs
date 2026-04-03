@@ -9,6 +9,7 @@ use tauri_plugin_log::Target;
 // Import our modules
 mod api;
 mod models;
+pub mod native_uat;
 mod services {
     pub mod audio;
     pub mod library;
