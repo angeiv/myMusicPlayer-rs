@@ -1,15 +1,22 @@
 //! Library-related Tauri commands for the music player
 
 use log::{error, info};
-use std::{path::PathBuf, sync::atomic::Ordering};
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc, Mutex,
+        atomic::Ordering,
+    },
+};
 use tauri::State;
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::models::{Album, Artist, Track};
 use crate::services::library::{
-    ScanErrorKind, ScanErrorSample, ScanMode, ScanPhase, ScanStatus, dedupe_overlapping_roots,
-    is_dangerous_root, now_ms,
+    LibraryScanState, LibraryService, ScanErrorKind, ScanErrorSample, ScanMode, ScanPhase,
+    ScanStatus, WatcherCoordinatorState, dedupe_overlapping_roots, is_dangerous_root,
+    is_scan_phase_active, now_ms,
 };
 
 type LibrarySearchResult = (Vec<Track>, Vec<Album>, Vec<Artist>);
@@ -56,6 +63,316 @@ fn reset_scan_status(
     status.missing_tracks = 0;
     status.error_count = error_count;
     status.sample_errors = sample_errors;
+}
+
+type ScanTerminalHook = Arc<dyn Fn(ScanPhase) + Send + Sync + 'static>;
+
+fn watcher_terminal_hook(
+    library: Arc<Mutex<LibraryService>>,
+    library_scan: Arc<Mutex<LibraryScanState>>,
+    library_watcher: Arc<Mutex<WatcherCoordinatorState>>,
+) -> ScanTerminalHook {
+    Arc::new(move |phase| {
+        let library_for_launch = library.clone();
+        let library_scan_for_launch = library_scan.clone();
+        let watcher_for_launch = library_watcher.clone();
+
+        let mut watcher = match library_watcher.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                error!("Watcher state lock poisoned during scan callback");
+                poisoned.into_inner()
+            }
+        };
+
+        if let Err(err) = watcher.handle_scan_terminal(phase, |roots| {
+            launch_library_scan(
+                roots,
+                Some(ScanMode::Incremental),
+                library_for_launch.clone(),
+                library_scan_for_launch.clone(),
+                Some(watcher_terminal_hook(
+                    library_for_launch.clone(),
+                    library_scan_for_launch.clone(),
+                    watcher_for_launch.clone(),
+                )),
+            )
+        }) {
+            error!("Failed to queue watcher follow-up scan: {}", err);
+        }
+    })
+}
+
+fn resolve_scan_mode(
+    mode: Option<ScanMode>,
+    library: &Arc<Mutex<LibraryService>>,
+) -> Result<ScanMode, String> {
+    match mode {
+        Some(mode) => Ok(mode),
+        None => {
+            let library = library.lock().map_err(|e| {
+                error!("Failed to acquire library lock: {}", e);
+                "Failed to access library service".to_string()
+            })?;
+
+            if library.has_library_tracks().map_err(|e| {
+                error!("Failed to query library occupancy: {}", e);
+                e.to_string()
+            })? {
+                Ok(ScanMode::Incremental)
+            } else {
+                Ok(ScanMode::Full)
+            }
+        }
+    }
+}
+
+fn launch_library_scan(
+    paths: Vec<PathBuf>,
+    mode: Option<ScanMode>,
+    library: Arc<Mutex<LibraryService>>,
+    library_scan: Arc<Mutex<LibraryScanState>>,
+    on_terminal: Option<ScanTerminalHook>,
+) -> Result<(), String> {
+    let resolved_mode = resolve_scan_mode(mode, &library)?;
+
+    info!(
+        "Starting {:?} library scan for {} path(s)",
+        resolved_mode,
+        paths.len()
+    );
+
+    {
+        let scan = library_scan.lock().map_err(|e| {
+            error!("Failed to acquire library_scan lock: {}", e);
+            "Failed to access library scan state".to_string()
+        })?;
+
+        if is_scan_phase_active(scan.status.phase) {
+            return Err("Library scan already running".to_string());
+        }
+    }
+
+    let sample_limit = SAMPLE_ERROR_LIMIT;
+    let mut valid_roots: Vec<PathBuf> = Vec::new();
+    let mut invalid_count = 0u64;
+    let mut invalid_samples: Vec<ScanErrorSample> = Vec::new();
+
+    for raw_path in paths {
+        let path = match raw_path.canonicalize() {
+            Ok(canon) => canon,
+            Err(_) => raw_path,
+        };
+
+        if !path.exists() || !path.is_dir() {
+            push_error_sample(
+                &mut invalid_count,
+                &mut invalid_samples,
+                sample_limit,
+                ScanErrorKind::InvalidPath,
+                path.display().to_string(),
+                "Root path does not exist or is not a directory".to_string(),
+            );
+            continue;
+        }
+
+        if is_dangerous_root(&path) {
+            push_error_sample(
+                &mut invalid_count,
+                &mut invalid_samples,
+                sample_limit,
+                ScanErrorKind::InvalidPath,
+                path.display().to_string(),
+                "Root path is considered dangerous and will not be scanned".to_string(),
+            );
+            continue;
+        }
+
+        valid_roots.push(path);
+    }
+
+    let valid_roots = dedupe_overlapping_roots(&valid_roots);
+    if valid_roots.is_empty() {
+        let mut scan = library_scan.lock().map_err(|e| {
+            error!("Failed to acquire library_scan lock: {}", e);
+            "Failed to access library scan state".to_string()
+        })?;
+
+        if is_scan_phase_active(scan.status.phase) {
+            return Err("Library scan already running".to_string());
+        }
+
+        scan.cancel_flag.store(false, Ordering::SeqCst);
+        reset_scan_status(
+            &mut scan.status,
+            ScanPhase::Idle,
+            Some(resolved_mode),
+            None,
+            invalid_count,
+            invalid_samples,
+        );
+
+        return Err("No valid scan paths".to_string());
+    }
+
+    let started_at_ms = now_ms();
+    let cancel_flag = {
+        let mut scan = library_scan.lock().map_err(|e| {
+            error!("Failed to acquire library_scan lock: {}", e);
+            "Failed to access library scan state".to_string()
+        })?;
+
+        if is_scan_phase_active(scan.status.phase) {
+            return Err("Library scan already running".to_string());
+        }
+
+        scan.cancel_flag.store(false, Ordering::SeqCst);
+        reset_scan_status(
+            &mut scan.status,
+            ScanPhase::Running,
+            Some(resolved_mode),
+            Some(started_at_ms),
+            invalid_count,
+            invalid_samples,
+        );
+
+        scan.cancel_flag.clone()
+    };
+
+    let library_for_thread = library.clone();
+    let library_scan_for_thread = library_scan.clone();
+
+    std::thread::spawn(move || {
+        let scan_result = {
+            let mut library = match library_for_thread.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    error!("Library lock poisoned during scan");
+                    poisoned.into_inner()
+                }
+            };
+
+            let library_scan_for_progress = library_scan_for_thread.clone();
+            library.scan_roots_with_control(&valid_roots, &cancel_flag, sample_limit, |progress| {
+                let mut scan = match library_scan_for_progress.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+
+                scan.status.processed_files = progress.processed_files;
+                scan.status.inserted_tracks = progress.inserted_tracks;
+                scan.status.changed_tracks = progress.changed_tracks;
+                scan.status.unchanged_files = progress.unchanged_files;
+                scan.status.restored_tracks = progress.restored_tracks;
+                scan.status.missing_tracks = progress.missing_tracks;
+                scan.status.error_count = invalid_count + progress.error_count;
+                scan.status.current_path = Some(progress.current_path.display().to_string());
+            })
+        };
+
+        match scan_result {
+            Ok(summary) => {
+                let ended_at_ms = now_ms();
+                let phase = if summary.cancelled {
+                    ScanPhase::Cancelled
+                } else {
+                    ScanPhase::Completed
+                };
+
+                {
+                    let mut scan = match library_scan_for_thread.lock() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
+
+                    scan.status.phase = phase;
+                    scan.status.ended_at_ms = Some(ended_at_ms);
+                    scan.status.processed_files = summary.processed_files;
+                    scan.status.inserted_tracks = summary.inserted_tracks;
+                    scan.status.changed_tracks = summary.changed_tracks;
+                    scan.status.unchanged_files = summary.unchanged_files;
+                    scan.status.restored_tracks = summary.restored_tracks;
+                    scan.status.missing_tracks = summary.missing_tracks;
+                    scan.status.sample_errors.extend(summary.sample_errors);
+                    scan.status.sample_errors.truncate(sample_limit);
+                    scan.status.error_count = invalid_count + summary.error_count;
+                }
+
+                if let Some(callback) = on_terminal.as_ref() {
+                    callback(phase);
+                }
+            }
+            Err(err) => {
+                error!("Library scan failed: {}", err);
+
+                {
+                    let mut scan = match library_scan_for_thread.lock() {
+                        Ok(guard) => guard,
+                        Err(poisoned) => poisoned.into_inner(),
+                    };
+
+                    scan.status.phase = ScanPhase::Failed;
+                    scan.status.ended_at_ms = Some(now_ms());
+                    scan.status.error_count += 1;
+                    scan.status.sample_errors.push(ScanErrorSample {
+                        path: "<scan>".to_string(),
+                        message: err.to_string(),
+                        kind: ScanErrorKind::Persist,
+                    });
+
+                    if scan.status.sample_errors.len() > sample_limit {
+                        let excess = scan.status.sample_errors.len() - sample_limit;
+                        scan.status.sample_errors.drain(0..excess);
+                    }
+                }
+
+                if let Some(callback) = on_terminal.as_ref() {
+                    callback(ScanPhase::Failed);
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub(crate) fn schedule_watcher_dirty_roots(
+    state: &AppState,
+    dirty_roots: &[PathBuf],
+) -> Result<(), String> {
+    let scan_phase = {
+        let scan = state.library_scan.lock().map_err(|e| {
+            error!("Failed to acquire library_scan lock: {}", e);
+            "Failed to access library scan state".to_string()
+        })?;
+        scan.status.phase
+    };
+
+    let library = state.library.clone();
+    let library_scan = state.library_scan.clone();
+    let library_watcher = state.library_watcher.clone();
+
+    let mut watcher = state.library_watcher.lock().map_err(|e| {
+        error!("Failed to acquire watcher state lock: {}", e);
+        "Failed to access watcher coordinator state".to_string()
+    })?;
+
+    watcher.schedule_dirty_roots(scan_phase, dirty_roots, |roots| {
+        launch_library_scan(
+            roots,
+            Some(ScanMode::Incremental),
+            library.clone(),
+            library_scan.clone(),
+            Some(watcher_terminal_hook(
+                library.clone(),
+                library_scan.clone(),
+                library_watcher.clone(),
+            )),
+        )
+    })?;
+
+    Ok(())
 }
 
 /// Scan a directory for music files and add them to the library
@@ -122,240 +439,17 @@ pub async fn start_library_scan(
     mode: Option<ScanMode>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let resolved_mode = match mode {
-        Some(mode) => mode,
-        None => {
-            let library = state.library.lock().map_err(|e| {
-                error!("Failed to acquire library lock: {}", e);
-                "Failed to access library service".to_string()
-            })?;
-
-            if library.has_library_tracks().map_err(|e| {
-                error!("Failed to query library occupancy: {}", e);
-                e.to_string()
-            })? {
-                ScanMode::Incremental
-            } else {
-                ScanMode::Full
-            }
-        }
-    };
-
-    info!(
-        "Starting {:?} library scan for {} path(s)",
-        resolved_mode,
-        paths.len()
-    );
-
-    // Short-lock: reject if there's already an in-progress scan.
-    {
-        let scan = state.library_scan.lock().map_err(|e| {
-            error!("Failed to acquire library_scan lock: {}", e);
-            "Failed to access library scan state".to_string()
-        })?;
-
-        if matches!(
-            scan.status.phase,
-            ScanPhase::Running | ScanPhase::Cancelling
-        ) {
-            return Err("Library scan already running".to_string());
-        }
-    }
-
-    let sample_limit = SAMPLE_ERROR_LIMIT;
-
-    let mut valid_roots: Vec<PathBuf> = Vec::new();
-    let mut invalid_count = 0u64;
-    let mut invalid_samples: Vec<ScanErrorSample> = Vec::new();
-
-    for raw_path in paths {
-        let path = match raw_path.canonicalize() {
-            Ok(canon) => canon,
-            Err(_) => raw_path,
-        };
-
-        if !path.exists() || !path.is_dir() {
-            push_error_sample(
-                &mut invalid_count,
-                &mut invalid_samples,
-                sample_limit,
-                ScanErrorKind::InvalidPath,
-                path.display().to_string(),
-                "Root path does not exist or is not a directory".to_string(),
-            );
-            continue;
-        }
-
-        if is_dangerous_root(&path) {
-            push_error_sample(
-                &mut invalid_count,
-                &mut invalid_samples,
-                sample_limit,
-                ScanErrorKind::InvalidPath,
-                path.display().to_string(),
-                "Root path is considered dangerous and will not be scanned".to_string(),
-            );
-            continue;
-        }
-
-        valid_roots.push(path);
-    }
-
-    let valid_roots = dedupe_overlapping_roots(&valid_roots);
-
-    if valid_roots.is_empty() {
-        let mut scan = state.library_scan.lock().map_err(|e| {
-            error!("Failed to acquire library_scan lock: {}", e);
-            "Failed to access library scan state".to_string()
-        })?;
-
-        // Re-check under lock in case another request started a scan while we validated paths.
-        if matches!(
-            scan.status.phase,
-            ScanPhase::Running | ScanPhase::Cancelling
-        ) {
-            return Err("Library scan already running".to_string());
-        }
-
-        scan.cancel_flag.store(false, Ordering::SeqCst);
-
-        reset_scan_status(
-            &mut scan.status,
-            ScanPhase::Idle,
-            Some(resolved_mode),
-            None,
-            invalid_count,
-            invalid_samples,
-        );
-
-        return Err("No valid scan paths".to_string());
-    }
-
-    let started_at_ms = now_ms();
-
-    let cancel_flag = {
-        let mut scan = state.library_scan.lock().map_err(|e| {
-            error!("Failed to acquire library_scan lock: {}", e);
-            "Failed to access library scan state".to_string()
-        })?;
-
-        // Re-check under lock in case a second request raced in.
-        if matches!(
-            scan.status.phase,
-            ScanPhase::Running | ScanPhase::Cancelling
-        ) {
-            return Err("Library scan already running".to_string());
-        }
-
-        scan.cancel_flag.store(false, Ordering::SeqCst);
-
-        reset_scan_status(
-            &mut scan.status,
-            ScanPhase::Running,
-            Some(resolved_mode),
-            Some(started_at_ms),
-            invalid_count,
-            invalid_samples,
-        );
-
-        scan.cancel_flag.clone()
-    };
-
-    // Clone Arcs BEFORE moving into the background thread.
-    let library = state.library.clone();
-    let library_scan = state.library_scan.clone();
-
-    std::thread::spawn(move || {
-        let scan_result = {
-            let mut library = match library.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    error!("Library lock poisoned during scan");
-                    poisoned.into_inner()
-                }
-            };
-
-            library.scan_roots_with_control(&valid_roots, &cancel_flag, sample_limit, |progress| {
-                // IMPORTANT: keep the lock short; never hold it across the scan loop.
-                let mut scan = match library_scan.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-
-                scan.status.processed_files = progress.processed_files;
-                scan.status.inserted_tracks = progress.inserted_tracks;
-                scan.status.changed_tracks = progress.changed_tracks;
-                scan.status.unchanged_files = progress.unchanged_files;
-                scan.status.restored_tracks = progress.restored_tracks;
-                scan.status.missing_tracks = progress.missing_tracks;
-                scan.status.error_count = invalid_count + progress.error_count;
-                scan.status.current_path = Some(progress.current_path.display().to_string());
-            })
-        };
-
-        match scan_result {
-            Ok(summary) => {
-                let ended_at_ms = now_ms();
-
-                let cancelled = summary.cancelled;
-                let error_count = summary.error_count;
-                let sample_errors = summary.sample_errors;
-
-                let phase = if cancelled {
-                    ScanPhase::Cancelled
-                } else {
-                    ScanPhase::Completed
-                };
-
-                let mut scan = match library_scan.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-
-                scan.status.phase = phase;
-                scan.status.ended_at_ms = Some(ended_at_ms);
-                scan.status.processed_files = summary.processed_files;
-                scan.status.inserted_tracks = summary.inserted_tracks;
-                scan.status.changed_tracks = summary.changed_tracks;
-                scan.status.unchanged_files = summary.unchanged_files;
-                scan.status.restored_tracks = summary.restored_tracks;
-                scan.status.missing_tracks = summary.missing_tracks;
-
-                scan.status.sample_errors.extend(sample_errors);
-                scan.status.sample_errors.truncate(sample_limit);
-                scan.status.error_count = invalid_count + error_count;
-            }
-            Err(err) => {
-                error!("Library scan failed: {}", err);
-
-                let ended_at_ms = now_ms();
-
-                let mut scan = match library_scan.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-
-                scan.status.phase = ScanPhase::Failed;
-                scan.status.ended_at_ms = Some(ended_at_ms);
-
-                let status = &mut scan.status;
-
-                status.error_count += 1;
-                status.sample_errors.push(ScanErrorSample {
-                    path: "<scan>".to_string(),
-                    message: err.to_string(),
-                    kind: ScanErrorKind::Persist,
-                });
-
-                if status.sample_errors.len() > sample_limit {
-                    let excess = status.sample_errors.len() - sample_limit;
-                    status.sample_errors.drain(0..excess);
-                }
-            }
-        }
-    });
-
-    Ok(())
+    launch_library_scan(
+        paths,
+        mode,
+        state.library.clone(),
+        state.library_scan.clone(),
+        Some(watcher_terminal_hook(
+            state.library.clone(),
+            state.library_scan.clone(),
+            state.library_watcher.clone(),
+        )),
+    )
 }
 
 /// Get all tracks in the library

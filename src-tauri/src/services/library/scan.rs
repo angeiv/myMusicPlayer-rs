@@ -131,6 +131,14 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+pub fn is_scan_phase_active(phase: ScanPhase) -> bool {
+    matches!(phase, ScanPhase::Running | ScanPhase::Cancelling)
+}
+
+pub fn is_scan_phase_terminal(phase: ScanPhase) -> bool {
+    matches!(phase, ScanPhase::Completed | ScanPhase::Cancelled | ScanPhase::Failed)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LibraryPathKind {
     File,
