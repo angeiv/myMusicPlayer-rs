@@ -17,6 +17,13 @@ pub enum ScanPhase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ScanMode {
+    Full,
+    Incremental,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScanErrorKind {
     InvalidPath,
     Walk,
@@ -31,16 +38,74 @@ pub struct ScanErrorSample {
     pub kind: ScanErrorKind,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct ScanClassificationCounts {
+    pub changed_tracks: u64,
+    pub unchanged_files: u64,
+    pub restored_tracks: u64,
+    pub missing_tracks: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScanProgress {
+    pub current_path: PathBuf,
+    pub processed_files: u64,
+    pub inserted_tracks: u64,
+    pub changed_tracks: u64,
+    pub unchanged_files: u64,
+    pub restored_tracks: u64,
+    pub missing_tracks: u64,
+    pub error_count: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScanSummary {
+    pub processed_files: u64,
+    pub inserted_tracks: u64,
+    pub changed_tracks: u64,
+    pub unchanged_files: u64,
+    pub restored_tracks: u64,
+    pub missing_tracks: u64,
+    pub error_count: u64,
+    pub sample_errors: Vec<ScanErrorSample>,
+    pub cancelled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanStatus {
     pub phase: ScanPhase,
+    pub mode: Option<ScanMode>,
     pub started_at_ms: Option<i64>,
     pub ended_at_ms: Option<i64>,
     pub current_path: Option<String>,
     pub processed_files: u64,
     pub inserted_tracks: u64,
+    pub changed_tracks: u64,
+    pub unchanged_files: u64,
+    pub restored_tracks: u64,
+    pub missing_tracks: u64,
     pub error_count: u64,
     pub sample_errors: Vec<ScanErrorSample>,
+}
+
+impl ScanStatus {
+    pub fn new(phase: ScanPhase) -> Self {
+        Self {
+            phase,
+            mode: None,
+            started_at_ms: None,
+            ended_at_ms: None,
+            current_path: None,
+            processed_files: 0,
+            inserted_tracks: 0,
+            changed_tracks: 0,
+            unchanged_files: 0,
+            restored_tracks: 0,
+            missing_tracks: 0,
+            error_count: 0,
+            sample_errors: Vec::new(),
+        }
+    }
 }
 
 pub struct LibraryScanState {
@@ -51,16 +116,7 @@ pub struct LibraryScanState {
 impl LibraryScanState {
     pub fn new_idle() -> Self {
         Self {
-            status: ScanStatus {
-                phase: ScanPhase::Idle,
-                started_at_ms: None,
-                ended_at_ms: None,
-                current_path: None,
-                processed_files: 0,
-                inserted_tracks: 0,
-                error_count: 0,
-                sample_errors: Vec::new(),
-            },
+            status: ScanStatus::new(ScanPhase::Idle),
             cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -75,10 +131,66 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn normalize_root(root: &Path) -> PathBuf {
+pub fn is_scan_phase_active(phase: ScanPhase) -> bool {
+    matches!(phase, ScanPhase::Running | ScanPhase::Cancelling)
+}
+
+pub fn is_scan_phase_terminal(phase: ScanPhase) -> bool {
+    matches!(
+        phase,
+        ScanPhase::Completed | ScanPhase::Cancelled | ScanPhase::Failed
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryPathKind {
+    File,
+    Directory,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryPathVisibility {
+    Visible,
+    Hidden,
+    NoisePath,
+}
+
+pub fn classify_library_path(path: &Path, path_kind: LibraryPathKind) -> LibraryPathVisibility {
+    let components: Vec<_> = path.components().collect();
+
+    for (index, component) in components.iter().enumerate() {
+        let Component::Normal(name) = component else {
+            continue;
+        };
+
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+
+        if name.starts_with('.') {
+            return LibraryPathVisibility::Hidden;
+        }
+
+        let is_last = index + 1 == components.len();
+        let treat_as_directory = !is_last
+            || matches!(
+                path_kind,
+                LibraryPathKind::Directory | LibraryPathKind::Unknown
+            );
+
+        if treat_as_directory && matches!(name, "node_modules" | "target") {
+            return LibraryPathVisibility::NoisePath;
+        }
+    }
+
+    LibraryPathVisibility::Visible
+}
+
+pub fn normalize_path(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
 
-    for component in root.components() {
+    for component in path.components() {
         match component {
             Component::CurDir => {}
             other => normalized.push(other.as_os_str()),
@@ -89,7 +201,7 @@ fn normalize_root(root: &Path) -> PathBuf {
 }
 
 pub fn dedupe_overlapping_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut sorted: Vec<PathBuf> = roots.iter().map(|r| normalize_root(r)).collect();
+    let mut sorted: Vec<PathBuf> = roots.iter().map(|r| normalize_path(r)).collect();
     sorted.sort_by_key(|p| p.components().count());
 
     let mut kept: Vec<PathBuf> = Vec::new();

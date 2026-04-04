@@ -7,6 +7,17 @@
   export let className = '';
   export let imageClassName = '';
   export let placeholderClassName = '';
+  export let variant: 'default' | 'bottom-bar' = 'default';
+
+  const coverArtShapeByVariant = {
+    default: 'rounded-square',
+    'bottom-bar': 'rounded-square',
+  } as const;
+
+  const coverArtPlaceholderStyleByVariant = {
+    default: 'disc-hint',
+    'bottom-bar': 'disc-hint',
+  } as const;
 
   let imageLoadFailed = false;
   let lastArtworkPath: string | null | undefined = undefined;
@@ -20,7 +31,9 @@
   $: resolvedAlt = alt == null ? `${normalizedTitle} cover art` : alt.trim();
   $: isDecorative = resolvedAlt === '';
   $: artworkSrc = imageLoadFailed ? null : resolveArtworkSrc(artworkPath);
-  $: rootClassName = ['cover-art', className].filter(Boolean).join(' ');
+  $: resolvedShape = coverArtShapeByVariant[variant];
+  $: resolvedPlaceholderStyle = coverArtPlaceholderStyleByVariant[variant];
+  $: rootClassName = ['cover-art', `cover-art--${variant}`, className].filter(Boolean).join(' ');
   $: resolvedImageClassName = ['cover-art__image', imageClassName].filter(Boolean).join(' ');
   $: resolvedPlaceholderClassName = ['cover-art__placeholder', placeholderClassName]
     .filter(Boolean)
@@ -31,7 +44,11 @@
   }
 </script>
 
-<div class={rootClassName}>
+<div
+  class={rootClassName}
+  data-cover-art-variant={variant}
+  data-cover-art-shape={resolvedShape}
+>
   {#if artworkSrc}
     <img
       class={resolvedImageClassName}
@@ -45,6 +62,7 @@
     <div
       class={resolvedPlaceholderClassName}
       data-testid="cover-art-placeholder"
+      data-cover-art-placeholder-style={resolvedPlaceholderStyle}
       role={isDecorative ? undefined : 'img'}
       aria-label={isDecorative ? undefined : resolvedAlt}
       aria-hidden={isDecorative ? 'true' : undefined}
@@ -59,18 +77,40 @@
 
 <style>
   .cover-art {
-    width: 100%;
+    inline-size: 100%;
+    block-size: auto;
     aspect-ratio: 1;
     border-radius: 18px;
     overflow: hidden;
     display: grid;
     place-items: center;
     background:
-      radial-gradient(circle at top, rgba(148, 163, 184, 0.2), transparent 48%),
-      linear-gradient(160deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.9));
+      radial-gradient(circle at top, color-mix(in srgb, var(--accent) 10%, transparent), transparent 48%),
+      linear-gradient(
+        160deg,
+        color-mix(in srgb, var(--surface-panel-subtle) 90%, var(--surface-shell)),
+        color-mix(in srgb, var(--surface-panel) 88%, var(--surface-shell))
+      );
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.05),
-      0 16px 34px rgba(15, 23, 42, 0.22);
+      inset 0 1px 0 color-mix(in srgb, var(--text-on-accent) 8%, transparent),
+      var(--shadow-soft);
+  }
+
+  .cover-art--bottom-bar {
+    inline-size: 72px;
+    block-size: 72px;
+    aspect-ratio: 1;
+    border-radius: 16px;
+    background:
+      radial-gradient(circle at top, color-mix(in srgb, var(--accent) 12%, transparent), transparent 48%),
+      linear-gradient(
+        160deg,
+        color-mix(in srgb, var(--surface-panel-subtle) 95%, var(--surface-shell)),
+        color-mix(in srgb, var(--surface-panel) 90%, var(--surface-shell))
+      );
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--text-on-accent) 7%, transparent),
+      0 10px 24px color-mix(in srgb, var(--surface-canvas) 28%, transparent);
   }
 
   .cover-art__image,
@@ -82,15 +122,33 @@
   .cover-art__image {
     display: block;
     object-fit: cover;
-    background: rgba(15, 23, 42, 0.5);
+    background: color-mix(in srgb, var(--surface-canvas) 34%, transparent);
+  }
+
+  .cover-art--bottom-bar .cover-art__image {
+    object-fit: cover;
   }
 
   .cover-art__placeholder {
     display: grid;
     place-items: center;
     background:
-      radial-gradient(circle at top, rgba(96, 165, 250, 0.16), transparent 42%),
-      linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.88));
+      radial-gradient(circle at top, color-mix(in srgb, var(--accent) 12%, transparent), transparent 42%),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--surface-panel-subtle) 94%, var(--surface-shell)),
+        color-mix(in srgb, var(--surface-panel) 90%, var(--surface-shell))
+      );
+  }
+
+  .cover-art--bottom-bar .cover-art__placeholder {
+    background:
+      radial-gradient(circle at top, color-mix(in srgb, var(--accent) 10%, transparent), transparent 40%),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--surface-panel-subtle) 96%, var(--surface-shell)),
+        color-mix(in srgb, var(--surface-panel) 92%, var(--surface-shell))
+      );
   }
 
   .cover-art__disc {
@@ -101,27 +159,35 @@
     display: grid;
     place-items: center;
     background:
-      radial-gradient(circle at 30% 30%, rgba(191, 219, 254, 0.22), transparent 34%),
-      linear-gradient(145deg, rgba(71, 85, 105, 0.9), rgba(15, 23, 42, 0.98));
+      radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--text-on-accent) 18%, transparent), transparent 34%),
+      linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--text-tertiary) 72%, var(--surface-panel-subtle)),
+        color-mix(in srgb, var(--surface-canvas) 92%, var(--surface-panel-subtle))
+      );
     box-shadow:
-      inset 0 1px 1px rgba(255, 255, 255, 0.08),
-      0 14px 28px rgba(15, 23, 42, 0.34);
+      inset 0 1px 1px color-mix(in srgb, var(--text-on-accent) 8%, transparent),
+      0 14px 28px color-mix(in srgb, var(--surface-canvas) 34%, transparent);
+  }
+
+  .cover-art--bottom-bar .cover-art__disc {
+    width: 54%;
   }
 
   .cover-art__disc-ring {
     position: absolute;
     inset: 16%;
     border-radius: inherit;
-    border: 1px solid rgba(191, 219, 254, 0.22);
+    border: 1px solid color-mix(in srgb, var(--text-on-accent) 18%, transparent);
   }
 
   .cover-art__disc-center {
     width: 22%;
     aspect-ratio: 1;
     border-radius: 999px;
-    background: rgba(148, 163, 184, 0.95);
+    background: color-mix(in srgb, var(--text-primary) 68%, var(--text-on-accent));
     box-shadow:
-      0 0 0 8px rgba(15, 23, 42, 0.88),
-      0 0 0 10px rgba(191, 219, 254, 0.18);
+      0 0 0 8px color-mix(in srgb, var(--surface-canvas) 82%, transparent),
+      0 0 0 10px color-mix(in srgb, var(--text-on-accent) 14%, transparent);
   }
 </style>

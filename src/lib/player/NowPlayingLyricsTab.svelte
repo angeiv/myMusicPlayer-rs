@@ -197,17 +197,17 @@
 </script>
 
 {#if !track}
-  <div class="lyrics-state lyrics-empty">
+  <div class="lyrics-state lyrics-empty" data-surface="empty-state">
     <p class="lyrics-empty-title">暂无歌词</p>
     <p class="lyrics-empty-copy">当前歌曲还没有可显示的歌词内容。</p>
   </div>
 {:else if lines.length === 0}
-  <div class="lyrics-state lyrics-empty">
+  <div class="lyrics-state lyrics-empty" data-surface="empty-state">
     <p class="lyrics-empty-title">暂无歌词</p>
     <p class="lyrics-empty-copy">当前歌曲还没有可显示的歌词内容。</p>
   </div>
 {:else if !hasTimedLyrics}
-  <div class="lyrics-scroll plain-lyrics" data-testid="lyrics-scroll-region">
+  <div class="lyrics-scroll plain-lyrics" data-surface="lyrics" data-testid="lyrics-scroll-region">
     {#each lines as line (line.id)}
       <p class="lyrics-line plain">{line.text}</p>
     {/each}
@@ -217,6 +217,7 @@
     <div
       bind:this={scrollRegion}
       class="lyrics-scroll timed-lyrics"
+      data-surface="lyrics"
       data-testid="lyrics-scroll-region"
       use:capturePointerIntent
       on:wheel={enterBrowseMode}
@@ -229,6 +230,7 @@
           class:selected={index === selectedIndex}
           class="lyrics-row"
           data-lyrics-line
+          data-line-state={index === selectedIndex ? 'selected' : index === activeIndex ? 'active' : 'idle'}
           aria-current={index === activeIndex ? 'true' : undefined}
         >
           {line.text}
@@ -236,7 +238,7 @@
       {/each}
 
       {#if isBrowseMode}
-        <div class="lyrics-guide-line" data-testid="lyrics-guide-line" aria-hidden="true"></div>
+        <div class="lyrics-guide-line" data-line-state="guide" data-testid="lyrics-guide-line" aria-hidden="true"></div>
       {/if}
     </div>
 
@@ -244,6 +246,7 @@
       <button
         type="button"
         class="lyrics-seek-pill"
+        data-variant="utility"
         aria-label={`跳转到 ${formatTimestamp(selectedLine.timestamp)}`}
         on:click={handleSeekSelection}
       >
@@ -273,25 +276,29 @@
 
   .lyrics-row,
   .lyrics-line {
-    color: rgba(226, 232, 240, 0.6);
+    color: var(--text-secondary);
     font-size: 1rem;
     line-height: 1.8;
-    transition: color 0.16s ease, transform 0.16s ease;
+    transition: color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
   }
 
-  .lyrics-row.active {
-    color: rgba(255, 255, 255, 0.98);
+  .lyrics-row.active,
+  .lyrics-row[data-line-state='active'] {
+    color: var(--text-primary);
     font-weight: 700;
   }
 
-  .lyrics-row.selected {
-    outline: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
-    outline-offset: 4px;
+  .lyrics-row.selected,
+  .lyrics-row[data-line-state='selected'] {
     border-radius: 10px;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
+    padding-inline: 8px;
+    margin-inline: -8px;
+    background: var(--accent-soft);
   }
 
   .lyrics-line.plain {
-    color: rgba(226, 232, 240, 0.82);
+    color: var(--text-primary);
   }
 
   .lyrics-guide-line {
@@ -300,7 +307,7 @@
     transform: translateY(-50%);
     height: 1px;
     width: 100%;
-    background: color-mix(in srgb, var(--accent) 48%, rgba(255, 255, 255, 0.18));
+    background: color-mix(in srgb, var(--accent) 46%, rgba(255, 255, 255, 0.18));
     pointer-events: none;
     z-index: 2;
   }
@@ -310,13 +317,20 @@
     top: 50%;
     right: 0;
     transform: translateY(-50%);
-    border: 1px solid color-mix(in srgb, var(--accent) 48%, rgba(255, 255, 255, 0.18));
-    background: rgba(15, 23, 42, 0.82);
-    color: rgba(255, 255, 255, 0.96);
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border-default));
+    background: color-mix(in srgb, var(--surface-elevated) 94%, var(--surface-shell));
+    color: var(--text-primary);
     border-radius: 999px;
     padding: 6px 12px;
     font-size: 0.85rem;
     cursor: pointer;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .lyrics-seek-pill:hover,
+  .lyrics-seek-pill:focus-visible {
+    background: var(--state-selected);
+    outline: none;
   }
 
   .lyrics-state {
@@ -330,10 +344,10 @@
   .lyrics-empty-title {
     font-size: 1rem;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--text-primary);
   }
 
   .lyrics-empty-copy {
-    color: rgba(148, 163, 184, 0.88);
+    color: var(--text-secondary);
   }
 </style>

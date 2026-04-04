@@ -1,5 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+
+  import EmptyState from '../components/ui/EmptyState.svelte';
+  import PageHeader from '../components/ui/PageHeader.svelte';
+  import SurfacePanel from '../components/ui/SurfacePanel.svelte';
   import { getAlbumsByArtist, getArtist, getTracksByArtist } from '../api/library';
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
   import type { Album, Artist, Track } from '../types';
@@ -27,7 +31,7 @@
   const requestTracker = createStaleRequestTracker();
 
   $: if (artistId) {
-    loadArtist(artistId);
+    void loadArtist(artistId);
   } else {
     artist = null;
     tracks = [];
@@ -91,14 +95,14 @@
   function handlePlayPopular() {
     const first = tracks[0];
     if (first) {
-      playTrack(first);
+      void playTrack(first);
     }
   }
 
   function handleRowKeydown(event: KeyboardEvent, track: Track) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      playTrack(track);
+      void playTrack(track);
     }
   }
 
@@ -109,88 +113,111 @@
 
 <section class="artist-detail">
   {#if !artistId}
-    <div class="empty">Select an artist to explore their music.</div>
+    <EmptyState
+      title="Select an artist"
+      body="Choose an artist from the library to browse their top tracks and discography."
+      align="center"
+    />
   {:else if loading}
-    <div class="empty">Loading artist…</div>
+    <EmptyState
+      title="Loading artist"
+      body="Artist details, top tracks, and releases will appear here in a moment."
+      align="center"
+    />
   {:else if error}
-    <div class="empty">{error}</div>
+    <EmptyState title="Artist unavailable" body={error} tone="danger" align="center" />
   {:else if !artist}
-    <div class="empty">Artist not found.</div>
+    <EmptyState
+      title="Artist not found"
+      body="The selected artist is no longer available in the current library snapshot."
+      align="center"
+    />
   {:else}
-    <div class="hero">
-      <div class="avatar">{artist.name.charAt(0)}</div>
-      <div class="info">
-        <span class="label">Artist</span>
-        <h2>{artist.name}</h2>
-        <div class="meta">
-          <span>{artist.album_count} albums</span>
-          <span>{artist.track_count} tracks</span>
-          <span>Since {formatDate(artist.date_added) || 'recently'}</span>
-        </div>
-        {#if artist.bio}
-          <p class="bio">{artist.bio}</p>
-        {/if}
-        <div class="actions">
-          <button class="primary" on:click={handlePlayPopular}>▶ Play Top Track</button>
-          <button disabled title="Coming soon">Follow</button>
+    <SurfacePanel tone="elevated" padding="spacious">
+      <div class="hero">
+        <div class="avatar">{artist.name.charAt(0)}</div>
+        <div class="hero-copy">
+          <span class="eyebrow">Artist</span>
+          <PageHeader title={artist.name} subtitle={`${artist.album_count} albums · ${artist.track_count} tracks`}>
+            <div slot="actions" class="actions">
+              <button class="primary" on:click={handlePlayPopular}>Play Top Track</button>
+              <button disabled title="Coming soon">Follow</button>
+            </div>
+          </PageHeader>
+          <div class="meta">
+            <span>Since {formatDate(artist.date_added) || 'recently'}</span>
+          </div>
+          {#if artist.bio}
+            <p class="bio">{artist.bio}</p>
+          {/if}
         </div>
       </div>
-    </div>
+    </SurfacePanel>
 
     <div class="columns">
-      <section class="popular">
-        <header>
-          <h3>Top Tracks</h3>
-          <span>{formatLongDuration(tracks.reduce((sum, t) => sum + t.duration, 0))}</span>
-        </header>
-        {#if tracks.length === 0}
-          <p class="muted">No tracks available.</p>
-        {:else}
-          <div class="track-table">
-            {#each tracks as track, index}
-              <div
-                class="row"
-                role="button"
-                tabindex="0"
-                on:dblclick={() => playTrack(track)}
-                on:keydown={(event) => handleRowKeydown(event, track)}
-              >
-                <div class="index">{formatTrackIndex(index)}</div>
-                <div class="title">
-                  <span>{track.title}</span>
-                  {#if track.album_title}
-                    <small>{track.album_title}</small>
-                  {/if}
+      <SurfacePanel padding="compact">
+        <section class="panel-section popular">
+          <header>
+            <h3>Top Tracks</h3>
+            <span>{formatLongDuration(tracks.reduce((sum, t) => sum + t.duration, 0))}</span>
+          </header>
+          {#if tracks.length === 0}
+            <EmptyState
+              title="No tracks available"
+              body="This artist does not have playable tracks in the current library snapshot yet."
+            />
+          {:else}
+            <div class="track-table">
+              {#each tracks as track, index}
+                <div
+                  class="row"
+                  role="button"
+                  tabindex="0"
+                  on:dblclick={() => void playTrack(track)}
+                  on:keydown={(event) => handleRowKeydown(event, track)}
+                >
+                  <div class="index">{formatTrackIndex(index)}</div>
+                  <div class="title">
+                    <span>{track.title}</span>
+                    {#if track.album_title}
+                      <small>{track.album_title}</small>
+                    {/if}
+                  </div>
+                  <div class="duration">{formatDuration(track.duration)}</div>
                 </div>
-                <div class="duration">{formatDuration(track.duration)}</div>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </section>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      </SurfacePanel>
 
-      <section class="discography">
-        <header>
-          <h3>Discography</h3>
-          <span>{albums.length} releases</span>
-        </header>
-        {#if albums.length === 0}
-          <p class="muted">No albums recorded yet.</p>
-        {:else}
-          <div class="albums">
-            {#each albums as album}
-              <button class="album-card" on:click={() => handleOpenAlbum(album.id)}>
-                <div class="artwork">{album.title.charAt(0)}</div>
-                <div class="details">
-                  <strong>{album.title}</strong>
-                  <span>{album.year ?? 'Year unknown'}</span>
-                  <span>{album.track_count} tracks · {formatLongDuration(album.duration)}</span>
-                </div>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </section>
+      <SurfacePanel padding="compact">
+        <section class="panel-section discography">
+          <header>
+            <h3>Discography</h3>
+            <span>{albums.length} releases</span>
+          </header>
+          {#if albums.length === 0}
+            <EmptyState
+              title="No albums recorded yet"
+              body="Releases will appear here once the artist catalogue contains album metadata."
+            />
+          {:else}
+            <div class="albums">
+              {#each albums as album}
+                <button class="album-card" on:click={() => handleOpenAlbum(album.id)}>
+                  <div class="artwork">{album.title.charAt(0)}</div>
+                  <div class="details">
+                    <strong>{album.title}</strong>
+                    <span>{album.year ?? 'Year unknown'}</span>
+                    <span>{album.track_count} tracks · {formatLongDuration(album.duration)}</span>
+                  </div>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </section>
+      </SurfacePanel>
     </div>
   {/if}
 </section>
@@ -198,58 +225,47 @@
 <style>
   .artist-detail {
     padding: 32px 48px;
-    color: #e2e8f0;
+    color: var(--text-primary);
     display: flex;
     flex-direction: column;
     gap: 24px;
-  }
-
-  .empty {
-    padding: 120px 0;
-    text-align: center;
-    border-radius: 24px;
-    background: rgba(15, 23, 42, 0.65);
-    color: rgba(148, 163, 184, 0.75);
   }
 
   .hero {
     display: flex;
     gap: 28px;
     align-items: center;
-    padding: 24px;
-    border-radius: 24px;
-    background: linear-gradient(140deg, rgba(56, 189, 248, 0.28), rgba(14, 165, 233, 0.18));
   }
 
   .avatar {
     width: 160px;
     height: 160px;
     border-radius: 50%;
-    background: rgba(15, 23, 42, 0.65);
+    background: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      color-mix(in srgb, var(--surface-panel-subtle) 92%, transparent)
+    );
     display: grid;
     place-items: center;
     font-size: 3.5rem;
     font-weight: 700;
     letter-spacing: 0.12em;
+    flex-shrink: 0;
   }
 
-  .info {
-    display: flex;
-    flex-direction: column;
+  .hero-copy {
+    min-width: 0;
+    display: grid;
     gap: 12px;
+    width: 100%;
   }
 
-  .label {
+  .eyebrow {
     font-size: 0.75rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(226, 232, 240, 0.65);
-  }
-
-  h2 {
-    margin: 0;
-    font-size: 2.4rem;
-    color: #f8fafc;
+    color: var(--text-tertiary);
   }
 
   .meta {
@@ -257,18 +273,19 @@
     flex-wrap: wrap;
     gap: 12px;
     font-size: 0.85rem;
-    color: rgba(191, 219, 254, 0.75);
+    color: var(--text-tertiary);
   }
 
   .bio {
     margin: 0;
-    color: rgba(226, 232, 240, 0.8);
+    color: var(--text-secondary);
     max-width: 520px;
   }
 
   .actions {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
   }
 
   .actions button {
@@ -277,14 +294,30 @@
     padding: 10px 22px;
     font-weight: 600;
     cursor: pointer;
-    background: rgba(15, 23, 42, 0.45);
-    color: #bfdbfe;
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
+    color: var(--text-primary);
+    transition:
+      background 0.16s ease,
+      box-shadow 0.16s ease,
+      transform 0.16s ease;
+  }
+
+  .actions button:hover:not(:disabled),
+  .actions button:focus-visible:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface-panel-subtle));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+    transform: translateY(-1px);
+    outline: none;
+  }
+
+  .actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
 
   .actions .primary {
-    background: rgba(14, 165, 233, 0.3);
-    color: #e0f2fe;
-    box-shadow: 0 18px 30px rgba(14, 165, 233, 0.3);
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-panel-subtle));
+    box-shadow: var(--glow-accent);
   }
 
   .columns {
@@ -293,33 +326,26 @@
     gap: 24px;
   }
 
-  section {
-    background: rgba(15, 23, 42, 0.78);
-    border-radius: 20px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    padding: 20px 24px;
+  .panel-section {
+    display: grid;
+    gap: 16px;
   }
 
-  section header {
+  .panel-section header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
   }
 
-  section header h3 {
+  .panel-section header h3 {
     margin: 0;
     font-size: 1.2rem;
-    color: #f8fafc;
+    color: var(--text-primary);
   }
 
-  section header span {
+  .panel-section header span {
     font-size: 0.85rem;
-    color: rgba(148, 163, 184, 0.75);
-  }
-
-  .muted {
-    color: rgba(148, 163, 184, 0.75);
+    color: var(--text-tertiary);
   }
 
   .track-table {
@@ -335,34 +361,40 @@
     grid-template-columns: 60px 1fr 80px;
     align-items: center;
     padding: 10px 12px;
-    border-radius: 12px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition:
+      background 0.15s ease,
+      box-shadow 0.15s ease;
   }
 
-  .row:hover {
-    background: rgba(56, 189, 248, 0.16);
+  .row:hover,
+  .row:focus-visible {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+    outline: none;
   }
 
   .index {
     font-variant-numeric: tabular-nums;
-    color: rgba(148, 163, 184, 0.8);
+    color: var(--text-tertiary);
   }
 
   .title span {
-    color: #f8fafc;
+    color: var(--text-primary);
     font-weight: 600;
   }
 
   .title small {
-    color: rgba(148, 163, 184, 0.75);
+    color: var(--text-tertiary);
     font-size: 0.75rem;
   }
 
   .duration {
     text-align: right;
     font-variant-numeric: tabular-nums;
-    color: rgba(148, 163, 184, 0.8);
+    color: var(--text-tertiary);
   }
 
   .albums {
@@ -374,27 +406,34 @@
   }
 
   .album-card {
-    border: none;
+    border: 1px solid var(--border-subtle);
     border-radius: 14px;
     padding: 12px;
     display: flex;
     gap: 12px;
     align-items: center;
-    background: rgba(15, 23, 42, 0.6);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
     color: inherit;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition:
+      background 0.15s ease,
+      box-shadow 0.15s ease,
+      border-color 0.15s ease;
   }
 
-  .album-card:hover {
-    background: rgba(56, 189, 248, 0.16);
+  .album-card:hover,
+  .album-card:focus-visible {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 20%, var(--border-default));
+    box-shadow: var(--shadow-soft);
+    outline: none;
   }
 
   .album-card .artwork {
     width: 48px;
     height: 48px;
     border-radius: 12px;
-    background: rgba(14, 165, 233, 0.25);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
     display: grid;
     place-items: center;
     font-weight: 700;
@@ -406,6 +445,10 @@
     flex-direction: column;
     gap: 4px;
     text-align: left;
+  }
+
+  .album-card .details span {
+    color: var(--text-tertiary);
   }
 
   @media (max-width: 960px) {

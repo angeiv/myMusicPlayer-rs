@@ -3,9 +3,12 @@
 
   export let x = 0;
   export let y = 0;
+  export let canPlaySelected = true;
+  export let playSelectedHint = '';
   export let canAddToPlaylist = true;
   export let addToPlaylistHint = '';
 
+  const playSelectedHintId = 'songs-context-menu-play-selected-hint';
   const addToPlaylistHintId = 'songs-context-menu-add-to-playlist-hint';
 
   const dispatch = createEventDispatcher<{
@@ -14,18 +17,24 @@
     addToPlaylist: void;
   }>();
 
+  $: disabledPlaySelectedHint = !canPlaySelected ? playSelectedHint.trim() : '';
   $: disabledAddToPlaylistHint = !canAddToPlaylist ? addToPlaylistHint.trim() : '';
+  $: playSelectedDescription = disabledPlaySelectedHint.length > 0 ? playSelectedHintId : undefined;
   $: addToPlaylistDescription = disabledAddToPlaylistHint.length > 0 ? addToPlaylistHintId : undefined;
+  $: menuDescription = [playSelectedDescription, addToPlaylistDescription].filter(Boolean).join(' ') || undefined;
 </script>
 
 <div class="context-menu-shell" style={`top:${y}px;left:${x}px;`}>
-  <div
-    class="context-menu"
-    role="menu"
-    aria-label="歌曲操作菜单"
-    aria-describedby={addToPlaylistDescription}
-  >
-    <button type="button" role="menuitem" on:click={() => dispatch('playSelected')}>播放选中</button>
+  <div class="context-menu" role="menu" aria-label="歌曲操作菜单" aria-describedby={menuDescription}>
+    <button
+      type="button"
+      role="menuitem"
+      disabled={!canPlaySelected}
+      aria-describedby={playSelectedDescription}
+      on:click={() => dispatch('playSelected')}
+    >
+      播放选中
+    </button>
     <button type="button" role="menuitem" on:click={() => dispatch('addToQueue')}>加入队列</button>
     <button
       type="button"
@@ -37,6 +46,12 @@
       加入歌单
     </button>
   </div>
+
+  {#if disabledPlaySelectedHint}
+    <p id={playSelectedHintId} class="disabled-hint" role="status" aria-live="polite" aria-atomic="true">
+      {disabledPlaySelectedHint}
+    </p>
+  {/if}
 
   {#if disabledAddToPlaylistHint}
     <p id={addToPlaylistHintId} class="disabled-hint" role="status" aria-live="polite" aria-atomic="true">
@@ -55,15 +70,15 @@
   }
 
   .context-menu {
-    min-width: 180px;
+    min-width: 190px;
     padding: 8px;
     display: flex;
     flex-direction: column;
     gap: 4px;
-    border-radius: 14px;
-    border: 1px solid rgba(96, 165, 250, 0.2);
-    background: rgba(15, 23, 42, 0.96);
-    box-shadow: 0 22px 40px rgba(2, 6, 23, 0.38);
+    border-radius: 16px;
+    border: 1px solid var(--border-default);
+    background: color-mix(in srgb, var(--surface-elevated) 96%, transparent);
+    box-shadow: var(--shadow-elevated);
   }
 
   button {
@@ -72,28 +87,31 @@
     padding: 10px 12px;
     font: inherit;
     text-align: left;
-    color: #e2e8f0;
+    color: var(--text-primary);
     background: transparent;
     cursor: pointer;
-    transition: background 0.16s ease;
+    transition:
+      background 0.16s ease,
+      box-shadow 0.16s ease;
   }
 
   button:hover:not(:disabled),
   button:focus-visible:not(:disabled) {
-    background: rgba(59, 130, 246, 0.2);
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
     outline: none;
   }
 
   button:disabled {
     cursor: not-allowed;
-    color: rgba(148, 163, 184, 0.6);
+    color: var(--text-tertiary);
   }
 
   .disabled-hint {
-    max-width: 180px;
+    max-width: 190px;
     margin: 0 4px;
     font-size: 0.8rem;
     line-height: 1.4;
-    color: rgba(191, 219, 254, 0.78);
+    color: var(--text-secondary);
   }
 </style>

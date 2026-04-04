@@ -124,9 +124,9 @@
     flex-direction: column;
     gap: 14px;
     border-radius: 18px;
-    border: 1px solid rgba(96, 165, 250, 0.22);
-    background: rgba(15, 23, 42, 0.98);
-    box-shadow: 0 24px 48px rgba(2, 6, 23, 0.4);
+    border: 1px solid var(--border-default);
+    background: color-mix(in srgb, var(--surface-elevated) 96%, transparent);
+    box-shadow: var(--shadow-elevated);
     overflow: hidden;
   }
 
@@ -142,13 +142,13 @@
     font-size: 0.72rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(191, 219, 254, 0.72);
+    color: var(--text-tertiary);
   }
 
   h3 {
     margin: 0;
     font-size: 1rem;
-    color: #eff6ff;
+    color: var(--text-primary);
   }
 
   .close {
@@ -160,14 +160,14 @@
     place-items: center;
     font: inherit;
     font-size: 1.2rem;
-    color: rgba(226, 232, 240, 0.85);
-    background: rgba(148, 163, 184, 0.12);
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 82%, transparent);
     cursor: pointer;
   }
 
   .close:hover,
   .close:focus-visible {
-    background: rgba(148, 163, 184, 0.22);
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface-panel-subtle));
     outline: none;
   }
 
@@ -190,18 +190,20 @@
     justify-content: space-between;
     gap: 12px;
     font: inherit;
-    color: #e2e8f0;
-    background: rgba(30, 41, 59, 0.72);
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
     cursor: pointer;
     text-align: left;
     transition:
       background 0.16s ease,
+      box-shadow 0.16s ease,
       transform 0.16s ease;
   }
 
   .playlist-option:hover,
   .playlist-option:focus-visible {
-    background: rgba(59, 130, 246, 0.24);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface-panel-subtle));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
     transform: translateY(-1px);
     outline: none;
   }
@@ -214,15 +216,15 @@
   .meta {
     flex-shrink: 0;
     font-size: 0.8rem;
-    color: rgba(191, 219, 254, 0.72);
+    color: var(--text-tertiary);
   }
 
   .empty {
     margin: 0;
     padding: 20px 12px;
     border-radius: 14px;
-    background: rgba(30, 41, 59, 0.6);
-    color: rgba(148, 163, 184, 0.8);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 90%, transparent);
+    color: var(--text-secondary);
     text-align: center;
   }
 </style>

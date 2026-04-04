@@ -13,6 +13,7 @@
 
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
   import {
     getPlaylist,
@@ -20,7 +21,19 @@
     removeFromPlaylist,
     updatePlaylistMetadata,
   } from '../api/playlist';
+  import TrackActionRow from '../components/library/TrackActionRow.svelte';
+  import EmptyState from '../components/ui/EmptyState.svelte';
+  import PageHeader from '../components/ui/PageHeader.svelte';
+  import SurfacePanel from '../components/ui/SurfacePanel.svelte';
   import type { Playlist, Track } from '../types';
+  import {
+    getMissingTrackPlayMessage,
+    getPlayableTracks,
+    getTrackAvailabilityBadge,
+    getTrackAvailabilityDescription,
+    getTrackAvailabilityState,
+    isTrackPlayable,
+  } from '../utils/track-availability';
   import { formatDate, formatDuration, formatLongDuration, formatTrackIndex } from '../utils/format';
   import { createStaleRequestTracker, runGuardedRequest } from './stale-request';
 
@@ -31,22 +44,34 @@
     refreshPlaylists: void;
   }>();
 
+  const requestTracker = createStaleRequestTracker();
+  const heroPlayHintId = 'playlist-detail-play-hint';
+
   let playlist: Playlist | null = null;
   let tracks: Track[] = [];
   let loading = false;
   let error = '';
+  let feedback = '';
   let lastRequestedId: string | null = null;
-  const requestTracker = createStaleRequestTracker();
+  let activeTrackId: string | null = null;
+  let playingTrackId: string | null = null;
 
   type LoadPlaylistOptions = {
     force?: boolean;
   };
 
+  $: playableTracks = getPlayableTracks(tracks);
+  $: canPlayPlaylist = playableTracks.length > 0;
+  $: heroPlayHint = canPlayPlaylist ? '' : getMissingTrackPlayMessage('collection');
+
   $: if (playlistId) {
-    loadPlaylist(playlistId);
+    void loadPlaylist(playlistId);
   } else {
     playlist = null;
     tracks = [];
+    feedback = '';
+    activeTrackId = null;
+    playingTrackId = null;
   }
 
   async function loadPlaylist(id: string, options: LoadPlaylistOptions = {}) {
@@ -63,6 +88,9 @@
 
     loading = true;
     error = '';
+    feedback = '';
+    activeTrackId = null;
+    playingTrackId = null;
     lastRequestedId = id;
 
     await runGuardedRequest({
@@ -71,6 +99,9 @@
       onStart: () => {
         loading = true;
         error = '';
+        feedback = '';
+        activeTrackId = null;
+        playingTrackId = null;
       },
       request: async () => {
         const playlistData = await getPlaylist(id);
@@ -99,20 +130,49 @@
     });
   }
 
-  async function playTrack(track: Track) {
+  async function startTrackPlayback(track: Track) {
+    activeTrackId = track.id;
+
+    if (!isTrackPlayable(track)) {
+      feedback = getMissingTrackPlayMessage('track');
+      return;
+    }
+
+    const queue = getPlayableTracks(tracks);
+    if (queue.length === 0) {
+      feedback = getMissingTrackPlayMessage('collection');
+      return;
+    }
+
     try {
-      await setQueue(tracks);
+      await setQueue(queue);
       await playTrackCommand(track);
+      feedback = '';
+      playingTrackId = track.id;
+      dispatch('playTrack', { track });
     } catch (err) {
       console.error('Failed to play track:', err);
     }
-    dispatch('playTrack', { track });
   }
 
   function handlePlayAll() {
-    const first = tracks[0];
-    if (first) {
-      playTrack(first);
+    const firstPlayableTrack = playableTracks[0];
+    if (!firstPlayableTrack) {
+      feedback = heroPlayHint;
+      return;
+    }
+
+    void startTrackPlayback(firstPlayableTrack);
+  }
+
+  function handleRowFocus(track: Track) {
+    activeTrackId = track.id;
+  }
+
+  function handleRowKeydown(event: KeyboardEvent, track: Track) {
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Space') {
+      event.preventDefault();
+      void startTrackPlayback(track);
     }
   }
 
@@ -148,124 +208,186 @@
 
 <section class="playlist-detail">
   {#if !playlistId}
-    <div class="empty">Select a playlist to manage it.</div>
+    <EmptyState
+      title="Select a playlist"
+      body="Choose a playlist from the library to inspect, play, or manage its tracks."
+      align="center"
+    />
   {:else if loading}
-    <div class="empty">Loading playlist…</div>
+    <EmptyState
+      title="Loading playlist"
+      body="Track metadata and playlist actions will appear here in a moment."
+      align="center"
+    />
   {:else if error}
-    <div class="empty">{error}</div>
+    <EmptyState title="Playlist unavailable" body={error} tone="danger" align="center" />
   {:else if !playlist}
-    <div class="empty">Playlist not found.</div>
+    <EmptyState
+      title="Playlist not found"
+      body="The selected playlist is no longer available in the current library snapshot."
+      align="center"
+    />
   {:else}
-    <div class="hero">
-      <div class="artwork">{playlist.name.charAt(0)}</div>
-      <div class="info">
-        <span class="label">Playlist</span>
-        <h2>{playlist.name}</h2>
-        <p class="description">{playlist.description ?? 'No description yet.'}</p>
-        <div class="meta">
-          <span>{tracks.length} tracks</span>
-          <span>
-            {formatLongDuration(tracks.reduce((acc, track) => acc + track.duration, 0))}
-          </span>
-          <span>Created {formatDate(playlist.created_at) || 'recently'}</span>
-          <span>Updated {formatDate(playlist.updated_at) || 'recently'}</span>
-        </div>
-        <div class="actions">
-          <button class="primary" on:click={handlePlayAll}>▶ Play</button>
-          <button on:click={handleRename}>✏ Rename</button>
-          <button disabled title="Coming soon">➕ Add tracks</button>
-        </div>
-      </div>
-    </div>
+    {#if feedback}
+      <SurfacePanel tone="inset" padding="compact">
+        <p class="feedback" role="status" aria-live="polite">{feedback}</p>
+      </SurfacePanel>
+    {/if}
 
-    <div class="tracks" role="table" aria-label="Playlist tracks">
-      <div class="track-header" role="row">
-        <div>#</div>
-        <div>Title</div>
-        <div>Album</div>
-        <div>Duration</div>
-        <div></div>
-      </div>
-      <div class="track-body">
-        {#each tracks as track, index}
-          <div class="track-row" role="row">
-            <div class="index">{formatTrackIndex(index)}</div>
-            <div class="title">
-              <span>{track.title}</span>
-              <small>{track.artist_name ?? 'Unknown artist'}</small>
+    <SurfacePanel tone="elevated" padding="spacious">
+      <div class="hero">
+        <div class="artwork">{playlist.name.charAt(0)}</div>
+        <div class="hero-copy">
+          <span class="eyebrow">Playlist</span>
+          <PageHeader title={playlist.name} subtitle={playlist.description ?? 'No description yet.'}>
+            <div slot="actions" class="hero-actions">
+              <button
+                class="primary"
+                disabled={!canPlayPlaylist}
+                aria-describedby={!canPlayPlaylist ? heroPlayHintId : undefined}
+                title={!canPlayPlaylist ? heroPlayHint : undefined}
+                on:click={handlePlayAll}
+              >
+                Play
+              </button>
+              <button on:click={handleRename}>Rename</button>
+              <button disabled title="Coming soon">Add tracks</button>
             </div>
-            <div class="album">{track.album_title ?? 'Unknown album'}</div>
-            <div class="duration">{formatDuration(track.duration)}</div>
-            <div class="actions">
-              <button class="ghost" on:click={() => playTrack(track)}>▶</button>
-              <button class="ghost" on:click={() => handleRemoveTrack(index)}>🗑</button>
-            </div>
+          </PageHeader>
+          <div class="meta">
+            <span>{tracks.length} tracks</span>
+            <span>{formatLongDuration(tracks.reduce((acc, track) => acc + track.duration, 0))}</span>
+            <span>Created {formatDate(playlist.created_at) || 'recently'}</span>
+            <span>Updated {formatDate(playlist.updated_at) || 'recently'}</span>
           </div>
-        {/each}
+          {#if !canPlayPlaylist}
+            <span id={heroPlayHintId} class="sr-only">{heroPlayHint}</span>
+          {/if}
+        </div>
       </div>
-    </div>
+    </SurfacePanel>
+
+    <SurfacePanel padding="compact">
+      <div class="tracks" role="table" aria-label="Playlist tracks">
+        <div class="track-header" role="row">
+          <div>#</div>
+          <div>Title</div>
+          <div>Album</div>
+          <div>Duration</div>
+          <div></div>
+        </div>
+        <div class="track-body">
+          {#each tracks as track, index}
+            {@const playable = isTrackPlayable(track)}
+            {@const availability = getTrackAvailabilityState(track)}
+            {@const availabilityBadge = getTrackAvailabilityBadge(track)}
+            {@const availabilityDescription = getTrackAvailabilityDescription(track)}
+            {@const availabilityDescriptionId = !playable ? `playlist-track-availability-${index}` : undefined}
+            <TrackActionRow
+              availability={availability}
+              active={activeTrackId === track.id}
+              playing={playingTrackId === track.id}
+              interactive={true}
+              role="row"
+              tabindex={0}
+              ariaDisabled={!playable ? 'true' : undefined}
+              ariaDescribedBy={availabilityDescriptionId}
+              columnTemplate="64px minmax(0, 2fr) minmax(0, 1.25fr) 96px 116px"
+              on:focus={() => handleRowFocus(track)}
+              on:click={() => handleRowFocus(track)}
+              on:dblclick={() => void startTrackPlayback(track)}
+              on:keydown={(event) => handleRowKeydown(event, track)}
+            >
+              <div class="track-action-row__cell track-action-row__numeric index">{formatTrackIndex(index)}</div>
+              <div class="track-action-row__cell track-action-row__title-stack">
+                <span class="track-action-row__title">{track.title}</span>
+                <div class="track-action-row__meta">
+                  {#if availabilityBadge}
+                    <span class="track-action-row__badge">{availabilityBadge}</span>
+                  {/if}
+                  <small class="track-action-row__meta-text">{track.artist_name ?? 'Unknown artist'}</small>
+                </div>
+                {#if availabilityDescriptionId}
+                  <span id={availabilityDescriptionId} class="sr-only">{availabilityDescription}</span>
+                {/if}
+              </div>
+              <div class="track-action-row__cell track-action-row__muted album">{track.album_title ?? 'Unknown album'}</div>
+              <div class="track-action-row__cell track-action-row__numeric duration">{formatDuration(track.duration)}</div>
+              <div class="track-action-row__cell track-action-row__actions">
+                <button
+                  class="track-action-row__button"
+                  aria-label={`播放 ${track.title}`}
+                  disabled={!playable}
+                  aria-describedby={!playable ? availabilityDescriptionId : undefined}
+                  title={!playable ? availabilityDescription : undefined}
+                  on:click|stopPropagation={() => void startTrackPlayback(track)}
+                >
+                  ▶
+                </button>
+                <button
+                  class="track-action-row__button"
+                  aria-label={`从歌单移除 ${track.title}`}
+                  on:click|stopPropagation={() => void handleRemoveTrack(index)}
+                >
+                  🗑
+                </button>
+              </div>
+            </TrackActionRow>
+          {/each}
+        </div>
+      </div>
+    </SurfacePanel>
   {/if}
 </section>
 
 <style>
   .playlist-detail {
     padding: 32px 48px;
-    color: #e2e8f0;
     display: flex;
     flex-direction: column;
     gap: 24px;
+    color: var(--text-primary);
   }
 
-  .empty {
-    padding: 120px 0;
-    text-align: center;
-    border-radius: 24px;
-    background: rgba(15, 23, 42, 0.65);
-    color: rgba(148, 163, 184, 0.75);
+  .feedback {
+    color: var(--text-secondary);
   }
 
   .hero {
     display: flex;
     gap: 24px;
-    padding: 24px;
-    border-radius: 24px;
-    background: linear-gradient(140deg, rgba(79, 70, 229, 0.32), rgba(14, 116, 144, 0.22));
+    align-items: center;
   }
 
   .artwork {
     width: 160px;
     height: 160px;
     border-radius: 24px;
-    background: rgba(15, 23, 42, 0.6);
+    background: linear-gradient(
+      150deg,
+      color-mix(in srgb, var(--accent) 22%, transparent),
+      color-mix(in srgb, var(--surface-panel-subtle) 92%, transparent)
+    );
     display: grid;
     place-items: center;
     font-size: 3.5rem;
     font-weight: 700;
     letter-spacing: 0.12em;
+    flex-shrink: 0;
   }
 
-  .info {
-    display: flex;
-    flex-direction: column;
+  .hero-copy {
+    min-width: 0;
+    display: grid;
     gap: 12px;
+    width: 100%;
   }
 
-  .label {
+  .eyebrow {
     font-size: 0.75rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(226, 232, 240, 0.65);
-  }
-
-  h2 {
-    margin: 0;
-    font-size: 2.3rem;
-    color: #f4f4f5;
-  }
-
-  .description {
-    margin: 0;
-    color: rgba(226, 232, 240, 0.85);
+    color: var(--text-tertiary);
   }
 
   .meta {
@@ -273,51 +395,62 @@
     flex-wrap: wrap;
     gap: 12px;
     font-size: 0.84rem;
-    color: rgba(191, 219, 254, 0.75);
+    color: var(--text-tertiary);
   }
 
-  .actions {
+  .hero-actions {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
   }
 
-  .actions button {
+  .hero-actions button {
     border: none;
     border-radius: 999px;
     padding: 10px 20px;
     font-weight: 600;
     cursor: pointer;
-    background: rgba(15, 23, 42, 0.45);
-    color: #bfdbfe;
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
+    color: var(--text-primary);
+    transition:
+      background 0.16s ease,
+      box-shadow 0.16s ease,
+      transform 0.16s ease;
   }
 
-  .actions .primary {
-    background: rgba(99, 102, 241, 0.35);
-    color: #eef2ff;
-    box-shadow: 0 18px 30px rgba(99, 102, 241, 0.3);
+  .hero-actions button:hover:not(:disabled),
+  .hero-actions button:focus-visible:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface-panel-subtle));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+    transform: translateY(-1px);
+    outline: none;
+  }
+
+  .hero-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .hero-actions .primary {
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-panel-subtle));
+    box-shadow: var(--glow-accent);
   }
 
   .tracks {
-    background: rgba(15, 23, 42, 0.78);
-    border-radius: 20px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
     overflow: hidden;
   }
 
-  .track-header,
-  .track-row {
-    display: grid;
-    grid-template-columns: 70px 2fr 1.5fr 120px 100px;
-    align-items: center;
-  }
-
   .track-header {
-    padding: 14px 24px;
+    display: grid;
+    grid-template-columns: 64px minmax(0, 2fr) minmax(0, 1.25fr) 96px 116px;
+    align-items: center;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border-subtle);
     font-size: 0.75rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(148, 163, 184, 0.8);
-    background: rgba(30, 41, 59, 0.65);
+    color: var(--text-tertiary);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 90%, transparent);
   }
 
   .track-body {
@@ -325,59 +458,29 @@
     overflow: visible;
   }
 
-  .track-row {
-    padding: 14px 24px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-    transition: background 0.15s ease;
-  }
-
-  .track-row:hover {
-    background: rgba(79, 70, 229, 0.18);
-  }
-
   .index {
-    font-variant-numeric: tabular-nums;
-    color: rgba(148, 163, 184, 0.8);
+    text-align: center;
   }
 
-  .title span {
-    display: block;
-    font-weight: 600;
-    color: #f8fafc;
-  }
-
-  .title small {
-    color: rgba(148, 163, 184, 0.75);
-    font-size: 0.75rem;
-  }
-
-  .album {
-    color: rgba(226, 232, 240, 0.78);
+  .album,
+  .duration {
+    min-width: 0;
   }
 
   .duration {
-    font-variant-numeric: tabular-nums;
-    color: rgba(148, 163, 184, 0.8);
+    text-align: right;
   }
 
-  .track-row .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
-  .ghost {
-    border: none;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: rgba(30, 41, 59, 0.6);
-    color: #e2e8f0;
-    cursor: pointer;
-  }
-
-  .ghost:hover {
-    background: rgba(96, 165, 250, 0.3);
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   @media (max-width: 940px) {
@@ -395,9 +498,9 @@
       height: 120px;
     }
 
-    .track-header,
-    .track-row {
-      grid-template-columns: 50px 2fr 1.2fr 80px 80px;
+    .track-header {
+      grid-template-columns: 50px minmax(0, 2fr) minmax(0, 1.2fr) 80px 88px;
+      padding: 12px 20px;
     }
   }
 </style>

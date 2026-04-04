@@ -6,6 +6,7 @@ authors = ["Xing Zhang <angeiv.zhang@gmail.com>"]
 license = "GPL-3.0"
 repository = "https://github.com/angeiv/myMusicPlayer-rs"
 edition = "2024"
+default-run = "music-player-rs"
 rust-version = "1.94"
 
 [lib]
@@ -72,6 +73,7 @@ rand = "0.10.0"
 cpal = "0.17.3"
 encoding_rs = "0.8.35"
 image = { version = "0.25.8", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
+notify-debouncer-full = "0.7.0"
 
 [features]
 default = ["custom-protocol"]

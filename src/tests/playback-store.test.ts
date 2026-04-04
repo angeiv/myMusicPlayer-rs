@@ -24,6 +24,10 @@ function createTrack(overrides: Partial<Track> = {}): Track {
     artist_name: 'Example Artist',
     album_title: 'Example Album',
     ...overrides,
+    library_root: overrides.library_root ?? null,
+    file_mtime_ms: overrides.file_mtime_ms ?? null,
+    availability: overrides.availability ?? 'available',
+    missing_since: overrides.missing_since ?? null,
   };
 }
 
@@ -190,6 +194,105 @@ describe('playback store', () => {
     expect(deps.getPlaybackState).toHaveBeenCalledTimes(2);
   });
 
+  it('rehydrates the current track from library truth and restores availability on later refreshes', async () => {
+    const runtimeTrack = createTrack({
+      id: 'rehydrate-current',
+      title: 'Runtime Snapshot',
+      availability: 'available',
+      missing_since: null,
+    });
+    const missingTrack = createTrack({
+      ...runtimeTrack,
+      title: 'Library Missing',
+      availability: 'missing',
+      missing_since: null,
+    });
+    const restoredTrack = createTrack({
+      ...runtimeTrack,
+      title: 'Library Restored',
+      availability: 'available',
+      missing_since: null,
+    });
+    const deps = createDependencies({
+      getPlaybackState: vi
+        .fn()
+        .mockResolvedValue({ state: 'playing', position: 12, duration: runtimeTrack.duration } satisfies PlaybackStateInfo),
+      getCurrentTrack: vi.fn().mockResolvedValue(runtimeTrack),
+      getTrack: vi
+        .fn()
+        .mockResolvedValueOnce(missingTrack)
+        .mockResolvedValueOnce(restoredTrack),
+      getVolume: vi.fn().mockResolvedValue(0.5),
+    });
+    const store = createPlaybackStore(deps);
+
+    await store.refreshState();
+    expect(get(store)).toMatchObject({
+      currentTrack: missingTrack,
+      playbackState: { state: 'playing', position: 12, duration: runtimeTrack.duration },
+    });
+
+    await store.refreshState();
+    expect(get(store).currentTrack).toEqual(restoredTrack);
+    expect(deps.getTrack).toHaveBeenNthCalledWith(1, runtimeTrack.id);
+    expect(deps.getTrack).toHaveBeenNthCalledWith(2, runtimeTrack.id);
+  });
+
+  it('keeps the runtime current-track snapshot when library rehydration fails', async () => {
+    const runtimeTrack = createTrack({ id: 'rehydrate-current-error', title: 'Runtime Snapshot' });
+    const deps = createDependencies({
+      getPlaybackState: vi
+        .fn()
+        .mockResolvedValue({ state: 'playing', position: 9, duration: runtimeTrack.duration } satisfies PlaybackStateInfo),
+      getCurrentTrack: vi.fn().mockResolvedValue(runtimeTrack),
+      getTrack: vi.fn().mockRejectedValue(new Error('library lookup failed')),
+      getVolume: vi.fn().mockResolvedValue(0.5),
+    });
+    const store = createPlaybackStore(deps);
+
+    await store.refreshState();
+
+    expect(get(store)).toMatchObject({
+      currentTrack: runtimeTrack,
+      playbackState: { state: 'playing', position: 9, duration: runtimeTrack.duration },
+      uiError: '',
+    });
+  });
+
+  it('rehydrates queue tracks from library truth while preserving unresolved runtime rows', async () => {
+    const staleLibraryTrack = createTrack({ id: 'queue-library-track', title: 'Runtime Queue Row' });
+    const rehydratedMissingTrack = createTrack({
+      ...staleLibraryTrack,
+      title: 'Library Queue Row',
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+    const tempTrack = createTrack({
+      id: 'queue-temp-track',
+      title: 'Loose File',
+      path: '/tmp/loose-file.mp3',
+      library_root: null,
+      file_mtime_ms: null,
+    });
+    const deps = createDependencies({
+      getQueue: vi.fn().mockResolvedValue([staleLibraryTrack, tempTrack]),
+      getTrack: vi.fn(async (id: string) => {
+        if (id === staleLibraryTrack.id) {
+          return rehydratedMissingTrack;
+        }
+
+        return null;
+      }),
+    });
+    const store = createPlaybackStore(deps);
+
+    await store.refreshQueue();
+
+    expect(get(store).queueTracks).toEqual([rehydratedMissingTrack, tempTrack]);
+    expect(deps.getTrack).toHaveBeenNthCalledWith(1, staleLibraryTrack.id);
+    expect(deps.getTrack).toHaveBeenNthCalledWith(2, tempTrack.id);
+  });
+
   it('restores the previous session before refreshing state when playback is idle', async () => {
     const resumedTrack = createTrack({ id: 'resume-1', title: 'Resume Track', duration: 245 });
     const calls: string[] = [];
@@ -240,6 +343,7 @@ describe('playback store', () => {
       'getPlaybackState',
       'getCurrentTrack',
       'getVolume',
+      'getTrack',
     ]);
     expect(deps.setQueue).toHaveBeenCalledWith([resumedTrack]);
     expect(deps.playTrack).toHaveBeenCalledWith(resumedTrack);
@@ -427,6 +531,36 @@ describe('playback store', () => {
     );
   });
 
+  it('blocks restoring a saved session when the library row still exists but is missing', async () => {
+    const missingTrack = createTrack({
+      id: 'resume-missing',
+      title: 'Resume Missing Track',
+      availability: 'missing',
+      missing_since: null,
+    });
+    const deps = createDependencies({
+      getConfig: vi.fn(async () =>
+        createConfig({
+          last_track_id: missingTrack.id,
+          last_position_seconds: 23,
+        })
+      ),
+      getTrack: vi.fn(async () => missingTrack),
+      pickAndPlayFile: vi.fn().mockResolvedValue(undefined),
+      setLastSession: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const store = createPlaybackStore(deps);
+    await store.togglePlayPause();
+
+    expect(deps.setQueue).not.toHaveBeenCalled();
+    expect(deps.playTrack).not.toHaveBeenCalled();
+    expect(deps.seekTo).not.toHaveBeenCalled();
+    expect(deps.pickAndPlayFile).not.toHaveBeenCalled();
+    expect(deps.setLastSession).not.toHaveBeenCalledWith(null, 0);
+    expect(get(store).uiError).toBe('上次播放的歌曲文件缺失，无法恢复播放');
+  });
+
   it('clears last session when configured last track is missing', async () => {
     const deps = createDependencies({
       getConfig: vi.fn(async () =>
@@ -446,7 +580,7 @@ describe('playback store', () => {
     expect(deps.setLastSession).toHaveBeenCalledWith(null, 0);
   });
 
-  it('clears last session and falls back to pickAndPlayFile when restore fails', async () => {
+  it('keeps the saved session and surfaces a restore error when playback startup fails', async () => {
     const resumedTrack = createTrack({ id: 'resume-error', title: 'Resume Error Track', duration: 245 });
     const deps = createDependencies({
       getConfig: vi.fn(async () =>
@@ -464,8 +598,9 @@ describe('playback store', () => {
     const store = createPlaybackStore(deps);
     await store.togglePlayPause();
 
-    expect(deps.setLastSession).toHaveBeenCalledWith(null, 0);
-    expect(deps.pickAndPlayFile).toHaveBeenCalledOnce();
+    expect(deps.setLastSession).not.toHaveBeenCalledWith(null, 0);
+    expect(deps.pickAndPlayFile).not.toHaveBeenCalled();
+    expect(get(store).uiError).toBe('无法恢复上次播放的歌曲。');
   });
 
   it('debounces persisted session updates and ignores near-duplicate positions', async () => {
@@ -573,6 +708,24 @@ describe('playback store', () => {
     expect(deps.playNextTrack).toHaveBeenCalledOnce();
     expect(deps.getQueue).toHaveBeenCalledOnce();
     expect(get(store).queueTracks).toEqual([nextTrack]);
+  });
+
+  it('blocks queue playback when the latest library row is missing', async () => {
+    const queuedTrack = createTrack({ id: 'queue-missing', title: 'Queued Track', availability: 'available' });
+    const missingTrack = createTrack({
+      ...queuedTrack,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+    const deps = createDependencies({
+      getTrack: vi.fn(async () => missingTrack),
+    });
+    const store = createPlaybackStore(deps);
+
+    await store.playQueueTrack(queuedTrack);
+
+    expect(deps.playTrack).not.toHaveBeenCalled();
+    expect(get(store).uiError).toBe('当前歌曲文件缺失，无法播放');
   });
 
   it('clears queue via deps and refreshes the queue state', async () => {

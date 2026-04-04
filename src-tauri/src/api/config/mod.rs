@@ -18,6 +18,14 @@ fn lock_config(state: &AppState) -> std::sync::MutexGuard<'_, ()> {
     }
 }
 
+pub(crate) fn refresh_library_watcher_from_persisted_config(
+    state: &AppState,
+) -> Result<(), String> {
+    let _guard = lock_config(state);
+    let config = load_config()?;
+    crate::api::library::refresh_library_watcher(state, &config.library_paths)
+}
+
 #[tauri::command]
 pub async fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
     let _guard = lock_config(&state);
@@ -29,11 +37,15 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
 
 #[tauri::command]
 pub async fn save_config(config: Config, state: State<'_, AppState>) -> Result<(), String> {
-    let _guard = lock_config(&state);
-    save_config_to_disk(&config).map_err(|e| {
-        error!("Failed to save config: {e}");
-        e
-    })
+    {
+        let _guard = lock_config(&state);
+        save_config_to_disk(&config).map_err(|e| {
+            error!("Failed to save config: {e}");
+            e
+        })?;
+    }
+
+    crate::api::library::refresh_library_watcher(&state, &config.library_paths)
 }
 
 #[derive(Debug, Deserialize)]
@@ -91,20 +103,22 @@ pub async fn add_library_path(path: String, state: State<'_, AppState>) -> Resul
         ));
     }
 
-    add_library_path_inner(&state, resolved)
+    let library_paths = add_library_path_inner(&state, resolved)?;
+    crate::api::library::refresh_library_watcher(&state, &library_paths)
 }
 
-fn add_library_path_inner(state: &AppState, resolved: PathBuf) -> Result<(), String> {
+fn add_library_path_inner(state: &AppState, resolved: PathBuf) -> Result<Vec<PathBuf>, String> {
     let _guard = lock_config(state);
 
     let mut config = load_config()?;
     if config.library_paths.iter().any(|p| p == &resolved) {
-        return Ok(());
+        return Ok(config.library_paths);
     }
 
     info!("Adding library path: {}", resolved.display());
     config.library_paths.push(resolved);
-    save_config_to_disk(&config)
+    save_config_to_disk(&config)?;
+    Ok(config.library_paths)
 }
 
 #[tauri::command]
@@ -112,18 +126,23 @@ pub async fn remove_library_path(path: String, state: State<'_, AppState>) -> Re
     let requested = PathBuf::from(path);
     let resolved = resolve_path(&requested).unwrap_or(requested);
 
-    let _guard = lock_config(&state);
+    let library_paths = {
+        let _guard = lock_config(&state);
 
-    let mut config = load_config()?;
-    let before = config.library_paths.len();
-    config.library_paths.retain(|p| p != &resolved);
+        let mut config = load_config()?;
+        let before = config.library_paths.len();
+        config.library_paths.retain(|p| p != &resolved);
 
-    if config.library_paths.len() == before {
-        return Ok(());
-    }
+        if config.library_paths.len() == before {
+            return Ok(());
+        }
 
-    info!("Removed library path: {}", resolved.display());
-    save_config_to_disk(&config)
+        info!("Removed library path: {}", resolved.display());
+        save_config_to_disk(&config)?;
+        config.library_paths
+    };
+
+    crate::api::library::refresh_library_watcher(&state, &library_paths)
 }
 
 #[tauri::command]
@@ -149,8 +168,9 @@ pub async fn pick_and_add_library_folder(
         ));
     }
 
-    add_library_path_inner(&state, resolved.clone())?;
-    crate::api::library::scan_directory(resolved, state).await?;
+    let library_paths = add_library_path_inner(&state, resolved.clone())?;
+    crate::api::library::refresh_library_watcher(&state, &library_paths)?;
+    crate::api::library::start_library_scan(vec![resolved], None, state).await?;
     Ok(())
 }
 

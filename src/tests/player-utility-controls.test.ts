@@ -4,8 +4,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { cleanup, render, screen, within } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { Track } from '../lib/types';
 
 const artworkMock = vi.hoisted(() => ({
   isTauri: false,
@@ -36,7 +38,7 @@ const playerBarMock = vi.hoisted(() => {
     };
   }
 
-  const trackWithArtwork = {
+  const trackWithArtwork: Track = {
     id: 'track-current',
     title: 'Midnight City',
     duration: 264,
@@ -50,6 +52,8 @@ const playerBarMock = vi.hoisted(() => {
     album_title: "Hurry Up, We're Dreaming",
     genre: 'Electronic',
     artwork_path: '/covers/midnight-city.jpg' as string | null,
+    availability: 'available',
+    missing_since: null,
     play_count: 0,
     date_added: '2026-03-01T00:00:00.000Z',
   };
@@ -84,6 +88,23 @@ const playerBarMock = vi.hoisted(() => {
     }));
   }
 
+  function setPlaybackStateInfo(
+    nextPlaybackState:
+      | { state: 'stopped' }
+      | { state: 'playing'; position: number; duration: number }
+      | { state: 'paused'; position: number; duration: number }
+      | { state: 'error'; message: string }
+  ) {
+    playbackState.update((state) => ({
+      ...state,
+      playbackState: nextPlaybackState,
+      duration:
+        nextPlaybackState.state === 'playing' || nextPlaybackState.state === 'paused'
+          ? nextPlaybackState.duration
+          : state.currentTrack?.duration ?? 0,
+    }));
+  }
+
   function reset() {
     playbackState.set(createPlaybackSnapshot(trackWithArtwork));
     nowPlayingState.set({ isOpen: false });
@@ -95,6 +116,7 @@ const playerBarMock = vi.hoisted(() => {
     nowPlayingState,
     toggle,
     setCurrentTrack,
+    setPlaybackStateInfo,
     reset,
     trackWithArtwork,
     togglePlayPause: vi.fn(async () => undefined),
@@ -174,6 +196,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  document.documentElement.removeAttribute('data-theme');
 });
 
 describe('BottomPlayerBar cover art rendering', () => {
@@ -188,6 +211,51 @@ describe('BottomPlayerBar cover art rendering', () => {
     expect(artwork?.getAttribute('alt')).toBe('');
     expect(within(trigger).queryByRole('img')).toBeNull();
     expect(within(trigger).queryByTestId('cover-art-placeholder')).toBeNull();
+  });
+
+  it('renders continuity copy only while a missing current track is still playing', async () => {
+    playerBarMock.setCurrentTrack({
+      ...playerBarMock.trackWithArtwork,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+    playerBarMock.setPlaybackStateInfo({
+      state: 'playing',
+      position: 24,
+      duration: playerBarMock.trackWithArtwork.duration,
+    });
+
+    render(BottomPlayerBar);
+
+    expect(
+      screen.getByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')
+    ).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，无法重新播放')).toBeNull();
+    expect(screen.queryByText('文件缺失，无法播放')).toBeNull();
+
+    playerBarMock.setCurrentTrack({
+      ...playerBarMock.trackWithArtwork,
+      availability: 'available',
+      missing_since: null,
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
+    });
+  });
+
+  it('renders replay-blocked copy for a missing paused current track', () => {
+    playerBarMock.setCurrentTrack({
+      ...playerBarMock.trackWithArtwork,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+
+    render(BottomPlayerBar);
+
+    expect(screen.getByText('文件已缺失，无法重新播放')).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
+    expect(screen.queryByText('文件缺失，无法播放')).toBeNull();
   });
 
   it('renders the fallback decoratively when the current track has no artwork_path', () => {
@@ -205,6 +273,36 @@ describe('BottomPlayerBar cover art rendering', () => {
     expect(within(trigger).queryByRole('img')).toBeNull();
     expect(fallback.getAttribute('aria-hidden')).toBe('true');
   });
+});
+
+describe('BottomPlayerBar current-track cluster geometry', () => {
+  it('uses a dedicated artwork slot and bottom-bar cover variant instead of external geometry patching', async () => {
+    const source = await readPlayerBar();
+
+    expect(source).toContain('data-testid="bottom-player-artwork-slot"');
+    expect(source).toContain('variant="bottom-bar"');
+    expect(source).not.toContain('className="bottom-player-bar__artwork"');
+    expect(source).not.toContain(':global(.bottom-player-bar__artwork)');
+    expect(source).toMatch(/\.current-track-cluster__artwork-slot\s*\{[\s\S]*inline-size:\s*72px;/);
+    expect(source).toMatch(/\.current-track-cluster__artwork-slot\s*\{[\s\S]*block-size:\s*72px;/);
+    expect(source).toMatch(/\.current-track-cluster__artwork-slot\s*\{[\s\S]*flex:\s*0\s+0\s+72px;/);
+  });
+
+  for (const theme of ['dark', 'light'] as const) {
+    it(`keeps the artwork slot, title, and favorite button stable in ${theme}`, () => {
+      document.documentElement.dataset['theme'] = theme;
+
+      render(BottomPlayerBar);
+
+      const trigger = screen.getByRole('button', { name: /^打开正在播放：/ });
+      const artworkSlot = within(trigger).getByTestId('bottom-player-artwork-slot');
+      const artworkRoot = artworkSlot.querySelector('[data-cover-art-variant="bottom-bar"]');
+
+      expect(artworkRoot).toBeTruthy();
+      expect(within(trigger).getByText('Midnight City')).toBeTruthy();
+      expect(screen.getByRole('button', { name: '收藏' })).toBeTruthy();
+    });
+  }
 });
 
 describe('player utility controls styling', () => {
@@ -228,6 +326,24 @@ describe('player utility controls styling', () => {
     expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*height:\s*44px;/);
     expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*padding:\s*0;/);
     expect(source).toMatch(/\.utility-icon-button\s*\{[\s\S]*border-radius:\s*16px;/);
+  });
+
+  it('exposes queue, volume, and device popovers through one shared utility surface contract', async () => {
+    render(BottomPlayerBar);
+
+    const queueButton = screen.getByRole('button', { name: '队列' });
+    const deviceButton = screen.getByRole('button', { name: '输出设备' });
+    const volumeGroup = screen.getByRole('group', { name: '音量' });
+
+    expect(queueButton.getAttribute('data-variant')).toBe('utility');
+    expect(deviceButton.getAttribute('data-variant')).toBe('utility');
+    expect(volumeGroup.closest('[data-surface="popover"]')).toBeTruthy();
+
+    await fireEvent.click(queueButton);
+    expect(screen.getByText('接下来播放').closest('[data-surface="popover"]')).toBeTruthy();
+
+    await fireEvent.click(deviceButton);
+    expect(screen.getByText('输出设备').closest('[data-surface="popover"]')).toBeTruthy();
   });
 
   it('renders the shuffle, previous, play-pause, next, and repeat controls as svg icons', async () => {

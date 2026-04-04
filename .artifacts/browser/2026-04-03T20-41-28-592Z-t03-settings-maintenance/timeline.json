@@ -1,0 +1,17 @@
+{
+  "entries": [
+    {
+      "id": 1,
+      "tool": "browser_navigate",
+      "status": "success",
+      "durationMs": 2966,
+      "beforeUrl": "about:blank",
+      "afterUrl": "http://127.0.0.1:1420/#/settings",
+      "line": "#1 | browser_navigate | success | 2966ms | screenshot=true, url=\"http://127.0.0.1:1420/#/settings\" | URL changed to http://127.0.0.1:1420/#/settings; title changed to Music Player; landmarks 0→13; buttons 0→26"
+    }
+  ],
+  "retained": 1,
+  "totalRecorded": 1,
+  "bounded": false,
+  "summary": "Timeline: 1 browser action recorded."
+}

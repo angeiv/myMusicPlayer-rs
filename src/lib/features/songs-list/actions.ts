@@ -1,4 +1,9 @@
 import type { Track } from '../../types';
+import {
+  getMissingTrackPlayMessage,
+  getPlayableTracks,
+  isTrackPlayable,
+} from '../../utils/track-availability';
 import type { SongsListSelectionState } from './selection';
 
 export type SongsListActionDeps = {
@@ -40,6 +45,10 @@ type SongsListPlayVisibleTrackInput = {
 };
 
 const NO_SELECTION_MESSAGE = '请先选择歌曲';
+const PLAY_SELECTED_SUCCESS_MESSAGE = '已开始播放选中歌曲';
+const PLAY_SELECTED_ERROR_MESSAGE = '播放选中项失败';
+const PLAY_VISIBLE_SUCCESS_MESSAGE = '已开始播放当前歌曲';
+const PLAY_VISIBLE_ERROR_MESSAGE = '播放歌曲失败';
 
 export function getSelectedVisibleTracks(visibleTracks: Track[], selectedIds: string[]): Track[] {
   const selectedIdSet = new Set(selectedIds);
@@ -53,28 +62,38 @@ export async function playSelectedTracks({
   deps,
 }: SongsListActionInput): Promise<SongsListActionResult> {
   const selectedTracks = getSelectedVisibleTracks(visibleTracks, selection.selectedIds);
-  const startTrack =
-    selectedTracks.find((track) => track.id === selection.activeTrackId) ?? selectedTracks[0];
 
-  if (!startTrack) {
+  if (selectedTracks.length === 0) {
     return {
       status: 'error',
       message: NO_SELECTION_MESSAGE,
     };
   }
 
+  const playableSelectedTracks = getPlayableTracks(selectedTracks);
+  const startTrack =
+    playableSelectedTracks.find((track) => track.id === selection.activeTrackId)
+    ?? playableSelectedTracks[0];
+
+  if (!startTrack) {
+    return {
+      status: 'error',
+      message: getMissingTrackPlayMessage('selection'),
+    };
+  }
+
   try {
-    await deps.setQueue(selectedTracks);
+    await deps.setQueue(playableSelectedTracks);
     await deps.playTrack(startTrack);
 
     return {
       status: 'success',
-      message: '已开始播放选中歌曲',
+      message: PLAY_SELECTED_SUCCESS_MESSAGE,
     };
   } catch {
     return {
       status: 'error',
-      message: '播放选中项失败',
+      message: PLAY_SELECTED_ERROR_MESSAGE,
     };
   }
 }
@@ -136,25 +155,36 @@ export async function playVisibleTrack({
   track,
   deps,
 }: SongsListPlayVisibleTrackInput): Promise<SongsListActionResult> {
-  if (!visibleTracks.some((item) => item.id === track.id)) {
+  const visibleTrack = visibleTracks.find((item) => item.id === track.id);
+
+  if (!visibleTrack) {
     return {
       status: 'error',
-      message: '播放歌曲失败',
+      message: PLAY_VISIBLE_ERROR_MESSAGE,
     };
   }
 
+  if (!isTrackPlayable(visibleTrack)) {
+    return {
+      status: 'error',
+      message: getMissingTrackPlayMessage('track'),
+    };
+  }
+
+  const playableVisibleTracks = getPlayableTracks(visibleTracks);
+
   try {
-    await deps.setQueue(visibleTracks);
-    await deps.playTrack(track);
+    await deps.setQueue(playableVisibleTracks);
+    await deps.playTrack(visibleTrack);
 
     return {
       status: 'success',
-      message: '已开始播放当前歌曲',
+      message: PLAY_VISIBLE_SUCCESS_MESSAGE,
     };
   } catch {
     return {
       status: 'error',
-      message: '播放歌曲失败',
+      message: PLAY_VISIBLE_ERROR_MESSAGE,
     };
   }
 }

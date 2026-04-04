@@ -1,4 +1,15 @@
-import type { Album, Artist, ScanStatus, SearchResults, Track } from '../../types';
+import {
+  createLibraryWatcherStatus,
+  createScanStatus,
+  type Album,
+  type Artist,
+  type LibraryScanRequest,
+  type LibraryWatcherStatus,
+  type ScanMode,
+  type ScanStatus,
+  type SearchResults,
+  type Track,
+} from '../../types';
 import {
   getMockAlbumById,
   getMockAlbums,
@@ -11,37 +22,70 @@ import {
   searchMockLibrary,
 } from '../../mocks/library';
 
-let scanStatus: ScanStatus = {
-  phase: 'idle',
-  started_at_ms: null,
-  ended_at_ms: null,
-  current_path: null,
-  processed_files: 0,
-  inserted_tracks: 0,
-  error_count: 0,
-  sample_errors: [],
-};
+let scanStatus: ScanStatus = createScanStatus();
+let watcherStatus: LibraryWatcherStatus = createLibraryWatcherStatus();
 
-export async function startLibraryScan(_paths: string[]): Promise<void> {
-  const now = Date.now();
-  scanStatus = {
-    phase: 'completed',
-    started_at_ms: now,
-    ended_at_ms: now,
-    current_path: null,
-    processed_files: 0,
-    inserted_tracks: 0,
-    error_count: 0,
-    sample_errors: [],
+function normalizeLibraryScanRequest(
+  requestOrPaths: LibraryScanRequest | string[],
+): LibraryScanRequest {
+  if (Array.isArray(requestOrPaths)) {
+    return { paths: [...requestOrPaths] };
+  }
+
+  return {
+    ...requestOrPaths,
+    paths: [...requestOrPaths.paths],
   };
 }
 
+function resolveMockScanMode(request: LibraryScanRequest): ScanMode {
+  if (request.mode) {
+    return request.mode;
+  }
+
+  return getMockTracks().length > 0 ? 'incremental' : 'full';
+}
+
+export async function startLibraryScan(
+  requestOrPaths: LibraryScanRequest | string[],
+): Promise<void> {
+  const request = normalizeLibraryScanRequest(requestOrPaths);
+  const now = Date.now();
+
+  scanStatus = createScanStatus({
+    phase: 'completed',
+    mode: resolveMockScanMode(request),
+    started_at_ms: now,
+    ended_at_ms: now,
+  });
+  watcherStatus = createLibraryWatcherStatus({
+    watched_roots: [...request.paths],
+    dirty_roots: [],
+    queued_follow_up: false,
+    active_scan_phase: null,
+    last_requested_scan: {
+      requested_at_ms: now,
+      roots: [...request.paths],
+    },
+    last_trigger: null,
+    last_error: null,
+  });
+}
+
 export async function getLibraryScanStatus(): Promise<ScanStatus> {
-  return scanStatus;
+  return createScanStatus(scanStatus);
+}
+
+export async function getLibraryWatcherStatus(): Promise<LibraryWatcherStatus> {
+  return createLibraryWatcherStatus(watcherStatus);
 }
 
 export async function cancelLibraryScan(): Promise<void> {
   // no-op in web mode
+}
+
+export async function hasLibraryTracks(): Promise<boolean> {
+  return getMockTracks().length > 0;
 }
 
 export async function scanDirectory(_path: string): Promise<number> {
@@ -88,4 +132,3 @@ export async function getAlbumsByArtist(artistId: string): Promise<Album[]> {
 export async function searchLibrary(query: string): Promise<SearchResults> {
   return searchMockLibrary(query);
 }
-

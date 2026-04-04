@@ -62,7 +62,9 @@ fn build_temp_track_for_file(path: PathBuf) -> Track {
         track_number: None,
         disc_number: None,
         path: path.clone(),
+        library_root: None,
         size,
+        file_mtime_ms: None,
         format: path
             .extension()
             .map(|s| s.to_string_lossy().into_owned())
@@ -81,6 +83,8 @@ fn build_temp_track_for_file(path: PathBuf) -> Track {
         artwork: None,
         artwork_path: None,
         lyrics: load_local_lyrics(&path),
+        availability: crate::models::TrackAvailability::Available,
+        missing_since: None,
         play_count: 0,
         last_played: None,
         date_added: chrono::Utc::now(),

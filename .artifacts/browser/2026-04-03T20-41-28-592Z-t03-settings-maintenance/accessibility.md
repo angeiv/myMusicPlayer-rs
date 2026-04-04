@@ -1,0 +1,112 @@
+- banner:
+  - text: My Music Search, browse, and keep playback moving
+  - textbox:
+    - /placeholder: Search songs, albums, artists...
+- navigation "应用导航":
+  - heading "My Music" [level=1]
+  - paragraph: Library, queue, and playback
+  - heading "Main" [level=2]
+  - button "Home"
+  - button "Library"
+  - button "Settings"
+  - heading "Library" [level=2]
+  - button "Songs 8"
+  - button "Albums 3"
+  - button "Artists 3"
+  - heading "Playlists" [level=2]
+  - button "创建播放列表": ＋
+  - list:
+    - listitem:
+      - button "Morning Focus 3 tracks"
+    - listitem:
+      - button "City After Dark 3 tracks"
+- main:
+  - heading "Settings" [level=2]
+  - paragraph: Manage library maintenance, appearance, playback output, and app details.
+  - text: Version web Desktop build Maintenance
+  - heading "Library" [level=3]
+  - paragraph: Manage the watched folders and use the same scan controls in both themes.
+  - text: No scan running
+  - heading "No folders selected yet" [level=2]
+  - paragraph: Add one or more folders to start scanning and keep your library in sync.
+  - button "Add Folder"
+  - status: No scan running
+  - paragraph: Add folders or run a rescan to start the shared maintenance flow.
+  - text: Auto-sync Automatic sync is not watching folders right now.
+  - list "Scan summary":
+    - listitem:
+      - text: Files checked
+      - strong: "0"
+    - listitem:
+      - text: Added
+      - strong: "0"
+    - listitem:
+      - text: Changed
+      - strong: "0"
+    - listitem:
+      - text: Unchanged
+      - strong: "0"
+    - listitem:
+      - text: Restored
+      - strong: "0"
+    - listitem:
+      - text: Missing
+      - strong: "0"
+    - listitem:
+      - text: Errors
+      - strong: "0"
+  - button "Add Folder"
+  - button "Rescan Now" [disabled]
+  - button "Full Scan" [disabled]
+  - text: Appearance
+  - heading "Theme" [level=3]
+  - paragraph: Keep dark and light on the same shell and playback hierarchy.
+  - radiogroup "Theme options":
+    - radio "Light Use the calm neutral light theme for the full app shell."
+    - strong: Light
+    - text: Use the calm neutral light theme for the full app shell.
+    - radio "Dark Use the dark theme with the same playback and library hierarchy."
+    - strong: Dark
+    - text: Use the dark theme with the same playback and library hierarchy.
+    - radio "Follow System Match the current operating-system theme automatically." [checked]
+    - strong: Follow System
+    - text: Match the current operating-system theme automatically.
+  - strong: Scan library on startup
+  - text: Automatically run the default sync flow when the app launches.
+  - checkbox "Scan library on startup Automatically run the default sync flow when the app launches." [checked]
+  - strong: Default volume
+  - text: Apply this level to the player before playback starts.
+  - slider "Default volume Apply this level to the player before playback starts. 70%": "70"
+  - text: 70% Playback
+  - heading "Audio" [level=3]
+  - paragraph: Route playback to the right device and keep the selected output visible.
+  - text: System default
+  - strong: Output device
+  - text: "Current output: System default"
+  - 'combobox "Output device Current output: System default"':
+    - option "System default" [selected]
+  - button "Advanced audio settings" [disabled]
+  - text: Maintenance
+  - heading "About" [level=3]
+  - paragraph: Quick application info and a lightweight playlist refresh control.
+  - term: Version
+  - definition: web
+  - term: Author
+  - definition: myMusicPlayer-rs team
+  - term: License
+  - definition: MIT / Apache-2.0
+  - button "Reload playlists"
+- button "当前没有正在播放内容" [disabled]: 暂无播放 选择歌曲后即可在这里查看播放详情 未分类
+- button "收藏": ♡
+- text: 0:00
+- slider "拖动进度": "0"
+- text: "-0:00"
+- button "切换随机播放"
+- button "上一首"
+- button "播放或暂停"
+- button "下一首"
+- button "切换重复模式"
+- button "打开文件"
+- button "队列"
+- button "静音"
+- button "输出设备"

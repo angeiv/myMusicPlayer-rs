@@ -1,27 +1,51 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+
   import { getAlbum, getTracksByAlbum } from '../api/library';
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
+  import TrackActionRow from '../components/library/TrackActionRow.svelte';
+  import EmptyState from '../components/ui/EmptyState.svelte';
+  import PageHeader from '../components/ui/PageHeader.svelte';
+  import SurfacePanel from '../components/ui/SurfacePanel.svelte';
   import type { Album, Track } from '../types';
+  import {
+    getMissingTrackPlayMessage,
+    getPlayableTracks,
+    getTrackAvailabilityBadge,
+    getTrackAvailabilityDescription,
+    getTrackAvailabilityState,
+    isTrackPlayable,
+  } from '../utils/track-availability';
   import { formatDate, formatDuration, formatLongDuration, formatTrackIndex } from '../utils/format';
   import { createStaleRequestTracker, runGuardedRequest } from './stale-request';
 
   export let albumId: string | null = null;
 
   const dispatch = createEventDispatcher<{ playTrack: { track: Track } }>();
+  const requestTracker = createStaleRequestTracker();
+  const heroPlayHintId = 'album-detail-play-hint';
 
   let album: Album | null = null;
   let tracks: Track[] = [];
   let loading = false;
   let error = '';
+  let feedback = '';
   let lastRequestedId: string | null = null;
-  const requestTracker = createStaleRequestTracker();
+  let activeTrackId: string | null = null;
+  let playingTrackId: string | null = null;
+
+  $: playableTracks = getPlayableTracks(tracks);
+  $: canPlayAlbum = playableTracks.length > 0;
+  $: heroPlayHint = canPlayAlbum ? '' : getMissingTrackPlayMessage('collection');
 
   $: if (albumId) {
-    loadAlbum(albumId);
+    void loadAlbum(albumId);
   } else {
     album = null;
     tracks = [];
+    feedback = '';
+    activeTrackId = null;
+    playingTrackId = null;
   }
 
   async function loadAlbum(id: string) {
@@ -31,6 +55,9 @@
 
     loading = true;
     error = '';
+    feedback = '';
+    activeTrackId = null;
+    playingTrackId = null;
     lastRequestedId = id;
 
     await runGuardedRequest({
@@ -39,6 +66,9 @@
       onStart: () => {
         loading = true;
         error = '';
+        feedback = '';
+        activeTrackId = null;
+        playingTrackId = null;
       },
       request: async () => {
         const [albumResponse, tracksResponse] = await Promise.all([
@@ -65,164 +95,222 @@
     });
   }
 
-  async function playTrack(track: Track) {
+  async function startTrackPlayback(track: Track) {
+    activeTrackId = track.id;
+
+    if (!isTrackPlayable(track)) {
+      feedback = getMissingTrackPlayMessage('track');
+      return;
+    }
+
+    const queue = getPlayableTracks(tracks);
+    if (queue.length === 0) {
+      feedback = getMissingTrackPlayMessage('collection');
+      return;
+    }
+
     try {
-      await setQueue(tracks);
+      await setQueue(queue);
       await playTrackCommand(track);
+      feedback = '';
+      playingTrackId = track.id;
+      dispatch('playTrack', { track });
     } catch (err) {
       console.error('Failed to play track:', err);
     }
-
-    dispatch('playTrack', { track });
   }
 
   function handlePlayAll() {
-    const first = tracks[0];
-    if (first) {
-      playTrack(first);
+    const firstPlayableTrack = playableTracks[0];
+    if (!firstPlayableTrack) {
+      feedback = heroPlayHint;
+      return;
     }
+
+    void startTrackPlayback(firstPlayableTrack);
+  }
+
+  function handleRowFocus(track: Track) {
+    activeTrackId = track.id;
   }
 
   function handleRowKeydown(event: KeyboardEvent, track: Track) {
-    if (event.key === 'Enter' || event.key === ' ') {
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Space') {
       event.preventDefault();
-      playTrack(track);
+      void startTrackPlayback(track);
     }
   }
 </script>
 
 <section class="album-detail">
   {#if !albumId}
-    <div class="empty">
-      <p>Select an album to see its details.</p>
-    </div>
+    <EmptyState
+      title="Select an album"
+      body="Choose an album from the library to inspect its tracks and playback actions."
+      align="center"
+    />
   {:else if loading}
-    <div class="empty">
-      <p>Loading album…</p>
-    </div>
+    <EmptyState
+      title="Loading album"
+      body="Track metadata and playback actions will appear here in a moment."
+      align="center"
+    />
   {:else if error}
-    <div class="empty">
-      <p>{error}</p>
-    </div>
+    <EmptyState title="Album unavailable" body={error} tone="danger" align="center" />
   {:else if !album}
-    <div class="empty">
-      <p>Album not found.</p>
-    </div>
+    <EmptyState
+      title="Album not found"
+      body="The selected album is no longer available in the current library snapshot."
+      align="center"
+    />
   {:else}
-    <div class="hero">
-      <div class="artwork">{album.title.charAt(0)}</div>
-      <div class="info">
-        <span class="label">Album</span>
-        <h2>{album.title}</h2>
-        <p class="artist">{album.artist_name ?? 'Various artists'}</p>
-        <div class="meta">
-          <span>{album.track_count} tracks</span>
-          <span>{formatLongDuration(album.duration)}</span>
-          {#if album.year}
-            <span>{album.year}</span>
-          {/if}
-          <span>Added {formatDate(album.date_added) || 'recently'}</span>
-        </div>
-        <div class="actions">
-          <button class="primary" on:click={handlePlayAll}>▶ Play</button>
-          <button disabled title="Coming soon">☆ Favorite</button>
-        </div>
-      </div>
-    </div>
+    {#if feedback}
+      <SurfacePanel tone="inset" padding="compact">
+        <p class="feedback" role="status" aria-live="polite">{feedback}</p>
+      </SurfacePanel>
+    {/if}
 
-    <div class="tracks" role="table" aria-label="Album tracks">
-      <div class="track-header" role="row">
-        <div>#</div>
-        <div>Title</div>
-        <div>Duration</div>
-      </div>
-      <div class="track-body">
-        {#each tracks as track, index}
-          <div
-            class="track-row"
-            role="row"
-            tabindex="0"
-            on:dblclick={() => playTrack(track)}
-            on:keydown={(event) => handleRowKeydown(event, track)}
+    <SurfacePanel tone="elevated" padding="spacious">
+      <div class="hero">
+        <div class="artwork">{album.title.charAt(0)}</div>
+        <div class="hero-copy">
+          <span class="eyebrow">Album</span>
+          <PageHeader
+            title={album.title}
+            subtitle={album.artist_name ?? 'Various artists'}
           >
-            <div class="index">{formatTrackIndex(index)}</div>
-            <div class="title">
-              <span>{track.title}</span>
-              {#if track.artist_name && track.artist_name !== album?.artist_name}
-                <small>{track.artist_name}</small>
-              {/if}
+            <div slot="actions" class="actions">
+              <button
+                class="primary"
+                disabled={!canPlayAlbum}
+                aria-describedby={!canPlayAlbum ? heroPlayHintId : undefined}
+                title={!canPlayAlbum ? heroPlayHint : undefined}
+                on:click={handlePlayAll}
+              >
+                ▶ Play
+              </button>
+              <button disabled title="Coming soon">☆ Favorite</button>
             </div>
-            <div class="duration">{formatDuration(track.duration)}</div>
+          </PageHeader>
+          <div class="meta">
+            <span>{album.track_count} tracks</span>
+            <span>{formatLongDuration(album.duration)}</span>
+            {#if album.year}
+              <span>{album.year}</span>
+            {/if}
+            <span>Added {formatDate(album.date_added) || 'recently'}</span>
           </div>
-        {/each}
+          {#if !canPlayAlbum}
+            <span id={heroPlayHintId} class="sr-only">{heroPlayHint}</span>
+          {/if}
+        </div>
       </div>
-    </div>
+    </SurfacePanel>
+
+    <SurfacePanel padding="compact">
+      <div class="tracks" role="table" aria-label="Album tracks">
+        <div class="track-header" role="row">
+          <div>#</div>
+          <div>Title</div>
+          <div>Duration</div>
+        </div>
+        <div class="track-body">
+          {#each tracks as track, index}
+            {@const playable = isTrackPlayable(track)}
+            {@const availability = getTrackAvailabilityState(track)}
+            {@const availabilityBadge = getTrackAvailabilityBadge(track)}
+            {@const availabilityDescription = getTrackAvailabilityDescription(track)}
+            {@const availabilityDescriptionId = !playable ? `album-track-availability-${index}` : undefined}
+            <TrackActionRow
+              availability={availability}
+              active={activeTrackId === track.id}
+              playing={playingTrackId === track.id}
+              interactive={true}
+              role="row"
+              tabindex={0}
+              ariaDisabled={!playable ? 'true' : undefined}
+              ariaDescribedBy={availabilityDescriptionId}
+              columnTemplate="72px minmax(0, 1fr) 112px"
+              on:focus={() => handleRowFocus(track)}
+              on:click={() => handleRowFocus(track)}
+              on:dblclick={() => void startTrackPlayback(track)}
+              on:keydown={(event) => handleRowKeydown(event, track)}
+            >
+              <div class="track-action-row__cell track-action-row__numeric index">{formatTrackIndex(index)}</div>
+              <div class="track-action-row__cell track-action-row__title-stack">
+                <span class="track-action-row__title">{track.title}</span>
+                {#if availabilityBadge || (track.artist_name && track.artist_name !== album?.artist_name)}
+                  <div class="track-action-row__meta">
+                    {#if availabilityBadge}
+                      <span class="track-action-row__badge">{availabilityBadge}</span>
+                    {/if}
+                    {#if track.artist_name && track.artist_name !== album?.artist_name}
+                      <small class="track-action-row__meta-text">{track.artist_name}</small>
+                    {/if}
+                  </div>
+                {/if}
+                {#if availabilityDescriptionId}
+                  <span id={availabilityDescriptionId} class="sr-only">{availabilityDescription}</span>
+                {/if}
+              </div>
+              <div class="track-action-row__cell track-action-row__numeric duration">{formatDuration(track.duration)}</div>
+            </TrackActionRow>
+          {/each}
+        </div>
+      </div>
+    </SurfacePanel>
   {/if}
 </section>
 
 <style>
   .album-detail {
     padding: 32px 48px;
-    color: #e2e8f0;
     display: flex;
     flex-direction: column;
     gap: 24px;
+    color: var(--text-primary);
   }
 
-  .empty {
-    padding: 120px 0;
-    text-align: center;
-    border-radius: 24px;
-    background: rgba(15, 23, 42, 0.65);
-    color: rgba(148, 163, 184, 0.75);
+  .feedback {
+    color: var(--text-secondary);
   }
 
   .hero {
     display: flex;
     gap: 28px;
     align-items: center;
-    padding: 24px;
-    border-radius: 24px;
-    background: linear-gradient(140deg, rgba(30, 64, 175, 0.35), rgba(2, 132, 199, 0.2));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
   .artwork {
     width: 180px;
     height: 180px;
-    border-radius: 20px;
-    background: rgba(15, 23, 42, 0.6);
+    border-radius: 22px;
+    background: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      color-mix(in srgb, var(--surface-panel-subtle) 92%, transparent)
+    );
     display: grid;
     place-items: center;
     font-size: 4rem;
     font-weight: 800;
     letter-spacing: 0.12em;
-    color: rgba(248, 250, 252, 0.92);
+    color: var(--text-primary);
+    flex-shrink: 0;
   }
 
-  .info {
-    display: flex;
-    flex-direction: column;
+  .hero-copy {
+    min-width: 0;
+    display: grid;
     gap: 12px;
+    width: 100%;
   }
 
-  .info .label {
+  .eyebrow {
     font-size: 0.75rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(226, 232, 240, 0.65);
-  }
-
-  .info h2 {
-    margin: 0;
-    font-size: 2.4rem;
-    color: #f8fafc;
-  }
-
-  .artist {
-    margin: 0;
-    font-size: 1.1rem;
-    color: rgba(226, 232, 240, 0.8);
+    color: var(--text-tertiary);
   }
 
   .meta {
@@ -230,12 +318,13 @@
     flex-wrap: wrap;
     gap: 12px;
     font-size: 0.85rem;
-    color: rgba(191, 219, 254, 0.75);
+    color: var(--text-tertiary);
   }
 
   .actions {
     display: flex;
     gap: 12px;
+    flex-wrap: wrap;
   }
 
   .actions button {
@@ -244,37 +333,47 @@
     padding: 10px 22px;
     font-weight: 600;
     cursor: pointer;
-    background: rgba(15, 23, 42, 0.45);
-    color: #bfdbfe;
+    background: color-mix(in srgb, var(--surface-panel-subtle) 88%, transparent);
+    color: var(--text-primary);
+    transition:
+      background 0.16s ease,
+      box-shadow 0.16s ease,
+      transform 0.16s ease;
+  }
+
+  .actions button:hover:not(:disabled),
+  .actions button:focus-visible:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface-panel-subtle));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+    transform: translateY(-1px);
+    outline: none;
+  }
+
+  .actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
 
   .actions .primary {
-    background: rgba(59, 130, 246, 0.35);
-    color: #e0f2fe;
-    box-shadow: 0 18px 30px rgba(37, 99, 235, 0.32);
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-panel-subtle));
+    box-shadow: var(--glow-accent);
   }
 
   .tracks {
-    background: rgba(15, 23, 42, 0.78);
-    border-radius: 20px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
     overflow: hidden;
   }
 
-  .track-header,
-  .track-row {
-    display: grid;
-    grid-template-columns: 80px 1fr 120px;
-    align-items: center;
-  }
-
   .track-header {
-    padding: 14px 24px;
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr) 112px;
+    align-items: center;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border-subtle);
     font-size: 0.75rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: rgba(148, 163, 184, 0.8);
-    background: rgba(30, 41, 59, 0.65);
+    color: var(--text-tertiary);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 90%, transparent);
   }
 
   .track-body {
@@ -282,37 +381,24 @@
     overflow: visible;
   }
 
-  .track-row {
-    padding: 14px 24px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .track-row:hover {
-    background: rgba(59, 130, 246, 0.16);
-  }
-
   .index {
-    font-variant-numeric: tabular-nums;
-    color: rgba(148, 163, 184, 0.8);
-  }
-
-  .title span {
-    display: block;
-    font-weight: 600;
-    color: #f8fafc;
-  }
-
-  .title small {
-    color: rgba(148, 163, 184, 0.75);
-    font-size: 0.75rem;
+    text-align: center;
   }
 
   .duration {
     text-align: right;
-    font-variant-numeric: tabular-nums;
-    color: rgba(148, 163, 184, 0.8);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   @media (max-width: 900px) {
@@ -330,9 +416,9 @@
       height: 140px;
     }
 
-    .track-header,
-    .track-row {
-      grid-template-columns: 60px 1fr 100px;
+    .track-header {
+      grid-template-columns: 60px minmax(0, 1fr) 96px;
+      padding: 12px 20px;
     }
   }
 </style>

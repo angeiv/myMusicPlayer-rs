@@ -3,6 +3,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { Track } from '../lib/types';
+
 const artworkMock = vi.hoisted(() => ({
   isTauri: false,
   convertFileSrc: vi.fn((artworkPath: string) => `asset://converted${artworkPath}`),
@@ -32,7 +34,7 @@ const overlayMock = vi.hoisted(() => {
     };
   }
 
-  const currentTrack = {
+  const currentTrack: Track = {
     id: 'track-current',
     title: 'Midnight City',
     duration: 264,
@@ -46,11 +48,13 @@ const overlayMock = vi.hoisted(() => {
     album_title: "Hurry Up, We're Dreaming",
     genre: 'Electronic',
     artwork_path: '/covers/midnight-city.jpg',
+    availability: 'available',
+    missing_since: null,
     play_count: 0,
     date_added: '2026-03-01T00:00:00.000Z',
   };
 
-  const queuedTrack = {
+  const queuedTrack: Track = {
     id: 'track-queue',
     title: 'Intro',
     duration: 146,
@@ -63,6 +67,8 @@ const overlayMock = vi.hoisted(() => {
     artist_name: 'The xx',
     album_title: 'xx',
     genre: 'Indie',
+    availability: 'available',
+    missing_since: null,
     play_count: 0,
     date_added: '2026-03-02T00:00:00.000Z',
   };
@@ -129,6 +135,17 @@ const overlayMock = vi.hoisted(() => {
     }));
   }
 
+  function setPlaybackStateInfo(nextPlaybackState: { state: 'stopped' } | { state: 'playing'; position: number; duration: number } | { state: 'paused'; position: number; duration: number } | { state: 'error'; message: string }) {
+    playbackState.update((state) => ({
+      ...state,
+      playbackState: nextPlaybackState,
+      duration:
+        nextPlaybackState.state === 'playing' || nextPlaybackState.state === 'paused'
+          ? nextPlaybackState.duration
+          : state.currentTrack?.duration ?? 0,
+    }));
+  }
+
   function reset() {
     nowPlayingState.set({ isOpen: false, activeTab: 'lyrics' });
     playbackState.set(createPlaybackSnapshot(currentTrack));
@@ -183,6 +200,7 @@ const overlayMock = vi.hoisted(() => {
     selectOutputDevice,
     dismissError,
     setCurrentTrack,
+    setPlaybackStateInfo,
     reset,
   };
 });
@@ -261,9 +279,12 @@ describe('NowPlayingOverlay', () => {
 
     overlayMock.nowPlayingState.set({ isOpen: true, activeTab: 'lyrics' });
 
-    expect(await screen.findByRole('region', { name: '正在播放' })).toBeTruthy();
+    const region = await screen.findByRole('region', { name: '正在播放' });
+    expect(region.getAttribute('data-surface')).toBe('overlay');
     expect(screen.getByRole('tab', { name: '歌词' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: '歌词' }).getAttribute('data-variant')).toBe('tab');
     expect(screen.getByRole('tab', { name: '队列' }).getAttribute('aria-selected')).toBe('false');
+    expect(screen.getByRole('tab', { name: '队列' }).getAttribute('data-variant')).toBe('tab');
   });
 
   it('moves focus into the header when the overlay opens', async () => {
@@ -303,6 +324,61 @@ describe('NowPlayingOverlay', () => {
     expect(artwork.tagName).toBe('IMG');
     expect(artwork.getAttribute('src')).toBe('/covers/midnight-city.jpg');
     expect(within(summary).queryByTestId('cover-art-placeholder')).toBeNull();
+  });
+
+  it('renders continuity copy for a missing playing current track and clears it after restoration', async () => {
+    overlayMock.setCurrentTrack({
+      ...overlayMock.currentTrack,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+    overlayMock.setPlaybackStateInfo({
+      state: 'playing',
+      position: 24,
+      duration: overlayMock.currentTrack.duration,
+    });
+    overlayMock.nowPlayingState.set({ isOpen: true, activeTab: 'lyrics' });
+    render(NowPlayingOverlay);
+
+    expect(
+      await screen.findByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')
+    ).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，无法重新播放')).toBeNull();
+    expect(screen.queryByText('文件缺失，无法播放')).toBeNull();
+
+    overlayMock.setCurrentTrack({
+      ...overlayMock.currentTrack,
+      availability: 'available',
+      missing_since: null,
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
+    });
+  });
+
+  it('falls back to replay-blocked copy for a missing current track when playback is paused or stopped', async () => {
+    overlayMock.setCurrentTrack({
+      ...overlayMock.currentTrack,
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+    overlayMock.setPlaybackStateInfo({
+      state: 'paused',
+      position: 24,
+      duration: overlayMock.currentTrack.duration,
+    });
+    overlayMock.nowPlayingState.set({ isOpen: true, activeTab: 'lyrics' });
+    render(NowPlayingOverlay);
+
+    expect(await screen.findByText('文件已缺失，无法重新播放')).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
+    expect(screen.queryByText('文件缺失，无法播放')).toBeNull();
+
+    overlayMock.setPlaybackStateInfo({ state: 'stopped' });
+
+    expect(screen.getByText('文件已缺失，无法重新播放')).toBeTruthy();
+    expect(screen.queryByText('文件已缺失，当前播放仍可继续，结束后无法重新播放')).toBeNull();
   });
 
   it('closes when Escape is pressed', async () => {

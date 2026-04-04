@@ -86,7 +86,7 @@ const mockAlbums: Album[] = [
   },
 ];
 
-const mockTracks: Track[] = [
+const baseMockTracks = [
   {
     id: '44444444-4444-4444-4444-111111111111',
     title: 'Silver Skyline',
@@ -299,6 +299,14 @@ const mockTracks: Track[] = [
     date_added: '2024-03-05T08:00:00Z',
   },
 ];
+
+const mockTracks: Track[] = baseMockTracks.map((track) => ({
+  library_root: '/music',
+  file_mtime_ms: null,
+  availability: 'available',
+  missing_since: null,
+  ...track,
+}));
 
 const basePlaylists: Playlist[] = [
   {

@@ -2,11 +2,14 @@
 
 mod artwork;
 mod scan;
+mod watcher;
 #[allow(unused_imports)]
 pub use scan::*;
+#[allow(unused_imports)]
+pub use watcher::*;
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -28,26 +31,48 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::models::{Album, Artist, Track};
+use crate::models::{Album, Artist, Track, TrackAvailability};
 use crate::utils;
 
 const DB_FILE_NAME: &str = "library.sqlite";
 
-#[derive(Debug, Clone)]
-pub struct ScanProgress {
-    pub current_path: PathBuf,
-    pub processed_files: u64,
-    pub inserted_tracks: u64,
-    pub error_count: u64,
+#[derive(Debug, Clone, Copy)]
+struct FileStatSnapshot {
+    size: u64,
+    file_mtime_ms: i64,
 }
 
 #[derive(Debug, Clone)]
-pub struct ScanSummary {
-    pub processed_files: u64,
-    pub inserted_tracks: u64,
-    pub error_count: u64,
-    pub sample_errors: Vec<ScanErrorSample>,
-    pub cancelled: bool,
+struct ExistingTrackRecord {
+    id: Uuid,
+    album_id: Option<Uuid>,
+    size: u64,
+    file_mtime_ms: Option<i64>,
+    availability: TrackAvailability,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CandidateScanAction {
+    New,
+    Changed,
+    Restored,
+    Unchanged,
+}
+
+impl CandidateScanAction {
+    fn from_existing(existing: Option<&ExistingTrackRecord>, snapshot: FileStatSnapshot) -> Self {
+        match existing {
+            None => Self::New,
+            Some(existing) if existing.availability == TrackAvailability::Missing => Self::Restored,
+            Some(existing)
+                if existing.file_mtime_ms == Some(snapshot.file_mtime_ms)
+                    && existing.size == snapshot.size =>
+            {
+                Self::Unchanged
+            }
+            Some(_) => Self::Changed,
+        }
+    }
 }
 
 fn scan_entry_is_visible(entry: &DirEntry) -> bool {
@@ -59,17 +84,16 @@ fn scan_entry_is_visible(entry: &DirEntry) -> bool {
         return true;
     };
 
-    // Skip hidden files and directories.
-    if name.starts_with('.') {
-        return false;
-    }
+    let path_kind = if entry.file_type().is_dir() {
+        LibraryPathKind::Directory
+    } else {
+        LibraryPathKind::File
+    };
 
-    // Skip common noise directories.
-    if entry.file_type().is_dir() && matches!(name, "node_modules" | "target") {
-        return false;
-    }
-
-    true
+    matches!(
+        classify_library_path(Path::new(name), path_kind),
+        LibraryPathVisibility::Visible
+    )
 }
 
 fn push_scan_error(
@@ -99,7 +123,9 @@ struct ExtractedTrack {
     track_number: Option<u32>,
     disc_number: Option<u32>,
     file_path: PathBuf,
+    library_root: PathBuf,
     size: u64,
+    file_mtime_ms: i64,
     format: String,
     bitrate: u32,
     sample_rate: u32,
@@ -115,6 +141,85 @@ struct ExtractedTrack {
 struct PersistTrackResult {
     created_new: bool,
     affected_album_ids: Vec<Uuid>,
+}
+
+fn stat_audio_file(path: &Path) -> Result<FileStatSnapshot> {
+    let metadata = std::fs::metadata(path)?;
+    let file_mtime_ms: i64 = metadata
+        .modified()?
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .context("File modification time predates the unix epoch")?
+        .as_millis()
+        .try_into()
+        .context("File modification time is too large to persist")?;
+
+    Ok(FileStatSnapshot {
+        size: metadata.len(),
+        file_mtime_ms,
+    })
+}
+
+fn load_existing_root_records(
+    tx: &Transaction<'_>,
+    root: &Path,
+) -> Result<HashMap<PathBuf, ExistingTrackRecord>> {
+    let mut stmt = tx.prepare(
+        r#"
+        SELECT id, file_path, album_id, size, file_mtime_ms, availability
+        FROM tracks
+        WHERE library_root = ?1
+        "#,
+    )?;
+
+    let rows = stmt.query_map(params![root.to_string_lossy().into_owned()], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, Option<i64>>(4)?,
+            row.get::<_, String>(5)?,
+        ))
+    })?;
+
+    let mut existing = HashMap::new();
+    for row in rows {
+        let (id, file_path, album_id, size, file_mtime_ms, availability) = row?;
+        existing.insert(
+            PathBuf::from(file_path),
+            ExistingTrackRecord {
+                id: parse_uuid(id)?,
+                album_id: album_id.map(parse_uuid).transpose()?,
+                size: size as u64,
+                file_mtime_ms,
+                availability: parse_track_availability(availability)?,
+            },
+        );
+    }
+
+    Ok(existing)
+}
+
+fn mark_track_missing(tx: &Transaction<'_>, track_id: &Uuid) -> Result<bool> {
+    let changed = tx.execute(
+        r#"
+        UPDATE tracks
+        SET availability = ?2,
+            missing_since = COALESCE(missing_since, ?3)
+        WHERE id = ?1 AND availability <> ?2
+        "#,
+        params![
+            track_id.to_string(),
+            TrackAvailability::Missing.as_db_str(),
+            Utc::now().timestamp(),
+        ],
+    )?;
+
+    Ok(changed > 0)
+}
+
+fn push_progress(on_progress: &mut impl FnMut(&ScanProgress), progress: &ScanProgress) {
+    on_progress(progress);
 }
 
 /// Service responsible for scanning the filesystem and persisting music metadata.
@@ -159,56 +264,26 @@ impl LibraryService {
             return Err(anyhow!("Path is not a directory: {}", path.display()));
         }
 
-        info!("Scanning directory: {}", path.display());
-
-        let audio_files: Vec<PathBuf> = WalkDir::new(path)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.file_type().is_file())
-            .filter(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(is_supported_extension)
-                    .unwrap_or(false)
-            })
-            .map(|entry| entry.path().to_path_buf())
-            .collect();
-
-        let mut inserted = 0usize;
-        let mut affected_album_ids = HashSet::new();
-        let tx = self.conn.transaction()?;
-
-        for file_path in audio_files {
-            match extract_metadata(&file_path) {
-                Ok(raw) => match persist_track(&tx, raw) {
-                    Ok(result) => {
-                        if result.created_new {
-                            inserted += 1;
-                        }
-                        affected_album_ids.extend(result.affected_album_ids);
-                    }
-                    Err(err) => {
-                        warn!(
-                            "Failed to persist metadata for {}: {}",
-                            file_path.display(),
-                            err
-                        );
-                    }
-                },
-                Err(err) => warn!(
-                    "Failed to read metadata for {}: {}",
-                    file_path.display(),
-                    err
-                ),
-            }
+        if is_dangerous_root(path) {
+            return Err(anyhow!(
+                "Root path is considered dangerous and will not be scanned: {}",
+                path.display()
+            ));
         }
 
-        refresh_album_artwork_paths(&tx, self.artwork_cache_root.as_deref(), &affected_album_ids)?;
-        tx.commit()?;
-        Ok(inserted)
+        let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if is_dangerous_root(&root) {
+            return Err(anyhow!(
+                "Root path is considered dangerous and will not be scanned: {}",
+                root.display()
+            ));
+        }
+
+        info!("Scanning directory: {}", root.display());
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let summary = self.scan_roots_with_control(&[root], &cancel_flag, 20, |_| {})?;
+        Ok(summary.inserted_tracks as usize)
     }
 
     pub fn scan_roots_with_control(
@@ -219,21 +294,25 @@ impl LibraryService {
         mut on_progress: impl FnMut(&ScanProgress),
     ) -> Result<ScanSummary> {
         let tx = self.conn.transaction()?;
-        let mut processed_files = 0u64;
-        let mut inserted_tracks = 0u64;
-        let mut error_count = 0u64;
-        let mut sample_errors: Vec<ScanErrorSample> = Vec::new();
+        let mut summary = ScanSummary {
+            processed_files: 0,
+            inserted_tracks: 0,
+            changed_tracks: 0,
+            unchanged_files: 0,
+            restored_tracks: 0,
+            missing_tracks: 0,
+            error_count: 0,
+            sample_errors: Vec::new(),
+            cancelled: false,
+        };
         let mut affected_album_ids = HashSet::new();
 
-        let deduped_roots = dedupe_overlapping_roots(roots);
-        let should_dedupe_files = deduped_roots.len() != roots.len();
-
-        let mut scan_roots: Vec<PathBuf> = Vec::new();
-        for root in deduped_roots {
-            if is_dangerous_root(&root) {
+        let mut normalized_roots: Vec<PathBuf> = Vec::new();
+        for root in roots {
+            if is_dangerous_root(root) {
                 push_scan_error(
-                    &mut error_count,
-                    &mut sample_errors,
+                    &mut summary.error_count,
+                    &mut summary.sample_errors,
                     sample_limit,
                     ScanErrorKind::InvalidPath,
                     root.display().to_string(),
@@ -242,26 +321,42 @@ impl LibraryService {
                 continue;
             }
 
-            scan_roots.push(root);
+            let normalized = root.canonicalize().unwrap_or_else(|_| root.clone());
+            if is_dangerous_root(&normalized) {
+                push_scan_error(
+                    &mut summary.error_count,
+                    &mut summary.sample_errors,
+                    sample_limit,
+                    ScanErrorKind::InvalidPath,
+                    normalized.display().to_string(),
+                    "Root path is considered dangerous and will not be scanned".to_string(),
+                );
+                continue;
+            }
+
+            normalized_roots.push(normalized);
         }
+
+        let deduped_roots = dedupe_overlapping_roots(&normalized_roots);
+        let should_dedupe_files = deduped_roots.len() != normalized_roots.len();
+        let scan_roots = deduped_roots;
 
         let mut seen_files: Option<HashSet<PathBuf>> = if should_dedupe_files {
             Some(HashSet::new())
         } else {
             None
         };
-        let mut cancelled = false;
 
         'scan: for root in &scan_roots {
             if cancel_flag.load(Ordering::SeqCst) {
-                cancelled = true;
+                summary.cancelled = true;
                 break;
             }
 
             if !root.exists() || !root.is_dir() {
                 push_scan_error(
-                    &mut error_count,
-                    &mut sample_errors,
+                    &mut summary.error_count,
+                    &mut summary.sample_errors,
                     sample_limit,
                     ScanErrorKind::InvalidPath,
                     root.display().to_string(),
@@ -269,6 +364,10 @@ impl LibraryService {
                 );
                 continue;
             }
+
+            let existing_tracks = load_existing_root_records(&tx, root)?;
+            let mut root_seen_paths: HashSet<PathBuf> = HashSet::new();
+            let mut root_walk_complete = true;
 
             for entry in WalkDir::new(root)
                 .follow_links(false)
@@ -292,73 +391,150 @@ impl LibraryService {
                             continue;
                         }
 
-                        // Cancellation is checked right before processing each candidate file so we can
-                        // commit partial work.
                         if cancel_flag.load(Ordering::SeqCst) {
-                            cancelled = true;
+                            summary.cancelled = true;
                             break 'scan;
                         }
 
                         let file_path = entry.path().to_path_buf();
+                        root_seen_paths.insert(file_path.clone());
+
                         if seen_files
                             .as_mut()
                             .is_some_and(|seen| !seen.insert(file_path.clone()))
                         {
+                            if let Some(album_id) = existing_tracks
+                                .get(&file_path)
+                                .and_then(|existing| existing.album_id)
+                            {
+                                affected_album_ids.insert(album_id);
+                            }
                             continue;
                         }
 
-                        processed_files += 1;
+                        summary.processed_files += 1;
 
-                        match extract_metadata(&file_path) {
-                            Ok(raw) => match persist_track(&tx, raw) {
-                                Ok(result) => {
-                                    if result.created_new {
-                                        inserted_tracks += 1;
-                                    }
-                                    affected_album_ids.extend(result.affected_album_ids);
-                                }
-                                Err(err) => {
-                                    warn!(
-                                        "Failed to persist metadata for {}: {}",
-                                        file_path.display(),
-                                        err
-                                    );
-                                    push_scan_error(
-                                        &mut error_count,
-                                        &mut sample_errors,
-                                        sample_limit,
-                                        ScanErrorKind::Persist,
-                                        file_path.display().to_string(),
-                                        err.to_string(),
-                                    );
-                                }
-                            },
+                        let existing = existing_tracks.get(&file_path);
+                        let snapshot = match stat_audio_file(&file_path) {
+                            Ok(snapshot) => snapshot,
                             Err(err) => {
-                                warn!(
-                                    "Failed to read metadata for {}: {}",
-                                    file_path.display(),
-                                    err
-                                );
+                                warn!("Failed to stat {}: {}", file_path.display(), err);
                                 push_scan_error(
-                                    &mut error_count,
-                                    &mut sample_errors,
+                                    &mut summary.error_count,
+                                    &mut summary.sample_errors,
                                     sample_limit,
                                     ScanErrorKind::ReadMetadata,
                                     file_path.display().to_string(),
                                     err.to_string(),
                                 );
+
+                                push_progress(
+                                    &mut on_progress,
+                                    &ScanProgress {
+                                        current_path: file_path,
+                                        processed_files: summary.processed_files,
+                                        inserted_tracks: summary.inserted_tracks,
+                                        changed_tracks: summary.changed_tracks,
+                                        unchanged_files: summary.unchanged_files,
+                                        restored_tracks: summary.restored_tracks,
+                                        missing_tracks: summary.missing_tracks,
+                                        error_count: summary.error_count,
+                                    },
+                                );
+                                continue;
                             }
+                        };
+
+                        match CandidateScanAction::from_existing(existing, snapshot) {
+                            CandidateScanAction::Unchanged => {
+                                summary.unchanged_files += 1;
+
+                                if let Some(album_id) = existing.and_then(|track| track.album_id) {
+                                    affected_album_ids.insert(album_id);
+                                }
+                            }
+                            action => match extract_metadata(&file_path, root, snapshot) {
+                                Ok(raw) => match persist_track(&tx, raw) {
+                                    Ok(result) => {
+                                        if result.created_new {
+                                            summary.inserted_tracks += 1;
+                                        } else {
+                                            match action {
+                                                CandidateScanAction::Changed => {
+                                                    summary.changed_tracks += 1;
+                                                }
+                                                CandidateScanAction::Restored => {
+                                                    summary.restored_tracks += 1;
+                                                }
+                                                CandidateScanAction::New
+                                                | CandidateScanAction::Unchanged => {}
+                                            }
+                                        }
+
+                                        affected_album_ids.extend(result.affected_album_ids);
+                                    }
+                                    Err(err) => {
+                                        warn!(
+                                            "Failed to persist metadata for {}: {}",
+                                            file_path.display(),
+                                            err
+                                        );
+                                        push_scan_error(
+                                            &mut summary.error_count,
+                                            &mut summary.sample_errors,
+                                            sample_limit,
+                                            ScanErrorKind::Persist,
+                                            file_path.display().to_string(),
+                                            err.to_string(),
+                                        );
+
+                                        if let Some(album_id) =
+                                            existing.and_then(|track| track.album_id)
+                                        {
+                                            affected_album_ids.insert(album_id);
+                                        }
+                                    }
+                                },
+                                Err(err) => {
+                                    warn!(
+                                        "Failed to read metadata for {}: {}",
+                                        file_path.display(),
+                                        err
+                                    );
+                                    push_scan_error(
+                                        &mut summary.error_count,
+                                        &mut summary.sample_errors,
+                                        sample_limit,
+                                        ScanErrorKind::ReadMetadata,
+                                        file_path.display().to_string(),
+                                        err.to_string(),
+                                    );
+
+                                    if let Some(album_id) =
+                                        existing.and_then(|track| track.album_id)
+                                    {
+                                        affected_album_ids.insert(album_id);
+                                    }
+                                }
+                            },
                         }
 
-                        let progress = ScanProgress {
-                            current_path: file_path,
-                            processed_files,
-                            inserted_tracks,
-                            error_count,
-                        };
-                        on_progress(&progress);
+                        push_progress(
+                            &mut on_progress,
+                            &ScanProgress {
+                                current_path: file_path,
+                                processed_files: summary.processed_files,
+                                inserted_tracks: summary.inserted_tracks,
+                                changed_tracks: summary.changed_tracks,
+                                unchanged_files: summary.unchanged_files,
+                                restored_tracks: summary.restored_tracks,
+                                missing_tracks: summary.missing_tracks,
+                                error_count: summary.error_count,
+                            },
+                        );
                     }
                     Err(err) => {
+                        root_walk_complete = false;
                         let path = err
                             .path()
                             .map(|path| path.display().to_string())
@@ -366,8 +542,8 @@ impl LibraryService {
 
                         warn!("WalkDir error for {}: {}", path, err);
                         push_scan_error(
-                            &mut error_count,
-                            &mut sample_errors,
+                            &mut summary.error_count,
+                            &mut summary.sample_errors,
                             sample_limit,
                             ScanErrorKind::Walk,
                             path,
@@ -376,18 +552,38 @@ impl LibraryService {
                     }
                 }
             }
+
+            if root_walk_complete && !summary.cancelled {
+                for (path, existing) in &existing_tracks {
+                    if root_seen_paths.contains(path) {
+                        continue;
+                    }
+
+                    if mark_track_missing(&tx, &existing.id)? {
+                        summary.missing_tracks += 1;
+                        if let Some(album_id) = existing.album_id {
+                            affected_album_ids.insert(album_id);
+                        }
+                    }
+                }
+            }
         }
 
         refresh_album_artwork_paths(&tx, self.artwork_cache_root.as_deref(), &affected_album_ids)?;
         tx.commit()?;
 
-        Ok(ScanSummary {
-            processed_files,
-            inserted_tracks,
-            error_count,
-            sample_errors,
-            cancelled,
-        })
+        Ok(summary)
+    }
+
+    /// Return whether the library currently has any persisted tracks.
+    pub fn has_library_tracks(&self) -> Result<bool> {
+        let has_tracks =
+            self.conn
+                .query_row("SELECT EXISTS(SELECT 1 FROM tracks LIMIT 1)", [], |row| {
+                    row.get::<_, i64>(0)
+                })?;
+
+        Ok(has_tracks != 0)
     }
 
     /// Retrieve all tracks currently stored in the library.
@@ -401,7 +597,9 @@ impl LibraryService {
                 t.track_number,
                 t.disc_number,
                 t.file_path,
+                t.library_root,
                 t.size,
+                t.file_mtime_ms,
                 t.format,
                 t.bitrate,
                 t.sample_rate,
@@ -415,6 +613,8 @@ impl LibraryService {
                 al.cover_art_path as artwork_path,
                 t.year,
                 t.genre,
+                t.availability,
+                t.missing_since,
                 t.play_count,
                 t.last_played,
                 t.date_added
@@ -445,7 +645,9 @@ impl LibraryService {
                 t.track_number,
                 t.disc_number,
                 t.file_path,
+                t.library_root,
                 t.size,
+                t.file_mtime_ms,
                 t.format,
                 t.bitrate,
                 t.sample_rate,
@@ -459,6 +661,8 @@ impl LibraryService {
                 al.cover_art_path as artwork_path,
                 t.year,
                 t.genre,
+                t.availability,
+                t.missing_since,
                 t.play_count,
                 t.last_played,
                 t.date_added
@@ -757,13 +961,17 @@ fn initialize_schema(conn: &mut Connection) -> Result<()> {
             disc_number INTEGER,
             duration INTEGER NOT NULL,
             file_path TEXT NOT NULL UNIQUE,
+            library_root TEXT,
             size INTEGER NOT NULL,
+            file_mtime_ms INTEGER,
             format TEXT NOT NULL,
             bitrate INTEGER,
             sample_rate INTEGER,
             channels INTEGER,
             year INTEGER,
             genre TEXT,
+            availability TEXT NOT NULL DEFAULT 'available',
+            missing_since INTEGER,
             play_count INTEGER NOT NULL DEFAULT 0,
             last_played INTEGER,
             date_added INTEGER NOT NULL,
@@ -789,6 +997,44 @@ fn initialize_schema(conn: &mut Connection) -> Result<()> {
         );
         "#,
     )?;
+    ensure_track_scan_columns(conn)?;
+    Ok(())
+}
+
+fn ensure_track_scan_columns(conn: &Connection) -> Result<()> {
+    let columns = conn
+        .prepare("PRAGMA table_info(tracks)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    if !columns.iter().any(|name| name == "library_root") {
+        conn.execute("ALTER TABLE tracks ADD COLUMN library_root TEXT", [])?;
+    }
+
+    if !columns.iter().any(|name| name == "file_mtime_ms") {
+        conn.execute("ALTER TABLE tracks ADD COLUMN file_mtime_ms INTEGER", [])?;
+    }
+
+    if !columns.iter().any(|name| name == "availability") {
+        conn.execute(
+            "ALTER TABLE tracks ADD COLUMN availability TEXT NOT NULL DEFAULT 'available'",
+            [],
+        )?;
+    }
+
+    if !columns.iter().any(|name| name == "missing_since") {
+        conn.execute("ALTER TABLE tracks ADD COLUMN missing_since INTEGER", [])?;
+    }
+
+    conn.execute(
+        "UPDATE tracks SET availability = 'available' WHERE availability IS NULL OR trim(availability) = ''",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE tracks SET missing_since = NULL WHERE availability <> 'missing'",
+        [],
+    )?;
+
     Ok(())
 }
 
@@ -846,12 +1092,16 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTra
                 disc_number = ?7,
                 duration = ?8,
                 size = ?9,
-                format = ?10,
-                bitrate = ?11,
-                sample_rate = ?12,
-                channels = ?13,
-                year = ?14,
-                genre = ?15
+                library_root = ?10,
+                file_mtime_ms = ?11,
+                format = ?12,
+                bitrate = ?13,
+                sample_rate = ?14,
+                channels = ?15,
+                year = ?16,
+                genre = ?17,
+                availability = ?18,
+                missing_since = NULL
             WHERE id = ?1
             "#,
             params![
@@ -864,12 +1114,15 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTra
                 raw.disc_number.map(|n| n as i64),
                 raw.duration as i64,
                 raw.size as i64,
+                raw.library_root.to_string_lossy().into_owned(),
+                raw.file_mtime_ms,
                 raw.format,
                 raw.bitrate as i64,
                 raw.sample_rate as i64,
                 raw.channels as i64,
                 raw.year,
                 raw.genre,
+                TrackAvailability::Available.as_db_str(),
             ],
         )?;
         false
@@ -878,12 +1131,14 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTra
             r#"
             INSERT INTO tracks (
                 id, title, artist_id, album_artist_id, album_id, track_number, disc_number,
-                duration, file_path, size, format, bitrate, sample_rate, channels,
-                year, genre, play_count, last_played, date_added
+                duration, file_path, library_root, size, file_mtime_ms, format, bitrate,
+                sample_rate, channels, year, genre, availability, missing_since,
+                play_count, last_played, date_added
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                 ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                ?15, ?16, 0, NULL, ?17
+                ?15, ?16, ?17, ?18, ?19, NULL,
+                0, NULL, ?20
             )
             "#,
             params![
@@ -896,13 +1151,16 @@ fn persist_track(tx: &Transaction<'_>, raw: ExtractedTrack) -> Result<PersistTra
                 raw.disc_number.map(|n| n as i64),
                 raw.duration as i64,
                 raw.file_path.to_string_lossy(),
+                raw.library_root.to_string_lossy().into_owned(),
                 raw.size as i64,
+                raw.file_mtime_ms,
                 raw.format,
                 raw.bitrate as i64,
                 raw.sample_rate as i64,
                 raw.channels as i64,
                 raw.year,
                 raw.genre,
+                TrackAvailability::Available.as_db_str(),
                 now,
             ],
         )?;
@@ -935,7 +1193,11 @@ fn is_supported_extension(ext: &str) -> bool {
 }
 
 /// Extract metadata from an audio file using Lofty + Symphonia-friendly information.
-fn extract_metadata(path: &Path) -> Result<ExtractedTrack> {
+fn extract_metadata(
+    path: &Path,
+    library_root: &Path,
+    snapshot: FileStatSnapshot,
+) -> Result<ExtractedTrack> {
     let tagged_file = read_from_path(path)?;
     let properties = tagged_file.properties();
     let tag = tagged_file
@@ -961,7 +1223,6 @@ fn extract_metadata(path: &Path) -> Result<ExtractedTrack> {
     let album_title = tag.album().map(|s| s.to_string());
     let year = tag.date().map(|ts| i32::from(ts.year));
     let genre = tag.genre().map(|s| s.to_string());
-    let size = std::fs::metadata(path)?.len();
     let format = path
         .extension()
         .and_then(|s| s.to_str())
@@ -977,7 +1238,9 @@ fn extract_metadata(path: &Path) -> Result<ExtractedTrack> {
         track_number,
         disc_number,
         file_path: path.to_path_buf(),
-        size,
+        library_root: library_root.to_path_buf(),
+        size: snapshot.size,
+        file_mtime_ms: snapshot.file_mtime_ms,
         format,
         bitrate,
         sample_rate,
@@ -1093,6 +1356,14 @@ fn read_embedded_artwork(path: &Path) -> Result<Option<Vec<u8>>> {
 
 /// Map a database row to a Track domain model.
 fn row_to_track(row: &Row<'_>) -> Result<Track> {
+    let availability = parse_track_availability(row.get::<_, String>("availability")?)?;
+    let missing_since = if availability == TrackAvailability::Missing {
+        row.get::<_, Option<i64>>("missing_since")?
+            .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+    } else {
+        None
+    };
+
     Ok(Track {
         id: parse_uuid(row.get::<_, String>("id")?)?,
         title: row.get("title")?,
@@ -1100,7 +1371,11 @@ fn row_to_track(row: &Row<'_>) -> Result<Track> {
         track_number: row.get::<_, Option<i64>>("track_number")?.map(|n| n as u32),
         disc_number: row.get::<_, Option<i64>>("disc_number")?.map(|n| n as u32),
         path: PathBuf::from(row.get::<_, String>("file_path")?),
+        library_root: row
+            .get::<_, Option<String>>("library_root")?
+            .map(PathBuf::from),
         size: row.get::<_, i64>("size")? as u64,
+        file_mtime_ms: row.get("file_mtime_ms")?,
         format: row.get("format")?,
         bitrate: row.get::<_, Option<i64>>("bitrate")?.unwrap_or(0) as u32,
         sample_rate: row.get::<_, Option<i64>>("sample_rate")?.unwrap_or(44_100) as u32,
@@ -1125,6 +1400,8 @@ fn row_to_track(row: &Row<'_>) -> Result<Track> {
         artwork: None,
         artwork_path: row.get("artwork_path")?,
         lyrics: None,
+        availability,
+        missing_since,
         play_count: row.get::<_, i64>("play_count")? as u32,
         last_played: row
             .get::<_, Option<i64>>("last_played")?
@@ -1223,6 +1500,16 @@ fn parse_uuid(value: String) -> Result<Uuid> {
     Uuid::parse_str(&value).context("Invalid UUID stored in database")
 }
 
+fn parse_track_availability(value: String) -> Result<TrackAvailability> {
+    match value.as_str() {
+        "available" => Ok(TrackAvailability::Available),
+        "missing" => Ok(TrackAvailability::Missing),
+        _ => Err(anyhow!(
+            "Invalid track availability stored in database: {value}"
+        )),
+    }
+}
+
 /// Helper to run a track query with a WHERE clause.
 fn query_tracks_with_condition(
     conn: &Connection,
@@ -1238,7 +1525,9 @@ fn query_tracks_with_condition(
             t.track_number,
             t.disc_number,
             t.file_path,
+            t.library_root,
             t.size,
+            t.file_mtime_ms,
             t.format,
             t.bitrate,
             t.sample_rate,
@@ -1252,6 +1541,8 @@ fn query_tracks_with_condition(
             al.cover_art_path as artwork_path,
             t.year,
             t.genre,
+            t.availability,
+            t.missing_since,
             t.play_count,
             t.last_played,
             t.date_added
@@ -1433,11 +1724,36 @@ mod tests {
             .unwrap();
     }
 
+    fn file_mtime_ms(path: &Path) -> i64 {
+        fs::metadata(path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+    }
+
     #[test]
     fn schema_initializes_successfully() {
         let temp = NamedTempFile::new().unwrap();
         let mut conn = Connection::open(temp.path()).unwrap();
         initialize_schema(&mut conn).unwrap();
+    }
+
+    #[test]
+    fn scan_has_library_tracks_reports_empty_and_non_empty_library() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        create_tagged_track_fixture(&root);
+
+        assert!(!service.has_library_tracks().unwrap());
+
+        service.scan_directory(&root).unwrap();
+
+        assert!(service.has_library_tracks().unwrap());
     }
 
     #[test]
@@ -1579,6 +1895,126 @@ mod tests {
         // Ensure the database remains usable after a cancelled scan.
         let tracks = service.get_tracks().unwrap();
         assert!(tracks.is_empty());
+    }
+
+    #[test]
+    fn scan_marks_missing_tracks_after_successful_root_sweep_and_restores_same_row() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        let track_path = create_tagged_track_fixture(&root);
+
+        assert_eq!(service.scan_directory(&root).unwrap(), 1);
+
+        let original_track = service.get_tracks().unwrap().pop().unwrap();
+        assert_eq!(original_track.availability, TrackAvailability::Available);
+        assert_eq!(original_track.missing_since, None);
+
+        fs::remove_file(&track_path).unwrap();
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let roots = vec![root.clone()];
+        let summary = service
+            .scan_roots_with_control(&roots, &cancel_flag, 10, |_| {})
+            .unwrap();
+
+        assert!(!summary.cancelled);
+
+        let missing_track = service.get_track(original_track.id).unwrap().unwrap();
+        assert_eq!(missing_track.id, original_track.id);
+        assert_eq!(missing_track.availability, TrackAvailability::Missing);
+        assert!(missing_track.missing_since.is_some());
+        assert_eq!(service.get_tracks().unwrap().len(), 1);
+
+        create_tagged_track(
+            &root,
+            "tagged-track.wav",
+            "Tagged Track",
+            "Tagged Album",
+            Some([12, 34, 56]),
+        );
+
+        let restore_summary = service
+            .scan_roots_with_control(&roots, &cancel_flag, 10, |_| {})
+            .unwrap();
+
+        assert!(!restore_summary.cancelled);
+
+        let restored_track = service.get_track(original_track.id).unwrap().unwrap();
+        assert_eq!(restored_track.id, original_track.id);
+        assert_eq!(restored_track.availability, TrackAvailability::Available);
+        assert_eq!(restored_track.missing_since, None);
+        assert_eq!(service.get_tracks().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn scan_skips_metadata_refresh_for_unchanged_files() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        let track_path = create_tagged_track_fixture(&root);
+
+        assert_eq!(service.scan_directory(&root).unwrap(), 1);
+
+        let original_track = service.get_tracks().unwrap().pop().unwrap();
+        let original_size = fs::metadata(&track_path).unwrap().len() as usize;
+
+        fs::write(&track_path, vec![0u8; original_size]).unwrap();
+        let corrupted_mtime_ms = file_mtime_ms(&track_path);
+        service
+            .conn
+            .execute(
+                "UPDATE tracks SET file_mtime_ms = ?2 WHERE id = ?1",
+                params![original_track.id.to_string(), corrupted_mtime_ms],
+            )
+            .unwrap();
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let roots = vec![root];
+        let summary = service
+            .scan_roots_with_control(&roots, &cancel_flag, 10, |_| {})
+            .unwrap();
+
+        assert_eq!(summary.processed_files, 1);
+        assert_eq!(summary.error_count, 0);
+
+        let rescanned_track = service.get_track(original_track.id).unwrap().unwrap();
+        assert_eq!(rescanned_track.id, original_track.id);
+        assert_eq!(rescanned_track.title, original_track.title);
+        assert_eq!(rescanned_track.availability, TrackAvailability::Available);
+    }
+
+    #[test]
+    fn scan_does_not_mark_tracks_missing_when_root_is_unavailable() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        let track_path = create_tagged_track_fixture(&root);
+
+        assert_eq!(service.scan_directory(&root).unwrap(), 1);
+
+        let original_track = service.get_tracks().unwrap().pop().unwrap();
+        fs::remove_file(track_path).unwrap();
+        fs::remove_file(root.join("cover.png")).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let roots = vec![root];
+        let summary = service
+            .scan_roots_with_control(&roots, &cancel_flag, 10, |_| {})
+            .unwrap();
+
+        assert_eq!(summary.processed_files, 0);
+        assert_eq!(summary.error_count, 1);
+        assert_eq!(summary.sample_errors[0].kind, ScanErrorKind::InvalidPath);
+
+        let retained_track = service.get_track(original_track.id).unwrap().unwrap();
+        assert_eq!(retained_track.id, original_track.id);
+        assert_eq!(retained_track.availability, TrackAvailability::Available);
+        assert_eq!(retained_track.missing_since, None);
     }
 
     #[test]
@@ -1840,6 +2276,181 @@ mod tests {
         assert_eq!(
             json_artwork_path(&by_album_json),
             Some(expected_artwork_path.as_str())
+        );
+    }
+
+    fn create_legacy_tracks_table(path: &Path) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE tracks (
+                id TEXT PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL,
+                artist_id TEXT,
+                album_artist_id TEXT,
+                album_id TEXT,
+                track_number INTEGER,
+                disc_number INTEGER,
+                duration INTEGER NOT NULL,
+                file_path TEXT NOT NULL UNIQUE,
+                size INTEGER NOT NULL,
+                format TEXT NOT NULL,
+                bitrate INTEGER,
+                sample_rate INTEGER,
+                channels INTEGER,
+                year INTEGER,
+                genre TEXT,
+                play_count INTEGER NOT NULL DEFAULT 0,
+                last_played INTEGER,
+                date_added INTEGER NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+    }
+
+    fn track_column_names(conn: &Connection) -> Vec<String> {
+        conn.prepare("PRAGMA table_info(tracks)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn schema_migrates_legacy_tracks_columns_with_safe_defaults() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("legacy-library.sqlite");
+        create_legacy_tracks_table(&db_path);
+
+        let track_id = Uuid::new_v4();
+        let legacy_path = tmp.path().join("legacy-track.mp3");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO tracks (
+                id, title, artist_id, album_artist_id, album_id, track_number, disc_number,
+                duration, file_path, size, format, bitrate, sample_rate, channels,
+                year, genre, play_count, last_played, date_added
+            ) VALUES (
+                ?1, ?2, NULL, NULL, NULL, NULL, NULL,
+                ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                NULL, NULL, 0, NULL, ?10
+            )
+            "#,
+            params![
+                track_id.to_string(),
+                "Legacy Track",
+                180i64,
+                legacy_path.to_string_lossy().into_owned(),
+                512i64,
+                "mp3",
+                320i64,
+                44_100i64,
+                2i64,
+                Utc::now().timestamp(),
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let service = LibraryService::new_with_path_for_tests(&db_path).unwrap();
+        let columns = track_column_names(&service.conn);
+        assert!(columns.iter().any(|name| name == "library_root"));
+        assert!(columns.iter().any(|name| name == "file_mtime_ms"));
+        assert!(columns.iter().any(|name| name == "availability"));
+        assert!(columns.iter().any(|name| name == "missing_since"));
+
+        let migrated = service.get_track(track_id).unwrap().unwrap();
+        let migrated_json = serde_json::to_value(&migrated).unwrap();
+        assert_eq!(migrated_json.get("library_root"), Some(&Value::Null));
+        assert_eq!(migrated_json.get("file_mtime_ms"), Some(&Value::Null));
+        assert_eq!(
+            migrated_json.get("availability"),
+            Some(&Value::String("available".into()))
+        );
+        assert_eq!(migrated_json.get("missing_since"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn availability_track_round_trip_exposes_scan_baseline_fields() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        let track_path = create_tagged_track_fixture(&root);
+
+        let inserted = service.scan_directory(&root).unwrap();
+        assert_eq!(inserted, 1);
+
+        let track = service.get_tracks().unwrap().pop().unwrap();
+        let track_json = serde_json::to_value(&track).unwrap();
+        let expected_root = root.canonicalize().unwrap_or_else(|_| root.clone());
+        let expected_mtime_ms = fs::metadata(&track_path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        assert_eq!(
+            track_json.get("library_root"),
+            Some(&Value::String(expected_root.display().to_string()))
+        );
+        assert_eq!(
+            track_json.get("file_mtime_ms"),
+            Some(&Value::Number(expected_mtime_ms.into()))
+        );
+        assert_eq!(
+            track_json.get("availability"),
+            Some(&Value::String("available".into()))
+        );
+        assert_eq!(track_json.get("missing_since"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn availability_missing_tracks_remain_queryable() {
+        let tmp = TempDir::new().unwrap();
+        let mut service = new_test_service(&tmp);
+        let root = tmp.path().join("library");
+        fs::create_dir_all(&root).unwrap();
+        create_tagged_track_fixture(&root);
+
+        service.scan_directory(&root).unwrap();
+        let track_id = service.get_tracks().unwrap()[0].id;
+        let missing_since = Utc::now().timestamp();
+        service
+            .conn
+            .execute(
+                r#"
+                UPDATE tracks
+                SET availability = 'missing', missing_since = ?2
+                WHERE id = ?1
+                "#,
+                params![track_id.to_string(), missing_since],
+            )
+            .unwrap();
+
+        let fetched = service.get_track(track_id).unwrap().unwrap();
+        let listed = service.get_tracks().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, track_id);
+
+        let fetched_json = serde_json::to_value(&fetched).unwrap();
+        assert_eq!(
+            fetched_json.get("availability"),
+            Some(&Value::String("missing".into()))
+        );
+        assert_eq!(
+            fetched_json.get("missing_since"),
+            Some(&Value::String(
+                Utc.timestamp_opt(missing_since, 0)
+                    .single()
+                    .unwrap()
+                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            ))
         );
     }
 }

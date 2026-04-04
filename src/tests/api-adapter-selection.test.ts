@@ -5,10 +5,16 @@ async function importLibraryAdapter(isTauri: boolean) {
 
   const tauriGetTracks = vi.fn(async () => ['tauri-library']);
   const mockGetTracks = vi.fn(async () => ['mock-library']);
+  const tauriHasLibraryTracks = vi.fn(async () => true);
+  const mockHasLibraryTracks = vi.fn(async () => true);
+  const tauriGetLibraryWatcherStatus = vi.fn(async () => ({ source: 'tauri-watcher' }));
+  const mockGetLibraryWatcherStatus = vi.fn(async () => ({ source: 'mock-watcher' }));
   const libraryStub = {
     scanDirectory: vi.fn(),
+    hasLibraryTracks: vi.fn(),
     startLibraryScan: vi.fn(),
     getLibraryScanStatus: vi.fn(),
+    getLibraryWatcherStatus: vi.fn(),
     cancelLibraryScan: vi.fn(),
     getTracks: vi.fn(),
     getTrack: vi.fn(),
@@ -23,11 +29,29 @@ async function importLibraryAdapter(isTauri: boolean) {
   };
 
   vi.doMock('../lib/utils/env', () => ({ isTauri }));
-  vi.doMock('../lib/api/tauri/library', () => ({ ...libraryStub, getTracks: tauriGetTracks }));
-  vi.doMock('../lib/api/mock/library', () => ({ ...libraryStub, getTracks: mockGetTracks }));
+  vi.doMock('../lib/api/tauri/library', () => ({
+    ...libraryStub,
+    getTracks: tauriGetTracks,
+    hasLibraryTracks: tauriHasLibraryTracks,
+    getLibraryWatcherStatus: tauriGetLibraryWatcherStatus,
+  }));
+  vi.doMock('../lib/api/mock/library', () => ({
+    ...libraryStub,
+    getTracks: mockGetTracks,
+    hasLibraryTracks: mockHasLibraryTracks,
+    getLibraryWatcherStatus: mockGetLibraryWatcherStatus,
+  }));
 
   const adapter = await import('../lib/api/library');
-  return { adapter, tauriGetTracks, mockGetTracks };
+  return {
+    adapter,
+    tauriGetTracks,
+    mockGetTracks,
+    tauriHasLibraryTracks,
+    mockHasLibraryTracks,
+    tauriGetLibraryWatcherStatus,
+    mockGetLibraryWatcherStatus,
+  };
 }
 
 async function importPlaybackAdapter(isTauri: boolean) {
@@ -152,19 +176,47 @@ async function importPlaylistAdapter(isTauri: boolean) {
 
 describe('feature adapter entry modules', () => {
   it('library adapter resolves to tauri implementation in tauri mode', async () => {
-    const { adapter, tauriGetTracks, mockGetTracks } = await importLibraryAdapter(true);
+    const {
+      adapter,
+      tauriGetTracks,
+      mockGetTracks,
+      tauriHasLibraryTracks,
+      mockHasLibraryTracks,
+      tauriGetLibraryWatcherStatus,
+      mockGetLibraryWatcherStatus,
+    } = await importLibraryAdapter(true);
 
     await expect(adapter.getTracks()).resolves.toEqual(['tauri-library']);
+    await expect(adapter.hasLibraryTracks()).resolves.toBe(true);
+    await expect(adapter.getLibraryWatcherStatus()).resolves.toEqual({ source: 'tauri-watcher' });
     expect(tauriGetTracks).toHaveBeenCalledTimes(1);
     expect(mockGetTracks).not.toHaveBeenCalled();
+    expect(tauriHasLibraryTracks).toHaveBeenCalledTimes(1);
+    expect(mockHasLibraryTracks).not.toHaveBeenCalled();
+    expect(tauriGetLibraryWatcherStatus).toHaveBeenCalledTimes(1);
+    expect(mockGetLibraryWatcherStatus).not.toHaveBeenCalled();
   });
 
   it('library adapter resolves to mock implementation in web mode', async () => {
-    const { adapter, tauriGetTracks, mockGetTracks } = await importLibraryAdapter(false);
+    const {
+      adapter,
+      tauriGetTracks,
+      mockGetTracks,
+      tauriHasLibraryTracks,
+      mockHasLibraryTracks,
+      tauriGetLibraryWatcherStatus,
+      mockGetLibraryWatcherStatus,
+    } = await importLibraryAdapter(false);
 
     await expect(adapter.getTracks()).resolves.toEqual(['mock-library']);
+    await expect(adapter.hasLibraryTracks()).resolves.toBe(true);
+    await expect(adapter.getLibraryWatcherStatus()).resolves.toEqual({ source: 'mock-watcher' });
     expect(mockGetTracks).toHaveBeenCalledTimes(1);
     expect(tauriGetTracks).not.toHaveBeenCalled();
+    expect(mockHasLibraryTracks).toHaveBeenCalledTimes(1);
+    expect(tauriHasLibraryTracks).not.toHaveBeenCalled();
+    expect(mockGetLibraryWatcherStatus).toHaveBeenCalledTimes(1);
+    expect(tauriGetLibraryWatcherStatus).not.toHaveBeenCalled();
   });
 
   it('playback adapter resolves to tauri implementation in tauri mode', async () => {

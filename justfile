@@ -115,6 +115,23 @@ package-linux:
 dev:
     bash scripts/dev.sh
 
+# Prepare an isolated native-UAT fixture runtime.
+native-uat-setup:
+    cargo run --manifest-path {{backend_dir}}/Cargo.toml --bin native-uat-fixture -- setup
+
+# Tear down the isolated native-UAT fixture runtime.
+native-uat-teardown:
+    cargo run --manifest-path {{backend_dir}}/Cargo.toml --bin native-uat-fixture -- teardown
+
+# Run the application in development mode against the isolated native-UAT fixture runtime.
+[unix]
+native-uat-dev:
+    set -euo pipefail; cargo run --manifest-path {{backend_dir}}/Cargo.toml --bin native-uat-fixture -- setup >/dev/null; source .gsd/runtime/native-uat/current/env.sh; bash scripts/dev.sh
+
+[windows]
+native-uat-dev:
+    $ErrorActionPreference = 'Stop'; cargo run --manifest-path {{backend_dir}}/Cargo.toml --bin native-uat-fixture -- setup *> $null; . .gsd/runtime/native-uat/current/env.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1
+
 [windows]
 dev:
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1

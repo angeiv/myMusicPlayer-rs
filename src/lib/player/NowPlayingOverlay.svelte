@@ -3,6 +3,7 @@
 
   import CoverArt from '../components/CoverArt.svelte';
   import type { PlaybackStateInfo, Track } from '../types';
+  import { getPlaybackSurfaceAvailability } from '../utils/track-availability';
   import NowPlayingLyricsTab from './NowPlayingLyricsTab.svelte';
   import { nowPlayingUi, type NowPlayingTab } from './now-playing';
   import QueueList from './QueueList.svelte';
@@ -19,6 +20,7 @@
   let isOpen = false;
   let activeTab: NowPlayingTab = 'lyrics';
   let currentTrack: Track | null = null;
+  let currentTrackAvailability: ReturnType<typeof getPlaybackSurfaceAvailability> | null = null;
   let playbackState: PlaybackStateInfo = { state: 'stopped' };
   let progress = 0;
   let queueTracks: Track[] = [];
@@ -31,6 +33,9 @@
   $: activeTab = $nowPlayingState.activeTab;
   $: currentTrack = $sharedPlayback.currentTrack;
   $: playbackState = $sharedPlayback.playbackState;
+  $: currentTrackAvailability = currentTrack
+    ? getPlaybackSurfaceAvailability(currentTrack, { isCurrent: true, playbackState })
+    : null;
   $: progress = $sharedPlayback.progress;
   $: queueTracks = $sharedPlayback.queueTracks;
 
@@ -87,7 +92,7 @@
 <svelte:window on:keydown={handleWindowKeydown} />
 
 {#if isOpen}
-  <section class="now-playing-overlay" aria-labelledby={overlayTitleId}>
+  <section class="now-playing-overlay" aria-labelledby={overlayTitleId} data-surface="overlay">
     <div class="overlay-header">
       <button
         bind:this={backButton}
@@ -117,6 +122,7 @@
           id={lyricsTabId}
           type="button"
           role="tab"
+          data-variant="tab"
           class:active={activeTab === 'lyrics'}
           aria-controls={lyricsPanelId}
           aria-selected={activeTab === 'lyrics'}
@@ -130,6 +136,7 @@
           id={queueTabId}
           type="button"
           role="tab"
+          data-variant="tab"
           class:active={activeTab === 'queue'}
           aria-controls={queuePanelId}
           aria-selected={activeTab === 'queue'}
@@ -142,7 +149,7 @@
     </div>
 
     <div class="overlay-body">
-      <aside class="track-summary" aria-label="当前歌曲信息">
+      <aside class="track-summary" data-surface="panel" aria-label="当前歌曲信息">
         <CoverArt
           className="now-playing-overlay__artwork"
           artworkPath={currentTrack?.artwork_path}
@@ -150,9 +157,15 @@
           alt={currentTrack ? `${currentTrack.title} 的封面` : ''}
         />
 
-        <div class="track-copy">
+        <div class="track-copy" data-availability={currentTrackAvailability?.availability ?? 'available'}>
           <p class="track-title">{currentTrack?.title ?? '尚未开始播放'}</p>
           <p class="track-artist">{currentTrack?.artist_name ?? 'Unknown Artist'}</p>
+          {#if currentTrackAvailability?.badge}
+            <span class="availability-badge">{currentTrackAvailability.badge}</span>
+          {/if}
+          {#if currentTrackAvailability?.description}
+            <p class="track-status">{currentTrackAvailability.description}</p>
+          {/if}
         </div>
 
         <dl class="track-meta-grid">
@@ -182,6 +195,7 @@
             role="tabpanel"
             aria-labelledby={lyricsTabId}
             class="panel-card lyrics-panel"
+            data-surface="panel"
           >
             <NowPlayingLyricsTab
               track={currentTrack}
@@ -191,10 +205,17 @@
             />
           </div>
         {:else}
-          <div id={queuePanelId} role="tabpanel" aria-labelledby={queueTabId} class="panel-card queue-panel">
+          <div
+            id={queuePanelId}
+            role="tabpanel"
+            aria-labelledby={queueTabId}
+            class="panel-card queue-panel"
+            data-surface="panel"
+          >
             <QueueList
               tracks={queueTracks}
               currentTrackId={currentTrack?.id ?? null}
+              playbackState={playbackState}
               onSelect={(track) => void sharedPlayback.playQueueTrack(track)}
               onRemove={(track) => void sharedPlayback.removeQueueTrack(track.id)}
               onClear={() => void sharedPlayback.clearQueue()}
@@ -216,12 +237,14 @@
     padding: 24px;
     border-radius: 28px;
     background:
-      linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.94)),
-      color-mix(in srgb, var(--app-bg) 92%, #020617);
-    border: 1px solid color-mix(in srgb, var(--accent) 28%, rgba(148, 163, 184, 0.16));
-    box-shadow:
-      0 28px 72px rgba(2, 6, 23, 0.48),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      radial-gradient(circle at top, color-mix(in srgb, var(--accent) 10%, transparent), transparent 30%),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--surface-elevated) 96%, var(--surface-shell)),
+        color-mix(in srgb, var(--surface-shell) 88%, var(--surface-canvas))
+      );
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-default));
+    box-shadow: var(--shadow-elevated);
     backdrop-filter: blur(18px);
     z-index: 30;
     overflow: hidden;
@@ -236,9 +259,9 @@
 
   .overlay-back,
   .overlay-tabs button {
-    border: 1px solid color-mix(in srgb, var(--player-border) 75%, transparent);
-    background: color-mix(in srgb, var(--player-border) 55%, rgba(15, 23, 42, 0.8));
-    color: rgba(241, 245, 249, 0.96);
+    border: 1px solid var(--border-default);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 90%, var(--surface-shell));
+    color: var(--text-primary);
     cursor: pointer;
     transition:
       transform 0.16s ease,
@@ -263,9 +286,9 @@
   .overlay-tabs button:focus-visible {
     outline: none;
     transform: translateY(-1px);
-    background: color-mix(in srgb, var(--accent) 18%, rgba(15, 23, 42, 0.88));
-    border-color: color-mix(in srgb, var(--accent) 55%, rgba(96, 165, 250, 0.45));
-    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.16);
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 28%, var(--border-default));
+    box-shadow: var(--shadow-soft);
   }
 
   .overlay-heading {
@@ -287,17 +310,17 @@
     font-size: 0.75rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(148, 163, 184, 0.9);
+    color: var(--text-tertiary);
   }
 
   .overlay-heading h2 {
     font-size: 1.65rem;
     line-height: 1.1;
-    color: rgba(248, 250, 252, 0.98);
+    color: var(--text-primary);
   }
 
   .overlay-subtitle {
-    color: rgba(203, 213, 225, 0.82);
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -319,11 +342,9 @@
 
   .overlay-tabs button.active,
   .overlay-tabs button[aria-selected='true'] {
-    background: rgba(37, 99, 235, 0.32);
-    border-color: rgba(96, 165, 250, 0.5);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.06),
-      0 14px 30px rgba(37, 99, 235, 0.22);
+    background: var(--state-selected);
+    border-color: color-mix(in srgb, var(--accent) 32%, var(--border-default));
+    box-shadow: var(--glow-accent);
   }
 
   .overlay-body {
@@ -337,8 +358,9 @@
   .panel-card {
     min-height: 0;
     border-radius: 24px;
-    border: 1px solid color-mix(in srgb, var(--player-border) 78%, transparent);
-    background: color-mix(in srgb, var(--player-border) 42%, rgba(15, 23, 42, 0.85));
+    border: 1px solid var(--border-default);
+    background: color-mix(in srgb, var(--surface-panel) 92%, var(--surface-shell));
+    box-shadow: var(--shadow-soft);
   }
 
   .track-summary {
@@ -363,12 +385,31 @@
   .track-title {
     font-size: 1.5rem;
     font-weight: 700;
-    color: rgba(248, 250, 252, 0.98);
+    color: var(--text-primary);
   }
 
   .track-artist {
     font-size: 1rem;
-    color: rgba(203, 213, 225, 0.84);
+    color: var(--text-secondary);
+  }
+
+  .availability-badge {
+    display: inline-flex;
+    width: fit-content;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--state-danger) 84%, var(--surface-elevated));
+    border: 1px solid color-mix(in srgb, var(--state-danger) 72%, var(--border-default));
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .track-status {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: color-mix(in srgb, var(--text-primary) 86%, var(--state-danger));
   }
 
   .track-meta-grid {
@@ -380,18 +421,19 @@
   .track-meta-grid div {
     padding: 14px;
     border-radius: 18px;
-    background: rgba(15, 23, 42, 0.45);
+    background: var(--surface-panel-subtle);
+    border: 1px solid var(--border-subtle);
   }
 
   .track-meta-grid dt {
     font-size: 0.78rem;
-    color: rgba(148, 163, 184, 0.9);
+    color: var(--text-tertiary);
     margin-bottom: 6px;
   }
 
   .track-meta-grid dd {
     font-size: 0.95rem;
-    color: rgba(241, 245, 249, 0.94);
+    color: var(--text-primary);
     word-break: break-word;
   }
 
@@ -434,6 +476,5 @@
     :global(.now-playing-overlay__artwork) {
       width: min(100%, 240px);
     }
-
   }
 </style>

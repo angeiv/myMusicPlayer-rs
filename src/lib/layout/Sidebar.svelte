@@ -39,72 +39,84 @@
   }
 </script>
 
-<nav class="sidebar">
+<nav class="sidebar" data-sidebar-surface="shell" aria-label="应用导航">
   <div class="brand">
-    <div class="logo">🎶</div>
-    <div>
+    <div class="brand-mark" aria-hidden="true">MM</div>
+    <div class="brand-copy">
       <h1>My Music</h1>
-      <p>Listen differently.</p>
+      <p>Library, queue, and playback</p>
     </div>
   </div>
 
-  <section class="nav-section">
+  <section class="nav-section" data-sidebar-section="main">
     <h2>Main</h2>
     <button
+      type="button"
+      class="nav-button"
       class:active={activeSection === 'home'}
+      aria-current={activeSection === 'home' ? 'page' : undefined}
       on:click={() => navigate('home')}
     >
-      <span>🏠</span>
-      <span>Home</span>
+      <span class="nav-label">Home</span>
     </button>
     <button
+      type="button"
+      class="nav-button"
       class:active={activeSection === 'library'}
+      aria-current={activeSection === 'library' ? 'page' : undefined}
       on:click={() => navigate('library', activeLibraryView)}
     >
-      <span>🎼</span>
-      <span>Library</span>
+      <span class="nav-label">Library</span>
     </button>
     <button
+      type="button"
+      class="nav-button"
       class:active={activeSection === 'settings'}
+      aria-current={activeSection === 'settings' ? 'page' : undefined}
       on:click={() => navigate('settings')}
     >
-      <span>⚙️</span>
-      <span>Settings</span>
+      <span class="nav-label">Settings</span>
     </button>
   </section>
 
-  <section class="nav-section">
+  <section class="nav-section" data-sidebar-section="library">
     <h2>Library</h2>
     <button
+      type="button"
+      class="nav-button"
       class:active={isLibraryViewActive('songs')}
+      aria-current={isLibraryViewActive('songs') ? 'page' : undefined}
       on:click={() => navigate('library', 'songs')}
     >
-      <span>🎵</span>
-      <span>Songs</span>
+      <span class="nav-label">Songs</span>
       <span class="meta">{counts.songs}</span>
     </button>
     <button
+      type="button"
+      class="nav-button"
       class:active={isLibraryViewActive('albums')}
+      aria-current={isLibraryViewActive('albums') ? 'page' : undefined}
       on:click={() => navigate('library', 'albums')}
     >
-      <span>💿</span>
-      <span>Albums</span>
+      <span class="nav-label">Albums</span>
       <span class="meta">{counts.albums}</span>
     </button>
     <button
+      type="button"
+      class="nav-button"
       class:active={isLibraryViewActive('artists')}
+      aria-current={isLibraryViewActive('artists') ? 'page' : undefined}
       on:click={() => navigate('library', 'artists')}
     >
-      <span>👤</span>
-      <span>Artists</span>
+      <span class="nav-label">Artists</span>
       <span class="meta">{counts.artists}</span>
     </button>
   </section>
 
-  <section class="nav-section playlists">
+  <section class="nav-section playlists" data-sidebar-section="playlists">
     <div class="section-header">
       <h2>Playlists</h2>
-      <button class="create" on:click={handleCreatePlaylist}>＋</button>
+      <button type="button" class="create" on:click={handleCreatePlaylist} aria-label="创建播放列表">＋</button>
     </div>
 
     {#if playlists.length === 0}
@@ -114,10 +126,14 @@
         {#each playlists as playlist}
           <li>
             <button
+              type="button"
+              class="playlist-row"
               class:active={activeLibraryView === 'playlistDetail' && playlist.id === activePlaylistId}
+              aria-current={
+                activeLibraryView === 'playlistDetail' && playlist.id === activePlaylistId ? 'page' : undefined
+              }
               on:click={() => handlePlaylistClick(playlist.id)}
             >
-              <span class="emoji">🎧</span>
               <div class="playlist-meta">
                 <span class="name">{playlist.name}</span>
                 <span class="count">{playlist.track_ids.length} tracks</span>
@@ -133,37 +149,61 @@
 <style>
   .sidebar {
     width: 260px;
-    padding: 24px 20px;
-    background: var(--sidebar-bg);
-    color: var(--app-fg);
+    padding: 24px 18px 20px;
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--surface-shell) 96%, var(--surface-canvas)),
+        color-mix(in srgb, var(--surface-shell) 82%, var(--surface-canvas))
+      );
+    color: var(--text-primary);
     display: flex;
     flex-direction: column;
-    gap: 24px;
-    border-right: 1px solid var(--panel-border);
+    gap: 22px;
+    border-right: 1px solid var(--border-subtle);
+    box-shadow: inset -1px 0 0 color-mix(in srgb, var(--text-on-accent) 4%, transparent);
   }
 
   .brand {
     display: flex;
     gap: 12px;
     align-items: center;
-    padding-bottom: 18px;
-    border-bottom: 1px solid var(--panel-border);
+    padding: 0 6px 18px;
+    border-bottom: 1px solid var(--border-subtle);
   }
 
-  .logo {
-    font-size: 2rem;
+  .brand-mark {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-on-accent);
+    background:
+      linear-gradient(160deg, color-mix(in srgb, var(--accent) 88%, #ffffff 12%), var(--accent)),
+      var(--accent);
+    box-shadow: var(--glow-accent);
+  }
+
+  .brand-copy {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
   }
 
   .brand h1 {
     margin: 0;
-    font-size: 1.1rem;
-    color: var(--app-fg);
+    font-size: 1rem;
+    color: var(--text-primary);
   }
 
   .brand p {
     margin: 0;
-    font-size: 0.75rem;
-    color: var(--muted-fg);
+    font-size: 0.76rem;
+    color: var(--text-secondary);
   }
 
   .nav-section {
@@ -173,46 +213,67 @@
   }
 
   .nav-section h2 {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--muted-fg);
-    margin: 0 0 4px 12px;
+    color: var(--text-tertiary);
+    margin: 0 0 4px 10px;
   }
 
-  .nav-section button {
+  .nav-button,
+  .playlist-row {
+    width: 100%;
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
-    border: none;
-    border-radius: 12px;
+    padding: 11px 14px;
+    border: 1px solid transparent;
+    border-radius: 14px;
     background: transparent;
     color: inherit;
     font-size: 0.95rem;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease;
+    text-align: left;
+    transition:
+      background 0.2s ease,
+      color 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.16s ease;
   }
 
-  .nav-section button span:first-child {
-    width: 22px;
-    text-align: center;
+  .nav-label,
+  .playlist-meta {
+    min-width: 0;
   }
 
-  .nav-section button .meta {
+  .nav-label {
+    color: var(--text-primary);
+  }
+
+  .meta {
     margin-left: auto;
+    min-width: 1.75rem;
+    text-align: right;
     font-size: 0.75rem;
-    color: var(--muted-fg);
+    color: var(--text-tertiary);
   }
 
-  .nav-section button:hover {
-    background: var(--hover-bg);
-    color: var(--app-fg);
+  .nav-button:hover,
+  .playlist-row:hover {
+    background: var(--surface-panel-subtle);
+    border-color: color-mix(in srgb, var(--border-default) 82%, transparent);
+    box-shadow: var(--shadow-soft);
+    transform: translateY(-1px);
   }
 
-  .nav-section button.active {
-    background: var(--active-bg);
-    color: var(--app-fg);
+  .nav-button.active,
+  .playlist-row.active {
+    background: var(--state-selected);
+    border-color: color-mix(in srgb, var(--accent) 34%, var(--border-default));
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--text-on-accent) 8%, transparent),
+      var(--shadow-soft);
   }
 
   .playlists {
@@ -239,77 +300,65 @@
     width: 40px;
     height: 40px;
     padding: 0;
-    border: none;
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-default));
     border-radius: 999px;
-    background: var(--active-bg);
+    background: var(--surface-panel-subtle);
     color: var(--accent);
     font-size: 1.2rem;
     line-height: 1;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease, transform 0.16s ease;
+    transition:
+      background 0.2s ease,
+      color 0.2s ease,
+      border-color 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.16s ease;
   }
 
-  .create:hover {
-    background: var(--hover-bg);
-    color: var(--accent);
+  .create:hover,
+  .create:focus-visible {
+    background: var(--state-selected);
+    border-color: color-mix(in srgb, var(--accent) 34%, var(--border-default));
+    box-shadow: var(--glow-accent);
+    outline: none;
     transform: translateY(-1px);
   }
 
   .empty {
-    margin: 12px 0 0 0;
+    margin: 10px 6px 0;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: var(--surface-panel-subtle);
+    border: 1px solid var(--border-subtle);
     font-size: 0.85rem;
-    color: var(--muted-fg);
+    color: var(--text-secondary);
   }
 
   ul {
     list-style: none;
-    margin: 0;
+    margin: 8px 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-top: 8px;
-  }
-
-  li button {
-    width: 100%;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: transparent;
-    border: none;
-    color: inherit;
-    cursor: pointer;
-    transition: background 0.2s ease;
-    text-align: left;
-  }
-
-  li button:hover {
-    background: var(--hover-bg);
-  }
-
-  li button.active {
-    background: var(--active-bg);
-  }
-
-  .emoji {
-    font-size: 1.2rem;
   }
 
   .playlist-meta {
     display: flex;
     flex-direction: column;
+    gap: 2px;
   }
 
   .name {
     font-size: 0.95rem;
-    color: var(--app-fg);
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .count {
     font-size: 0.75rem;
-    color: var(--muted-fg);
+    color: var(--text-secondary);
   }
 </style>

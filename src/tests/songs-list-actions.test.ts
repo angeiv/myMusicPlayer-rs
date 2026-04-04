@@ -26,6 +26,10 @@ function createTrack(overrides: Pick<Track, 'id' | 'title'> & Partial<Track>): T
     play_count: 0,
     date_added: '2026-03-01T00:00:00.000Z',
     ...rest,
+    library_root: rest.library_root ?? null,
+    file_mtime_ms: rest.file_mtime_ms ?? null,
+    availability: rest.availability ?? 'available',
+    missing_since: rest.missing_since ?? null,
   };
 }
 
@@ -116,6 +120,73 @@ describe('songs-list actions', () => {
     });
 
     expect(playTrack).toHaveBeenCalledWith(secondVisibleTrack);
+  });
+
+  it('playSelectedTracks filters missing rows out of the queue and falls back to the first playable selected row', async () => {
+    const setQueue = vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined);
+    const playTrack = vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined);
+    const missingLeadTrack = createTrack({
+      id: 'missing-lead',
+      title: 'Missing Lead',
+      availability: 'missing',
+      missing_since: null,
+    });
+    const playableTrack = createTrack({ id: 'playable-mid', title: 'Playable Mid' });
+    const trailingMissingTrack = createTrack({
+      id: 'missing-tail',
+      title: 'Missing Tail',
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+
+    const result = await playSelectedTracks({
+      visibleTracks: [missingLeadTrack, playableTrack, trailingMissingTrack],
+      selection: {
+        selectedIds: ['missing-tail', 'playable-mid', 'missing-lead'],
+        activeTrackId: 'missing-lead',
+        anchorTrackId: 'missing-lead',
+      },
+      deps: createDeps({
+        setQueue,
+        playTrack,
+      }),
+    });
+
+    expect(setQueue).toHaveBeenCalledWith([playableTrack]);
+    expect(playTrack).toHaveBeenCalledWith(playableTrack);
+    expect(result).toEqual({
+      status: 'success',
+      message: '已开始播放选中歌曲',
+    });
+  });
+
+  it('playSelectedTracks returns a missing-file explanation and never calls playback when every selected visible row is missing', async () => {
+    const setQueue = vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined);
+    const playTrack = vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined);
+    const missingTracks = [
+      createTrack({ id: 'missing-1', title: 'Missing One', availability: 'missing' }),
+      createTrack({ id: 'missing-2', title: 'Missing Two', availability: 'missing', missing_since: null }),
+    ];
+
+    const result = await playSelectedTracks({
+      visibleTracks: missingTracks,
+      selection: {
+        selectedIds: ['missing-1', 'missing-2'],
+        activeTrackId: 'missing-1',
+        anchorTrackId: 'missing-1',
+      },
+      deps: createDeps({
+        setQueue,
+        playTrack,
+      }),
+    });
+
+    expect(setQueue).not.toHaveBeenCalled();
+    expect(playTrack).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'error',
+      message: '所选歌曲文件缺失，无法播放',
+    });
   });
 
   it('addSelectedTracksToQueue keeps the selected visible track order', async () => {
@@ -307,6 +378,89 @@ describe('songs-list actions', () => {
       added: 0,
       total: 2,
       failedTrackIds: ['track-1', 'track-3'],
+    });
+  });
+
+  it('playVisibleTrack filters missing rows out of the seeded queue before starting playback', async () => {
+    const setQueue = vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined);
+    const playTrack = vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined);
+    const missingLeadTrack = createTrack({
+      id: 'missing-lead',
+      title: 'Missing Lead',
+      availability: 'missing',
+      missing_since: '2026-04-03T00:00:00.000Z',
+    });
+    const playableTrack = createTrack({ id: 'playable-mid', title: 'Playable Mid' });
+    const missingTailTrack = createTrack({
+      id: 'missing-tail',
+      title: 'Missing Tail',
+      availability: 'missing',
+      missing_since: null,
+    });
+
+    const result = await playVisibleTrack({
+      visibleTracks: [missingLeadTrack, playableTrack, missingTailTrack],
+      track: playableTrack,
+      deps: createDeps({
+        setQueue,
+        playTrack,
+      }),
+    });
+
+    expect(setQueue).toHaveBeenCalledWith([playableTrack]);
+    expect(playTrack).toHaveBeenCalledWith(playableTrack);
+    expect(result).toEqual({
+      status: 'success',
+      message: '已开始播放当前歌曲',
+    });
+  });
+
+  it('playVisibleTrack returns a missing-file explanation and never calls playback for a missing row', async () => {
+    const setQueue = vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined);
+    const playTrack = vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined);
+    const missingTrack = createTrack({
+      id: 'missing-row',
+      title: 'Missing Row',
+      availability: 'missing',
+      missing_since: null,
+    });
+
+    const result = await playVisibleTrack({
+      visibleTracks: [firstVisibleTrack, missingTrack, secondVisibleTrack],
+      track: missingTrack,
+      deps: createDeps({
+        setQueue,
+        playTrack,
+      }),
+    });
+
+    expect(setQueue).not.toHaveBeenCalled();
+    expect(playTrack).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'error',
+      message: '当前歌曲文件缺失，无法播放',
+    });
+  });
+
+  it('playVisibleTrack returns an error without calling playback when the requested row is not visible', async () => {
+    const setQueue = vi.fn<SongsListActionDeps['setQueue']>().mockResolvedValue(undefined);
+    const playTrack = vi.fn<SongsListActionDeps['playTrack']>().mockResolvedValue(undefined);
+    const hiddenTrack = createTrack({ id: 'hidden-track', title: 'Hidden Track' });
+
+    const result = await playVisibleTrack({
+      visibleTracks,
+      track: hiddenTrack,
+      deps: createDeps({
+        setQueue,
+        playTrack,
+      }),
+    });
+
+    expect(setQueue).not.toHaveBeenCalled();
+    expect(playTrack).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'error',
+      message: '播放歌曲失败',
     });
   });
 

@@ -1,4 +1,4 @@
-import { derived, writable, type Readable, type Writable } from 'svelte/store';
+import { derived, get, writable, type Readable, type Writable } from 'svelte/store';
 
 import * as configApi from '../../api/config';
 import * as libraryApi from '../../api/library';
@@ -6,16 +6,21 @@ import * as playlistApi from '../../api/playlist';
 import type {
   Album,
   Artist,
+  LibraryScanRequest,
+  LibraryWatcherStatus,
   Playlist,
   ScanStatus,
   SearchResults,
   ThemeOption,
   Track,
 } from '../../types';
+import type { LibraryMaintenanceState } from '../library-scan/maintenance';
 import type { RouteMatch } from '../../routing/routes';
 import { normalizeConfigForRestore } from '../../transport/config';
 import { createLibraryScanStore } from '../library-scan/store';
 import { applyThemeToDocument } from './theme';
+
+export const MAINTENANCE_HEARTBEAT_INTERVAL_MS = 2000;
 
 export type AppShellStoreDependencies = {
   bootstrapDesktopShell: () => Promise<void>;
@@ -28,8 +33,10 @@ export type AppShellStoreDependencies = {
     libraryPaths: string[];
   };
   applyTheme: (theme: ThemeOption) => void;
-  startLibraryScan: (paths: string[]) => Promise<void>;
+  hasLibraryTracks: () => Promise<boolean>;
+  startLibraryScan: (requestOrPaths: LibraryScanRequest | string[]) => Promise<void>;
   getLibraryScanStatus: () => Promise<ScanStatus>;
+  getLibraryWatcherStatus: () => Promise<LibraryWatcherStatus>;
   cancelLibraryScan: () => Promise<void>;
   getTracks: () => Promise<Track[]>;
   getAlbums: () => Promise<Album[]>;
@@ -39,6 +46,8 @@ export type AppShellStoreDependencies = {
   searchLibrary: (query: string) => Promise<SearchResults>;
   prompt: (message: string) => string | null;
   alert: (message: string) => void;
+  setInterval: typeof globalThis.setInterval;
+  clearInterval: typeof globalThis.clearInterval;
 };
 
 export type AppShellStore = {
@@ -48,6 +57,8 @@ export type AppShellStore = {
   playlists: Writable<Playlist[]>;
   counts: Readable<{ songs: number; albums: number; artists: number }>;
   scanStatus: Readable<ScanStatus>;
+  watcherStatus: Readable<LibraryWatcherStatus>;
+  maintenance: Readable<LibraryMaintenanceState>;
   isScanning: Readable<boolean>;
   isLibraryLoading: Writable<boolean>;
   isSearching: Writable<boolean>;
@@ -55,10 +66,12 @@ export type AppShellStore = {
   bootstrap: () => Promise<void>;
   loadLibrary: () => Promise<void>;
   loadPlaylists: () => Promise<void>;
-  runLibraryScan: (paths: string[]) => Promise<ScanStatus>;
+  refreshLibraryMaintenance: () => Promise<LibraryMaintenanceState>;
+  runLibraryScan: (requestOrPaths: LibraryScanRequest | string[]) => Promise<ScanStatus>;
   cancelLibraryScan: () => Promise<void>;
   syncRouteSearch: (route: RouteMatch) => Promise<void>;
   createPlaylistFromPrompt: () => Promise<void>;
+  destroy: () => void;
 };
 
 function defaultDependencies(): AppShellStoreDependencies {
@@ -67,8 +80,10 @@ function defaultDependencies(): AppShellStoreDependencies {
     getConfig: configApi.getConfig,
     normalizeConfigForRestore,
     applyTheme: applyThemeToDocument,
+    hasLibraryTracks: libraryApi.hasLibraryTracks,
     startLibraryScan: libraryApi.startLibraryScan,
     getLibraryScanStatus: libraryApi.getLibraryScanStatus,
+    getLibraryWatcherStatus: libraryApi.getLibraryWatcherStatus,
     cancelLibraryScan: libraryApi.cancelLibraryScan,
     getTracks: libraryApi.getTracks,
     getAlbums: libraryApi.getAlbums,
@@ -80,11 +95,36 @@ function defaultDependencies(): AppShellStoreDependencies {
     alert: (message) => {
       if (typeof window !== 'undefined') window.alert(message);
     },
+    setInterval: globalThis.setInterval.bind(globalThis),
+    clearInterval: globalThis.clearInterval.bind(globalThis),
   };
 }
 
 function isActiveScanPhase(phase: ScanStatus['phase']): boolean {
   return phase === 'running' || phase === 'cancelling';
+}
+
+function isMaintenancePending(state: LibraryMaintenanceState): boolean {
+  return isActiveScanPhase(state.activePhase ?? 'idle') || state.queuedFollowUp;
+}
+
+function normalizeLibraryScanRequest(
+  requestOrPaths: LibraryScanRequest | string[],
+): LibraryScanRequest {
+  if (Array.isArray(requestOrPaths)) {
+    return { paths: [...requestOrPaths] };
+  }
+
+  return {
+    ...requestOrPaths,
+    paths: [...requestOrPaths.paths],
+  };
+}
+
+function resolveCompletedScanEndedAt(status: ScanStatus): number | null {
+  return status.phase === 'completed' && typeof status.ended_at_ms === 'number'
+    ? status.ended_at_ms
+    : null;
 }
 
 export function createAppShellStore(
@@ -103,10 +143,15 @@ export function createAppShellStore(
   const scan = createLibraryScanStore({
     startLibraryScan: deps.startLibraryScan,
     getLibraryScanStatus: deps.getLibraryScanStatus,
+    getLibraryWatcherStatus: deps.getLibraryWatcherStatus,
     cancelLibraryScan: deps.cancelLibraryScan,
+    setInterval: deps.setInterval,
+    clearInterval: deps.clearInterval,
   });
 
   const scanStatus = scan.status;
+  const watcherStatus = scan.watcherStatus;
+  const maintenance = scan.maintenance;
   const isScanning = scan.isScanning;
 
   const counts = derived([tracks, albums, artists], ([$tracks, $albums, $artists]) => ({
@@ -115,13 +160,19 @@ export function createAppShellStore(
     artists: $artists.length,
   }));
 
-  async function waitForScanToFinish(): Promise<ScanStatus> {
+  let destroyed = false;
+  let maintenanceHeartbeat: ReturnType<typeof globalThis.setInterval> | null = null;
+  let maintenanceRefreshInFlight: Promise<LibraryMaintenanceState> | null = null;
+  let pendingCompletedMaintenanceReload: Promise<void> | null = null;
+  let lastLoadedCompletedScanAt: number | null = null;
+
+  async function waitForMaintenanceToSettle(): Promise<LibraryMaintenanceState> {
     return new Promise((resolve) => {
       let unsubscribe: (() => void) | undefined;
       let pendingUnsubscribe = false;
       let settled = false;
 
-      const settle = (status: ScanStatus) => {
+      const settle = (state: LibraryMaintenanceState) => {
         if (settled) return;
         settled = true;
 
@@ -131,12 +182,12 @@ export function createAppShellStore(
           pendingUnsubscribe = true;
         }
 
-        resolve(status);
+        resolve(state);
       };
 
-      unsubscribe = scanStatus.subscribe((status) => {
-        if (!isActiveScanPhase(status.phase)) {
-          settle(status);
+      unsubscribe = maintenance.subscribe((state) => {
+        if (!isMaintenancePending(state)) {
+          settle(state);
         }
       });
 
@@ -146,11 +197,119 @@ export function createAppShellStore(
     });
   }
 
-  async function runLibraryScan(paths: string[]): Promise<ScanStatus> {
+  async function resolveLibraryScanRequest(
+    requestOrPaths: LibraryScanRequest | string[],
+  ): Promise<LibraryScanRequest> {
+    const request = normalizeLibraryScanRequest(requestOrPaths);
+    if (request.mode) {
+      return request;
+    }
+
+    try {
+      const hasTracks = await deps.hasLibraryTracks();
+      return {
+        ...request,
+        mode: hasTracks ? 'incremental' : 'full',
+      };
+    } catch (error) {
+      console.error('Failed to determine library scan mode:', error);
+      return request;
+    }
+  }
+
+  async function maybeReloadLibraryFromCompletedMaintenance(
+    nextMaintenance: LibraryMaintenanceState,
+  ): Promise<void> {
+    const completedScanEndedAt = resolveCompletedScanEndedAt(nextMaintenance.scanStatus);
+    if (completedScanEndedAt === null) {
+      return;
+    }
+
+    if (
+      typeof lastLoadedCompletedScanAt === 'number' &&
+      completedScanEndedAt <= lastLoadedCompletedScanAt
+    ) {
+      return;
+    }
+
+    await loadLibrary();
+  }
+
+  function scheduleReloadAfterMaintenanceSettles(): void {
+    if (pendingCompletedMaintenanceReload) {
+      return;
+    }
+
+    pendingCompletedMaintenanceReload = (async () => {
+      const settledMaintenance = await waitForMaintenanceToSettle();
+      if (!destroyed) {
+        await maybeReloadLibraryFromCompletedMaintenance(settledMaintenance);
+      }
+    })().finally(() => {
+      pendingCompletedMaintenanceReload = null;
+    });
+  }
+
+  async function refreshMaintenanceSnapshot(
+    reloadCompletedLibrary = true,
+  ): Promise<LibraryMaintenanceState> {
+    if (maintenanceRefreshInFlight) {
+      return maintenanceRefreshInFlight;
+    }
+
+    maintenanceRefreshInFlight = (async () => {
+      const nextMaintenance = await scan.refreshMaintenance();
+
+      if (!destroyed && reloadCompletedLibrary) {
+        if (isMaintenancePending(nextMaintenance)) {
+          scheduleReloadAfterMaintenanceSettles();
+        } else {
+          await maybeReloadLibraryFromCompletedMaintenance(nextMaintenance);
+        }
+      }
+
+      return nextMaintenance;
+    })();
+
+    try {
+      return await maintenanceRefreshInFlight;
+    } finally {
+      maintenanceRefreshInFlight = null;
+    }
+  }
+
+  function stopMaintenanceHeartbeat(): void {
+    if (!maintenanceHeartbeat) {
+      return;
+    }
+
+    deps.clearInterval(maintenanceHeartbeat);
+    maintenanceHeartbeat = null;
+  }
+
+  function ensureMaintenanceHeartbeat(): void {
+    if (destroyed || maintenanceHeartbeat) {
+      return;
+    }
+
+    maintenanceHeartbeat = deps.setInterval(() => {
+      void refreshMaintenanceSnapshot();
+    }, MAINTENANCE_HEARTBEAT_INTERVAL_MS);
+  }
+
+  async function refreshLibraryMaintenance(): Promise<LibraryMaintenanceState> {
+    return refreshMaintenanceSnapshot();
+  }
+
+  async function runLibraryScan(
+    requestOrPaths: LibraryScanRequest | string[],
+  ): Promise<ScanStatus> {
     isLibraryLoading.set(true);
     try {
-      await scan.start(paths);
-      return await waitForScanToFinish();
+      const request = await resolveLibraryScanRequest(requestOrPaths);
+      await scan.start(request);
+      const settledMaintenance = await waitForMaintenanceToSettle();
+      return settledMaintenance.scanStatus;
     } finally {
       isLibraryLoading.set(false);
     }
@@ -171,6 +330,10 @@ export function createAppShellStore(
       tracks.set(nextTracks ?? []);
       albums.set(nextAlbums ?? []);
       artists.set(nextArtists ?? []);
+      const completedScanEndedAt = resolveCompletedScanEndedAt(get(scanStatus));
+      if (completedScanEndedAt !== null) {
+        lastLoadedCompletedScanAt = completedScanEndedAt;
+      }
     } catch (error) {
       console.error('Failed to load library:', error);
       tracks.set([]);
@@ -193,18 +356,27 @@ export function createAppShellStore(
 
   async function bootstrap(): Promise<void> {
     await deps.bootstrapDesktopShell();
+    if (destroyed) return;
 
     const config = await deps.getConfig();
     const restored = deps.normalizeConfigForRestore(config);
 
     deps.applyTheme(restored.theme);
 
+    const initialMaintenance = await refreshMaintenanceSnapshot(false);
+    if (destroyed) return;
+
     if (restored.autoScan && restored.libraryPaths.length > 0) {
-      await runLibraryScan(restored.libraryPaths);
+      await runLibraryScan({ paths: restored.libraryPaths });
+    } else if (isMaintenancePending(initialMaintenance)) {
+      await waitForMaintenanceToSettle();
     }
+
+    if (destroyed) return;
 
     await loadLibrary();
     await loadPlaylists();
+    ensureMaintenanceHeartbeat();
   }
 
   async function syncRouteSearch(route: RouteMatch): Promise<void> {
@@ -247,6 +419,12 @@ export function createAppShellStore(
     }
   }
 
+  function destroy(): void {
+    destroyed = true;
+    stopMaintenanceHeartbeat();
+    scan.destroy();
+  }
+
   return {
     tracks,
     albums,
@@ -254,6 +432,8 @@ export function createAppShellStore(
     playlists,
     counts,
     scanStatus,
+    watcherStatus,
+    maintenance,
     isScanning,
     isLibraryLoading,
     isSearching,
@@ -261,9 +441,11 @@ export function createAppShellStore(
     bootstrap,
     loadLibrary,
     loadPlaylists,
+    refreshLibraryMaintenance,
     runLibraryScan,
     cancelLibraryScan,
     syncRouteSearch,
     createPlaylistFromPrompt,
+    destroy,
   };
 }

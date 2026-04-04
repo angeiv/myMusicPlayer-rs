@@ -5,6 +5,26 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 
+/// Availability state for a persisted library track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackAvailability {
+    /// Track is currently reachable under one of the scanned library roots.
+    #[default]
+    Available,
+    /// Track metadata is retained, but the file was not found during the latest successful sweep.
+    Missing,
+}
+
+impl TrackAvailability {
+    pub const fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Available => "available",
+            Self::Missing => "missing",
+        }
+    }
+}
+
 /// Represents a music track
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
@@ -20,8 +40,12 @@ pub struct Track {
     pub disc_number: Option<u32>,
     /// Path to the audio file
     pub path: PathBuf,
+    /// Library root that last produced this track during a successful scan
+    pub library_root: Option<PathBuf>,
     /// File size in bytes
     pub size: u64,
+    /// File mtime captured during the last successful scan, in unix milliseconds
+    pub file_mtime_ms: Option<i64>,
     /// File format (mp3, flac, etc.)
     pub format: String,
     /// Bitrate in kbps
@@ -52,6 +76,10 @@ pub struct Track {
     pub artwork_path: Option<String>,
     /// Lyrics
     pub lyrics: Option<String>,
+    /// Persisted availability classification for incremental scans
+    pub availability: TrackAvailability,
+    /// When the track was first marked missing from an accessible root
+    pub missing_since: Option<DateTime<Utc>>,
     /// Play count
     pub play_count: u32,
     /// Last played timestamp
@@ -69,7 +97,9 @@ impl Default for Track {
             track_number: None,
             disc_number: None,
             path: PathBuf::new(),
+            library_root: None,
             size: 0,
+            file_mtime_ms: None,
             format: String::new(),
             bitrate: 0,
             sample_rate: 44100,
@@ -85,6 +115,8 @@ impl Default for Track {
             artwork: None,
             artwork_path: None,
             lyrics: None,
+            availability: TrackAvailability::Available,
+            missing_since: None,
             play_count: 0,
             last_played: None,
             date_added: Utc::now(),

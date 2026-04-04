@@ -2,9 +2,12 @@
   import { createEventDispatcher } from 'svelte';
 
   export let selectedCount = 0;
+  export let canPlaySelected = true;
+  export let playSelectedHint = '';
   export let canAddToPlaylist = true;
   export let addToPlaylistHint = '';
 
+  const playSelectedHintId = 'songs-bulk-action-play-selected-hint';
   const addToPlaylistHintId = 'songs-bulk-action-add-to-playlist-hint';
 
   const dispatch = createEventDispatcher<{
@@ -14,8 +17,12 @@
     clearSelection: void;
   }>();
 
+  $: disabledPlaySelectedHint = !canPlaySelected ? playSelectedHint.trim() : '';
   $: disabledAddToPlaylistHint = !canAddToPlaylist ? addToPlaylistHint.trim() : '';
+  $: playSelectedDescription = disabledPlaySelectedHint.length > 0 ? playSelectedHintId : undefined;
   $: addToPlaylistDescription = disabledAddToPlaylistHint.length > 0 ? addToPlaylistHintId : undefined;
+  $: toolbarDescription =
+    [playSelectedDescription, addToPlaylistDescription].filter(Boolean).join(' ') || undefined;
 
   function handleAddToPlaylist(event: MouseEvent): void {
     const trigger = event.currentTarget;
@@ -34,7 +41,7 @@
   class="bulk-action-bar"
   role="toolbar"
   aria-label="歌曲批量操作"
-  aria-describedby={addToPlaylistDescription}
+  aria-describedby={toolbarDescription}
 >
   <div class="summary">
     <span class="count">已选 {selectedCount} 首</span>
@@ -43,7 +50,14 @@
 
   <div class="controls">
     <div class="actions">
-      <button type="button" on:click={() => dispatch('playSelected')}>播放选中</button>
+      <button
+        type="button"
+        disabled={!canPlaySelected}
+        aria-describedby={playSelectedDescription}
+        on:click={() => dispatch('playSelected')}
+      >
+        播放选中
+      </button>
       <button type="button" on:click={() => dispatch('addToQueue')}>加入队列</button>
       <button
         type="button"
@@ -56,8 +70,14 @@
       <button type="button" class="ghost" on:click={() => dispatch('clearSelection')}>清除选择</button>
     </div>
 
+    {#if disabledPlaySelectedHint}
+      <p id={playSelectedHintId} class="disabled-hint" role="status" aria-live="polite" aria-atomic="true">
+        {disabledPlaySelectedHint}
+      </p>
+    {/if}
+
     {#if disabledAddToPlaylistHint}
-      <p id={addToPlaylistHintId} class="disabled-hint" aria-live="polite" aria-atomic="true">
+      <p id={addToPlaylistHintId} class="disabled-hint" role="status" aria-live="polite" aria-atomic="true">
         {disabledAddToPlaylistHint}
       </p>
     {/if}
@@ -71,10 +91,10 @@
     justify-content: space-between;
     gap: 16px;
     padding: 14px 18px;
-    border: 1px solid rgba(96, 165, 250, 0.25);
-    border-radius: 16px;
-    background: rgba(15, 23, 42, 0.78);
-    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-default));
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--state-selected) 72%, var(--surface-panel-subtle));
+    box-shadow: var(--shadow-soft);
   }
 
   .summary {
@@ -86,12 +106,12 @@
   .count {
     font-size: 0.95rem;
     font-weight: 700;
-    color: #eff6ff;
+    color: var(--text-primary);
   }
 
   .hint {
     font-size: 0.8rem;
-    color: rgba(191, 219, 254, 0.72);
+    color: var(--text-secondary);
   }
 
   .controls {
@@ -112,7 +132,7 @@
     margin: 0;
     font-size: 0.82rem;
     font-weight: 500;
-    color: rgba(191, 219, 254, 0.82);
+    color: var(--text-secondary);
   }
 
   button {
@@ -121,30 +141,32 @@
     padding: 10px 16px;
     font: inherit;
     font-weight: 600;
-    color: #e0f2fe;
-    background: rgba(59, 130, 246, 0.22);
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--surface-panel) 88%, transparent);
     cursor: pointer;
     transition:
       transform 0.16s ease,
       background 0.16s ease,
+      box-shadow 0.16s ease,
       opacity 0.16s ease;
   }
 
   button:hover:not(:disabled),
   button:focus-visible:not(:disabled) {
-    background: rgba(59, 130, 246, 0.34);
+    background: color-mix(in srgb, var(--accent) 18%, var(--surface-panel));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
     transform: translateY(-1px);
     outline: none;
   }
 
   .ghost {
-    background: rgba(148, 163, 184, 0.14);
-    color: rgba(226, 232, 240, 0.9);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 84%, transparent);
+    color: var(--text-secondary);
   }
 
   .ghost:hover:not(:disabled),
   .ghost:focus-visible:not(:disabled) {
-    background: rgba(148, 163, 184, 0.24);
+    background: color-mix(in srgb, var(--surface-panel-subtle) 92%, var(--state-selected));
   }
 
   button:disabled {

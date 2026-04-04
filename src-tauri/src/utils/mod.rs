@@ -6,6 +6,10 @@ use log::warn;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+pub const APP_DIR_NAME: &str = "music-player-rs";
+pub const APP_CONFIG_DIR_ENV: &str = "MUSIC_PLAYER_RS_CONFIG_DIR";
+pub const APP_DATA_DIR_ENV: &str = "MUSIC_PLAYER_RS_DATA_DIR";
+
 /// Get the file name without extension from a path
 pub fn file_stem(path: &Path) -> Option<String> {
     path.file_stem()
@@ -42,28 +46,46 @@ pub fn file_size(path: &Path) -> Option<u64> {
         .ok()
 }
 
-/// Get the application data directory
-pub fn app_data_dir() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|mut dir| {
-        dir.push("music-player-rs");
+fn env_override_dir(key: &str) -> Option<PathBuf> {
+    let value = std::env::var_os(key)?;
+    if value.is_empty() {
+        return None;
+    }
+
+    Some(PathBuf::from(value))
+}
+
+fn app_dir_from(base: Option<PathBuf>) -> Option<PathBuf> {
+    base.map(|mut dir| {
+        dir.push(APP_DIR_NAME);
         dir
     })
+}
+
+pub fn default_app_data_dir() -> Option<PathBuf> {
+    app_dir_from(dirs::data_local_dir())
+}
+
+pub fn default_app_config_dir() -> Option<PathBuf> {
+    app_dir_from(dirs::config_dir())
+}
+
+/// Get the application data directory
+pub fn app_data_dir() -> Option<PathBuf> {
+    env_override_dir(APP_DATA_DIR_ENV).or_else(default_app_data_dir)
 }
 
 /// Get the application cache directory
 pub fn app_cache_dir() -> Option<PathBuf> {
     dirs::cache_dir().map(|mut dir| {
-        dir.push("music-player-rs");
+        dir.push(APP_DIR_NAME);
         dir
     })
 }
 
 /// Get the application config directory
 pub fn app_config_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|mut dir| {
-        dir.push("music-player-rs");
-        dir
-    })
+    env_override_dir(APP_CONFIG_DIR_ENV).or_else(default_app_config_dir)
 }
 
 /// Ensure a directory exists, creating it if necessary
@@ -125,6 +147,13 @@ pub fn init_app_dirs() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::tempdir;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn test_format_duration() {
@@ -144,5 +173,39 @@ mod tests {
         assert_eq!(parse_duration("01:01:05"), Some(3665));
         assert_eq!(parse_duration("invalid"), None);
         assert_eq!(parse_duration("1:2:3:4"), None);
+    }
+
+    #[test]
+    fn scan_app_dirs_honor_native_uat_overrides() {
+        let _guard = env_lock().lock().unwrap();
+        let temp = tempdir().unwrap();
+        let config_dir = temp.path().join("fixture-config");
+        let data_dir = temp.path().join("fixture-data");
+
+        unsafe {
+            std::env::set_var(APP_CONFIG_DIR_ENV, &config_dir);
+            std::env::set_var(APP_DATA_DIR_ENV, &data_dir);
+        }
+
+        assert_eq!(app_config_dir(), Some(config_dir));
+        assert_eq!(app_data_dir(), Some(data_dir));
+
+        unsafe {
+            std::env::remove_var(APP_CONFIG_DIR_ENV);
+            std::env::remove_var(APP_DATA_DIR_ENV);
+        }
+    }
+
+    #[test]
+    fn scan_app_dirs_fall_back_to_default_locations_when_unset() {
+        let _guard = env_lock().lock().unwrap();
+
+        unsafe {
+            std::env::remove_var(APP_CONFIG_DIR_ENV);
+            std::env::remove_var(APP_DATA_DIR_ENV);
+        }
+
+        assert_eq!(app_config_dir(), default_app_config_dir());
+        assert_eq!(app_data_dir(), default_app_data_dir());
     }
 }

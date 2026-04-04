@@ -1,22 +1,45 @@
-import { derived, writable, type Readable, type Writable } from 'svelte/store';
+import { derived, writable, type Readable } from 'svelte/store';
 
 import * as libraryApi from '../../api/library';
-import type { ScanPhase, ScanStatus } from '../../types';
+import {
+  buildLibraryMaintenanceState,
+  cloneLibraryMaintenanceState,
+  type LibraryMaintenanceState,
+} from './maintenance';
+import {
+  createLibraryWatcherStatus,
+  createScanStatus,
+  type LibraryScanRequest,
+  type LibraryWatcherStatus,
+  type ScanPhase,
+  type ScanStatus,
+} from '../../types';
 
 export const SCAN_STATUS_POLL_INTERVAL_MS = 250;
 
+type LibraryScanStartRequest = LibraryScanRequest | string[];
+
+type MaintenanceSnapshot = {
+  scanStatus: ScanStatus;
+  watcherStatus: LibraryWatcherStatus;
+};
+
 export type LibraryScanStoreDependencies = {
-  startLibraryScan: (paths: string[]) => Promise<void>;
+  startLibraryScan: (requestOrPaths: LibraryScanStartRequest) => Promise<void>;
   getLibraryScanStatus: () => Promise<ScanStatus>;
+  getLibraryWatcherStatus: () => Promise<LibraryWatcherStatus>;
   cancelLibraryScan: () => Promise<void>;
   setInterval: typeof globalThis.setInterval;
   clearInterval: typeof globalThis.clearInterval;
 };
 
 export type LibraryScanStore = {
-  status: Writable<ScanStatus>;
+  status: Readable<ScanStatus>;
+  watcherStatus: Readable<LibraryWatcherStatus>;
+  maintenance: Readable<LibraryMaintenanceState>;
   isScanning: Readable<boolean>;
-  start: (paths: string[]) => Promise<void>;
+  refreshMaintenance: () => Promise<LibraryMaintenanceState>;
+  start: (requestOrPaths: LibraryScanStartRequest) => Promise<void>;
   cancel: () => Promise<void>;
   destroy: () => void;
 };
@@ -25,32 +48,49 @@ function defaultDependencies(): LibraryScanStoreDependencies {
   return {
     startLibraryScan: libraryApi.startLibraryScan,
     getLibraryScanStatus: libraryApi.getLibraryScanStatus,
+    getLibraryWatcherStatus: libraryApi.getLibraryWatcherStatus,
     cancelLibraryScan: libraryApi.cancelLibraryScan,
     setInterval: globalThis.setInterval.bind(globalThis),
     clearInterval: globalThis.clearInterval.bind(globalThis),
   };
 }
 
-function initialStatus(): ScanStatus {
+function normalizeLibraryScanRequest(requestOrPaths: LibraryScanStartRequest): LibraryScanRequest {
+  if (Array.isArray(requestOrPaths)) {
+    return { paths: [...requestOrPaths] };
+  }
+
   return {
-    phase: 'idle',
-    started_at_ms: null,
-    ended_at_ms: null,
-    current_path: null,
-    processed_files: 0,
-    inserted_tracks: 0,
-    error_count: 0,
-    sample_errors: [],
+    ...requestOrPaths,
+    paths: [...requestOrPaths.paths],
   };
 }
 
-function isActivePhase(phase: ScanPhase): boolean {
+function initialStatus(): ScanStatus {
+  return createScanStatus();
+}
+
+function initialWatcherStatus(): LibraryWatcherStatus {
+  return createLibraryWatcherStatus();
+}
+
+function isActivePhase(phase: ScanPhase | null | undefined): boolean {
   return phase === 'running' || phase === 'cancelling';
 }
 
-function isTerminalPhase(phase: ScanPhase): boolean {
-  // Treat anything other than running/cancelling as non-active; polling should stop.
-  return !isActivePhase(phase);
+function shouldKeepPolling(watcherStatus: LibraryWatcherStatus): boolean {
+  return isActivePhase(watcherStatus.active_scan_phase) || watcherStatus.queued_follow_up;
+}
+
+function createCloneReadable<T>(
+  source: Readable<T>,
+  clone: (value: T) => T,
+): Readable<T> {
+  return {
+    subscribe(run, invalidate) {
+      return source.subscribe((value) => run(clone(value)), invalidate);
+    },
+  };
 }
 
 export function createLibraryScanStore(
@@ -59,19 +99,32 @@ export function createLibraryScanStore(
   const deps: LibraryScanStoreDependencies = { ...defaultDependencies(), ...overrides };
 
   const initial = initialStatus();
-  const status = writable<ScanStatus>(initial);
+  const initialWatcher = initialWatcherStatus();
+
+  const statusState = writable<ScanStatus>(initial);
+  const watcherState = writable<LibraryWatcherStatus>(initialWatcher);
+  const maintenanceState = derived([statusState, watcherState], ([$status, $watcher]) =>
+    buildLibraryMaintenanceState($status, $watcher),
+  );
 
   let lastKnownStatus = initial;
-  let unsubscribeLastKnownStatus: () => void = status.subscribe((value) => {
+  let lastKnownWatcherStatus = initialWatcher;
+
+  let unsubscribeLastKnownStatus: () => void = statusState.subscribe((value) => {
     lastKnownStatus = value;
   });
+  let unsubscribeLastKnownWatcherStatus: () => void = watcherState.subscribe((value) => {
+    lastKnownWatcherStatus = value;
+  });
 
-  const isScanning = derived(status, ($status) => isActivePhase($status.phase));
+  const status = createCloneReadable(statusState, createScanStatus);
+  const watcherStatus = createCloneReadable(watcherState, createLibraryWatcherStatus);
+  const maintenance = createCloneReadable(maintenanceState, cloneLibraryMaintenanceState);
+  const isScanning = derived(statusState, ($status) => isActivePhase($status.phase));
 
   let destroyed = false;
-
   let pollInterval: ReturnType<typeof deps.setInterval> | null = null;
-  let pollInFlight: Promise<ScanStatus> | null = null;
+  let pollInFlight: Promise<MaintenanceSnapshot> | null = null;
 
   function stopPolling(): void {
     if (!pollInterval) return;
@@ -83,19 +136,33 @@ export function createLibraryScanStore(
     if (destroyed || pollInterval) return;
 
     pollInterval = deps.setInterval(() => {
-      // Intentionally fire-and-forget: pollStatus handles its own error logging,
-      // and has an inFlight guard so timer ticks don't overlap.
-      void pollStatus();
+      void pollSnapshot();
     }, SCAN_STATUS_POLL_INTERVAL_MS);
   }
 
   function setStatus(next: ScanStatus): void {
-    lastKnownStatus = next;
-    status.set(next);
+    const snapshot = createScanStatus(next);
+    lastKnownStatus = snapshot;
+    statusState.set(snapshot);
   }
 
-  async function pollStatus(): Promise<ScanStatus> {
-    if (destroyed) return lastKnownStatus;
+  function setWatcherStatus(next: LibraryWatcherStatus): void {
+    const snapshot = createLibraryWatcherStatus(next);
+    lastKnownWatcherStatus = snapshot;
+    watcherState.set(snapshot);
+  }
+
+  function getCurrentMaintenance(): LibraryMaintenanceState {
+    return buildLibraryMaintenanceState(lastKnownStatus, lastKnownWatcherStatus);
+  }
+
+  async function pollSnapshot(): Promise<MaintenanceSnapshot> {
+    if (destroyed) {
+      return {
+        scanStatus: lastKnownStatus,
+        watcherStatus: lastKnownWatcherStatus,
+      };
+    }
 
     if (pollInFlight) {
       return pollInFlight;
@@ -103,20 +170,30 @@ export function createLibraryScanStore(
 
     pollInFlight = (async () => {
       try {
-        const next = await deps.getLibraryScanStatus();
+        const [nextScanStatus, nextWatcherStatus] = await Promise.all([
+          deps.getLibraryScanStatus(),
+          deps.getLibraryWatcherStatus(),
+        ]);
+
         if (!destroyed) {
-          setStatus(next);
+          setStatus(nextScanStatus);
+          setWatcherStatus(nextWatcherStatus);
         }
 
-        if (isTerminalPhase(next.phase)) {
+        if (!isActivePhase(nextScanStatus.phase) && !shouldKeepPolling(nextWatcherStatus)) {
           stopPolling();
         }
 
-        return next;
+        return {
+          scanStatus: createScanStatus(nextScanStatus),
+          watcherStatus: createLibraryWatcherStatus(nextWatcherStatus),
+        };
       } catch (error) {
-        // Keep polling on transient errors; preserve last known status.
-        console.error('Failed to poll library scan status:', error);
-        return lastKnownStatus;
+        console.error('Failed to poll library maintenance status:', error);
+        return {
+          scanStatus: lastKnownStatus,
+          watcherStatus: lastKnownWatcherStatus,
+        };
       }
     })();
 
@@ -127,21 +204,31 @@ export function createLibraryScanStore(
     }
   }
 
-  async function start(paths: string[]): Promise<void> {
+  async function refreshMaintenance(): Promise<LibraryMaintenanceState> {
+    const snapshot = await pollSnapshot();
+
+    if (isActivePhase(snapshot.scanStatus.phase) || shouldKeepPolling(snapshot.watcherStatus)) {
+      ensurePolling();
+    }
+
+    return getCurrentMaintenance();
+  }
+
+  async function start(requestOrPaths: LibraryScanStartRequest): Promise<void> {
     if (destroyed) return;
 
+    const request = normalizeLibraryScanRequest(requestOrPaths);
+
     try {
-      await deps.startLibraryScan(paths);
+      await deps.startLibraryScan(request);
     } catch (error) {
-      // Starting can fail for reasons like "scan already running"; don't treat
-      // it as fatal. We still poll once and keep polling if scan isn't terminal.
       console.error('Failed to start library scan:', error);
     }
 
     ensurePolling();
-    const next = await pollStatus();
+    const next = await refreshMaintenance();
 
-    if (!isTerminalPhase(next.phase)) {
+    if (isActivePhase(next.activePhase) || next.queuedFollowUp) {
       ensurePolling();
     }
   }
@@ -156,9 +243,9 @@ export function createLibraryScanStore(
     }
 
     ensurePolling();
-    const next = await pollStatus();
+    const next = await refreshMaintenance();
 
-    if (!isTerminalPhase(next.phase)) {
+    if (isActivePhase(next.activePhase) || next.queuedFollowUp) {
       ensurePolling();
     }
   }
@@ -169,11 +256,16 @@ export function createLibraryScanStore(
 
     unsubscribeLastKnownStatus();
     unsubscribeLastKnownStatus = () => {};
+    unsubscribeLastKnownWatcherStatus();
+    unsubscribeLastKnownWatcherStatus = () => {};
   }
 
   return {
     status,
+    watcherStatus,
+    maintenance,
     isScanning,
+    refreshMaintenance,
     start,
     cancel,
     destroy,

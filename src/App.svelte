@@ -28,7 +28,7 @@
   import { createAppShellStore } from './lib/features/app-shell/store';
   import { matchRoute, normalizeRoutePath, type RouteMatch } from './lib/routing/routes';
   import { hashPath } from './lib/stores/router';
-  import type { AppSection, LibraryView } from './lib/types';
+  import type { AppSection, LibraryScanRequest, LibraryView } from './lib/types';
 
   const appShell = createAppShellStore();
   const nowPlayingState = nowPlayingUi.state;
@@ -38,8 +38,7 @@
     artists,
     playlists,
     counts,
-    scanStatus,
-    isScanning,
+    maintenance,
     isLibraryLoading,
     isSearching,
     searchResults,
@@ -50,6 +49,7 @@
     cancelLibraryScan,
     syncRouteSearch,
     createPlaylistFromPrompt,
+    destroy,
   } = appShell;
 
   let route: RouteMatch = { name: 'home' };
@@ -94,24 +94,43 @@
     handleOpenArtistNavigation(event.detail.id);
   }
 
+  function runSettingsLibraryScan(requestOrPaths: LibraryScanRequest | string[]) {
+    if (Array.isArray(requestOrPaths)) {
+      return runLibraryScan({ paths: requestOrPaths });
+    }
+
+    return runLibraryScan(requestOrPaths);
+  }
+
+  function runSettingsFullLibraryScan(paths: string[]) {
+    return runLibraryScan({ paths, mode: 'full' });
+  }
+
   onMount(() => {
     void bootstrap();
     void ensureSharedPlaybackStarted();
   });
 
   onDestroy(() => {
+    destroy();
     destroySharedPlayback();
   });
 </script>
 
-<div class="app-container" class:overlay-open={isNowPlayingOpen}>
+<div class="app-container" class:overlay-open={isNowPlayingOpen} data-surface="canvas">
   <div
     class="app-shell"
     class:app-shell--inactive={isNowPlayingOpen}
     inert={isNowPlayingOpen}
     aria-hidden={isNowPlayingOpen ? 'true' : undefined}
+    data-surface="shell"
   >
-    <TopBar bind:searchTerm={searchInput} on:searchTermChange={handleSearchTermChange} />
+    <TopBar
+      bind:searchTerm={searchInput}
+      maintenance={$maintenance}
+      showMaintenanceCue={route.name !== 'settings'}
+      on:searchTermChange={handleSearchTermChange}
+    />
 
     <Sidebar
       {activeSection}
@@ -124,7 +143,7 @@
       on:createPlaylist={createPlaylistFromPrompt}
     />
 
-    <main class="main-content" class:main-content--locked={isNowPlayingOpen}>
+    <main class="main-content" class:main-content--locked={isNowPlayingOpen} data-surface="workspace">
       {#if route.name === "home"}
         <HomeView tracks={$tracks} albums={$albums} artists={$artists} playlists={$playlists} />
       {:else if route.name === "songs"}
@@ -153,9 +172,9 @@
         />
       {:else if route.name === "settings"}
         <SettingsView
-          {scanStatus}
-          {isScanning}
-          {runLibraryScan}
+          {maintenance}
+          runLibraryScan={runSettingsLibraryScan}
+          runFullLibraryScan={runSettingsFullLibraryScan}
           {cancelLibraryScan}
           on:refreshLibrary={loadLibrary}
           on:refreshPlaylists={loadPlaylists}
@@ -175,8 +194,10 @@
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto;
     height: 100dvh;
-    background-color: var(--app-bg);
-    color: var(--app-fg);
+    background:
+      radial-gradient(circle at top, color-mix(in srgb, var(--accent) 6%, transparent), transparent 42%),
+      var(--surface-canvas);
+    color: var(--text-primary);
   }
 
   .app-shell {
@@ -188,6 +209,7 @@
       "sidebar topbar"
       "sidebar main";
     overflow: hidden;
+    background: color-mix(in srgb, var(--surface-shell) 78%, var(--surface-canvas));
   }
 
   .app-shell--inactive {
@@ -210,7 +232,8 @@
     min-height: 0;
     overflow: auto;
     overscroll-behavior: contain;
-    padding: 20px;
+    padding: 24px;
+    background: color-mix(in srgb, var(--surface-canvas) 84%, var(--surface-shell));
   }
 
   .main-content--locked {
