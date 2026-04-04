@@ -20,8 +20,11 @@ import {
 import {
   getLibraryScanStatus as getMockLibraryScanStatus,
   getLibraryWatcherStatus as getMockLibraryWatcherStatus,
+  getMockLibraryMaintenanceSnapshot,
   getTracks as getMockTracks,
   hasLibraryTracks as getMockHasLibraryTracks,
+  resetMockLibraryMaintenanceSnapshot,
+  setMockLibraryMaintenanceSnapshot,
   startLibraryScan as startMockLibraryScan,
 } from '../lib/api/mock/library';
 import {
@@ -69,6 +72,7 @@ function createWatcherStatus(overrides: Partial<LibraryWatcherStatus> = {}): Lib
 describe('tauri library bridge', () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    resetMockLibraryMaintenanceSnapshot();
   });
 
   it('invokes scan_directory with the expected payload key', async () => {
@@ -268,6 +272,126 @@ describe('tauri library bridge', () => {
         last_error: null,
       }),
     );
+  });
+
+  it('lets browser verification scripts seed mock maintenance states without leaking mutations back out', async () => {
+    const next = setMockLibraryMaintenanceSnapshot({
+      scanStatus: {
+        phase: 'failed',
+        mode: 'incremental',
+        processed_files: 24,
+        changed_tracks: 2,
+        missing_tracks: 1,
+        error_count: 1,
+        sample_errors: [
+          {
+            path: '/offline-drive',
+            message: 'Root path does not exist or is not a directory',
+            kind: 'invalid_path',
+          },
+        ],
+      },
+      watcherStatus: {
+        watched_roots: ['/music'],
+        dirty_roots: ['/music'],
+        queued_follow_up: true,
+        active_scan_phase: null,
+        last_requested_scan: {
+          requested_at_ms: 123,
+          roots: ['/music'],
+        },
+        last_trigger: {
+          triggered_at_ms: 120,
+          event_count: 2,
+          observed_paths: ['/music/new.flac'],
+          dirty_roots: ['/music'],
+        },
+        last_error: 'Failed to refresh watcher roots: permission denied',
+      },
+    });
+
+    expect(next).toStrictEqual({
+      scanStatus: createScanStatus({
+        phase: 'failed',
+        mode: 'incremental',
+        processed_files: 24,
+        changed_tracks: 2,
+        missing_tracks: 1,
+        error_count: 1,
+        sample_errors: [
+          {
+            path: '/offline-drive',
+            message: 'Root path does not exist or is not a directory',
+            kind: 'invalid_path',
+          },
+        ],
+      }),
+      watcherStatus: createLibraryWatcherStatus({
+        watched_roots: ['/music'],
+        dirty_roots: ['/music'],
+        queued_follow_up: true,
+        active_scan_phase: null,
+        last_requested_scan: {
+          requested_at_ms: 123,
+          roots: ['/music'],
+        },
+        last_trigger: {
+          triggered_at_ms: 120,
+          event_count: 2,
+          observed_paths: ['/music/new.flac'],
+          dirty_roots: ['/music'],
+        },
+        last_error: 'Failed to refresh watcher roots: permission denied',
+      }),
+    });
+
+    next.scanStatus.sample_errors.push({
+      path: '/mutated',
+      message: 'should not leak',
+      kind: 'walk',
+    });
+    next.watcherStatus.watched_roots.push('/mutated');
+
+    await expect(getMockLibraryScanStatus()).resolves.toStrictEqual(
+      createScanStatus({
+        phase: 'failed',
+        mode: 'incremental',
+        processed_files: 24,
+        changed_tracks: 2,
+        missing_tracks: 1,
+        error_count: 1,
+        sample_errors: [
+          {
+            path: '/offline-drive',
+            message: 'Root path does not exist or is not a directory',
+            kind: 'invalid_path',
+          },
+        ],
+      }),
+    );
+    await expect(getMockLibraryWatcherStatus()).resolves.toStrictEqual(
+      createLibraryWatcherStatus({
+        watched_roots: ['/music'],
+        dirty_roots: ['/music'],
+        queued_follow_up: true,
+        active_scan_phase: null,
+        last_requested_scan: {
+          requested_at_ms: 123,
+          roots: ['/music'],
+        },
+        last_trigger: {
+          triggered_at_ms: 120,
+          event_count: 2,
+          observed_paths: ['/music/new.flac'],
+          dirty_roots: ['/music'],
+        },
+        last_error: 'Failed to refresh watcher roots: permission denied',
+      }),
+    );
+
+    const snapshot = getMockLibraryMaintenanceSnapshot();
+    expect(snapshot.scanStatus.phase).toBe('failed');
+    expect(snapshot.watcherStatus.last_error).toBe('Failed to refresh watcher roots: permission denied');
   });
 
   it('keeps the web mock occupancy helper aligned with the mock library fixture', async () => {

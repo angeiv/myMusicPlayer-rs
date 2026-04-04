@@ -1,0 +1,9 @@
+[
+  {
+    "id": 1,
+    "title": "Music Player",
+    "url": "http://127.0.0.1:1420/#/settings",
+    "opener": null,
+    "isActive": true
+  }
+]

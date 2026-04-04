@@ -1,0 +1,156 @@
+[
+  {
+    "type": "debug",
+    "text": "[vite] connecting...",
+    "timestamp": 1775249841161,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "debug",
+    "text": "[vite] connected.",
+    "timestamp": 1775249841890,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "log",
+    "text": "[vite] server connection lost. Polling for restart...",
+    "timestamp": 1775250054158,
+    "url": "http://127.0.0.1:1420/#/settings",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "timestamp": 1775263508597,
+    "url": "http://127.0.0.1:1420/#/albums",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "timestamp": 1775263509266,
+    "url": "http://127.0.0.1:1420/#/albums/22222222-2222-2222-2222-111111111111",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "timestamp": 1775263511986,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "timestamp": 1775263517848,
+    "url": "http://127.0.0.1:1420/#/artists",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "timestamp": 1775263518926,
+    "url": "http://127.0.0.1:1420/#/albums",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "timestamp": 1775263521118,
+    "url": "http://127.0.0.1:1420/#/settings",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "timestamp": 1775263521593,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "timestamp": 1775263522260,
+    "url": "http://127.0.0.1:1420/#/",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: net::ERR_CONNECTION_REFUSED",
+    "timestamp": 1775263523048,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "debug",
+    "text": "[vite] connecting...",
+    "timestamp": 1775266468236,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "debug",
+    "text": "[vite] connected.",
+    "timestamp": 1775266468572,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "log",
+    "text": "[vite] server connection lost. Polling for restart...",
+    "timestamp": 1775266965077,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "debug",
+    "text": "[vite] connecting...",
+    "timestamp": 1775268956169,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "debug",
+    "text": "[vite] connected.",
+    "timestamp": 1775268960350,
+    "url": "http://127.0.0.1:1420/#/songs",
+    "pageId": 1
+  },
+  {
+    "type": "debug",
+    "text": "[vite] connecting...",
+    "timestamp": 1775268987190,
+    "url": "http://127.0.0.1:1420/#/settings",
+    "pageId": 1
+  },
+  {
+    "type": "debug",
+    "text": "[vite] connected.",
+    "timestamp": 1775268987984,
+    "url": "http://127.0.0.1:1420/#/settings",
+    "pageId": 1
+  },
+  {
+    "type": "error",
+    "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "timestamp": 1775269000500,
+    "url": "http://127.0.0.1:1420/#/settings",
+    "pageId": 1
+  },
+  {
+    "type": "debug",
+    "text": "[vite] connecting...",
+    "timestamp": 1775269295259,
+    "url": "http://127.0.0.1:1420/#/settings",
+    "pageId": 1
+  },
+  {
+    "type": "debug",
+    "text": "[vite] connected.",
+    "timestamp": 1775269295311,
+    "url": "http://127.0.0.1:1420/#/settings",
+    "pageId": 1
+  }
+]

@@ -22,8 +22,36 @@ import {
   searchMockLibrary,
 } from '../../mocks/library';
 
-let scanStatus: ScanStatus = createScanStatus();
-let watcherStatus: LibraryWatcherStatus = createLibraryWatcherStatus();
+export type MockLibraryMaintenanceSnapshot = {
+  scanStatus: ScanStatus;
+  watcherStatus: LibraryWatcherStatus;
+};
+
+export type MockLibraryMaintenanceSnapshotPatch = {
+  scanStatus?: Partial<ScanStatus>;
+  watcherStatus?: Partial<LibraryWatcherStatus>;
+};
+
+function cloneMaintenanceSnapshot(
+  snapshot: MockLibraryMaintenanceSnapshot,
+): MockLibraryMaintenanceSnapshot {
+  return {
+    scanStatus: createScanStatus(snapshot.scanStatus),
+    watcherStatus: createLibraryWatcherStatus(snapshot.watcherStatus),
+  };
+}
+
+function createInitialMaintenanceSnapshot(): MockLibraryMaintenanceSnapshot {
+  return {
+    scanStatus: createScanStatus(),
+    watcherStatus: createLibraryWatcherStatus(),
+  };
+}
+
+const initialMaintenance = createInitialMaintenanceSnapshot();
+
+let scanStatus: ScanStatus = createScanStatus(initialMaintenance.scanStatus);
+let watcherStatus: LibraryWatcherStatus = createLibraryWatcherStatus(initialMaintenance.watcherStatus);
 
 function normalizeLibraryScanRequest(
   requestOrPaths: LibraryScanRequest | string[],
@@ -44,6 +72,33 @@ function resolveMockScanMode(request: LibraryScanRequest): ScanMode {
   }
 
   return getMockTracks().length > 0 ? 'incremental' : 'full';
+}
+
+export function getMockLibraryMaintenanceSnapshot(): MockLibraryMaintenanceSnapshot {
+  return cloneMaintenanceSnapshot({
+    scanStatus,
+    watcherStatus,
+  });
+}
+
+export function setMockLibraryMaintenanceSnapshot(
+  next: MockLibraryMaintenanceSnapshotPatch,
+): MockLibraryMaintenanceSnapshot {
+  if (next.scanStatus) {
+    scanStatus = createScanStatus(next.scanStatus);
+  }
+
+  if (next.watcherStatus) {
+    watcherStatus = createLibraryWatcherStatus(next.watcherStatus);
+  }
+
+  return getMockLibraryMaintenanceSnapshot();
+}
+
+export function resetMockLibraryMaintenanceSnapshot(): MockLibraryMaintenanceSnapshot {
+  scanStatus = createScanStatus(initialMaintenance.scanStatus);
+  watcherStatus = createLibraryWatcherStatus(initialMaintenance.watcherStatus);
+  return getMockLibraryMaintenanceSnapshot();
 }
 
 export async function startLibraryScan(
