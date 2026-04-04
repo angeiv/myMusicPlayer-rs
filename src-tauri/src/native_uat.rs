@@ -25,7 +25,13 @@ const ENV_FILE_NAME: &str = "env.sh";
 const POWERSHELL_ENV_FILE_NAME: &str = "env.ps1";
 const DB_FILE_NAME: &str = "library.sqlite";
 
-pub const NATIVE_UAT_PROOF_BOUNDARY: &str = "S05 acceptance evidence must come from the native Tauri runtime backed by an isolated fixture library. The browser/Vite shell remains mock regression coverage only and is not valid slice acceptance proof.";
+pub const NATIVE_UAT_SETUP_COMMAND: &str = "just native-uat-setup";
+pub const NATIVE_UAT_PREFLIGHT_COMMAND: &str = "bash scripts/verify-m002-s04-preflight.sh";
+pub const NATIVE_UAT_FIRST_LAUNCH_COMMAND: &str = "just native-uat-dev";
+pub const NATIVE_UAT_RESUME_COMMAND: &str = "bash scripts/native-uat-resume.sh";
+pub const NATIVE_UAT_TEARDOWN_COMMAND: &str = "just native-uat-teardown";
+pub const NATIVE_UAT_PROOF_BOUNDARY: &str = "M002/S04 acceptance evidence must come from the native Tauri runtime backed by an isolated fixture library. The browser/Vite shell remains mock regression coverage only and is not valid slice acceptance proof.";
+pub const NATIVE_UAT_CANONICAL_PATH_REMINDER: &str = "Resolve watched/current paths before comparing them. macOS can surface the same directory as /var/... and /private/var/..., so proof notes must compare canonical paths.";
 pub const PLAYBACK_GUARDRAIL_CONTEXT: &str = ".gsd/milestones/M001/slices/S04/tasks/T02-CONTEXT.md";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,10 +49,21 @@ pub struct NativeUatSetupResult {
 struct NativeUatManifest {
     created_at: String,
     proof_boundary: String,
+    canonical_path_reminder: String,
     playback_guardrail_context: String,
+    commands: NativeUatCommands,
     host_snapshot: HostSnapshot,
     runtime: RuntimePaths,
     fixture: FixtureLibraryManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct NativeUatCommands {
+    setup: String,
+    preflight: String,
+    first_launch: String,
+    resume: String,
+    teardown: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,7 +210,15 @@ fn setup_native_uat_fixture_with_host_paths(
     let manifest = NativeUatManifest {
         created_at: Utc::now().to_rfc3339(),
         proof_boundary: NATIVE_UAT_PROOF_BOUNDARY.to_string(),
+        canonical_path_reminder: NATIVE_UAT_CANONICAL_PATH_REMINDER.to_string(),
         playback_guardrail_context: PLAYBACK_GUARDRAIL_CONTEXT.to_string(),
+        commands: NativeUatCommands {
+            setup: NATIVE_UAT_SETUP_COMMAND.to_string(),
+            preflight: NATIVE_UAT_PREFLIGHT_COMMAND.to_string(),
+            first_launch: NATIVE_UAT_FIRST_LAUNCH_COMMAND.to_string(),
+            resume: NATIVE_UAT_RESUME_COMMAND.to_string(),
+            teardown: NATIVE_UAT_TEARDOWN_COMMAND.to_string(),
+        },
         host_snapshot,
         runtime,
         fixture,
@@ -463,9 +488,15 @@ fn render_env_ps1(config_dir: &Path, data_dir: &Path) -> String {
 
 fn render_readme(manifest: &NativeUatManifest) -> String {
     format!(
-        "# Native UAT fixture runtime\n\n- Proof boundary: {}\n- Playback guardrail: {}\n- Manifest: {}\n- Shell env: {}\n- PowerShell env: {}\n\n## Fixture library\n\n- Root: {}\n- Tracks: {}\n- Add directory: {}\n- Modify target: {}\n- Remove/restore target: {}\n- Unavailable-root path: {}\n",
+        "# Native UAT fixture runtime\n\n## Boundary\n\n- Proof boundary: {}\n- Canonical path reminder: {}\n- Playback guardrail: {}\n\n## Checked-in command path\n\n- Setup: `{}`\n- Preflight: `{}`\n- First launch: `{}`\n- Preserved-runtime relaunch: `{}`\n- Teardown: `{}`\n- Manifest: {}\n- Shell env: {}\n- PowerShell env: {}\n\n## Fixture library\n\n- Root: {}\n- Tracks: {}\n- Add directory: {}\n- Modify target: {}\n- Remove/restore target: {}\n- Unavailable-root path: {}\n",
         manifest.proof_boundary,
+        manifest.canonical_path_reminder,
         manifest.playback_guardrail_context,
+        manifest.commands.setup,
+        manifest.commands.preflight,
+        manifest.commands.first_launch,
+        manifest.commands.resume,
+        manifest.commands.teardown,
         manifest.runtime.manifest_path.display(),
         manifest.runtime.env_path.display(),
         manifest.runtime.powershell_env_path.display(),
@@ -548,9 +579,21 @@ mod tests {
             serde_json::from_slice(&fs::read(&setup.manifest_path).unwrap()).unwrap();
         assert_eq!(manifest.proof_boundary, NATIVE_UAT_PROOF_BOUNDARY);
         assert_eq!(
+            manifest.canonical_path_reminder,
+            NATIVE_UAT_CANONICAL_PATH_REMINDER
+        );
+        assert_eq!(
             manifest.playback_guardrail_context,
             PLAYBACK_GUARDRAIL_CONTEXT
         );
+        assert_eq!(manifest.commands.setup, NATIVE_UAT_SETUP_COMMAND);
+        assert_eq!(manifest.commands.preflight, NATIVE_UAT_PREFLIGHT_COMMAND);
+        assert_eq!(
+            manifest.commands.first_launch,
+            NATIVE_UAT_FIRST_LAUNCH_COMMAND
+        );
+        assert_eq!(manifest.commands.resume, NATIVE_UAT_RESUME_COMMAND);
+        assert_eq!(manifest.commands.teardown, NATIVE_UAT_TEARDOWN_COMMAND);
         assert_eq!(manifest.fixture.track_count, 3);
         assert!(manifest.host_snapshot.config_exists);
         assert_eq!(
@@ -576,7 +619,10 @@ mod tests {
         assert!(env_text.contains(utils::APP_DATA_DIR_ENV));
 
         let readme = fs::read_to_string(setup.runtime_root.join(README_FILE_NAME)).unwrap();
-        assert!(readme.contains("mock regression coverage only"));
+        assert!(readme.contains("M002/S04 acceptance evidence"));
+        assert!(readme.contains("Canonical path reminder"));
+        assert!(readme.contains(NATIVE_UAT_PREFLIGHT_COMMAND));
+        assert!(readme.contains(NATIVE_UAT_RESUME_COMMAND));
         assert!(readme.contains(PLAYBACK_GUARDRAIL_CONTEXT));
     }
 

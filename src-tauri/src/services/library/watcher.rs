@@ -108,20 +108,22 @@ impl WatcherCoordinatorState {
         self.watched_roots = sanitize_canonical_roots(watched_roots);
     }
 
-    pub fn set_runtime_error(&mut self, error: Option<String>) {
-        if let Some(message) = error.as_ref() {
-            self.last_error = Some(message.clone());
-        }
+    fn reconcile_last_error(&mut self, preferred: Option<String>) {
+        self.last_error = preferred
+            .or_else(|| self.last_runtime_error.clone())
+            .or_else(|| self.last_scheduler_error.clone());
+    }
 
+    pub fn set_runtime_error(&mut self, error: Option<String>) {
+        let preferred = error.clone();
         self.last_runtime_error = error;
+        self.reconcile_last_error(preferred);
     }
 
     pub fn set_scheduler_error(&mut self, error: Option<String>) {
-        if let Some(message) = error.as_ref() {
-            self.last_error = Some(message.clone());
-        }
-
+        let preferred = error.clone();
         self.last_scheduler_error = error;
+        self.reconcile_last_error(preferred);
     }
 
     pub fn snapshot(&self, scan_phase: ScanPhase) -> LibraryWatcherStatus {
@@ -1385,6 +1387,48 @@ mod tests {
                 .unwrap_or_default()
                 .contains("missing")
         );
+        assert!(runtime.is_registered());
+    }
+
+    #[test]
+    fn watcher_runtime_refresh_clears_last_error_after_recovery() {
+        let tmp = TempDir::new().unwrap();
+        let watched_dir = tmp.path().join("music");
+        let missing_dir = tmp.path().join("missing");
+        fs::create_dir_all(&watched_dir).unwrap();
+        fs::create_dir_all(&missing_dir).unwrap();
+
+        let watched_root = watched_dir.canonicalize().unwrap();
+        let missing_root = missing_dir.canonicalize().unwrap();
+        fs::remove_dir_all(&missing_dir).unwrap();
+
+        let mut state = WatcherCoordinatorState::new();
+        let mut runtime = LibraryWatcherRuntime::new();
+
+        runtime
+            .refresh_roots(
+                &mut state,
+                &[watched_root.clone(), missing_root.clone()],
+                |_result| {},
+            )
+            .unwrap();
+
+        let first_error = state.last_error.clone().unwrap_or_default();
+        assert!(first_error.contains("Rejected watcher roots"));
+        assert!(first_error.contains(&missing_root.display().to_string()));
+
+        runtime
+            .refresh_roots(
+                &mut state,
+                std::slice::from_ref(&watched_root),
+                |_result| {},
+            )
+            .unwrap();
+
+        assert_eq!(state.watched_roots, vec![watched_root]);
+        assert_eq!(state.last_runtime_error, None);
+        assert_eq!(state.last_scheduler_error, None);
+        assert_eq!(state.last_error, None);
         assert!(runtime.is_registered());
     }
 

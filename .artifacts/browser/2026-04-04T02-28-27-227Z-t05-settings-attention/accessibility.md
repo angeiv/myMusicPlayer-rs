@@ -1,0 +1,87 @@
+- heading "Settings" [level=2]
+- paragraph: Manage library maintenance, appearance, playback output, and app details.
+- text: Version web Desktop build Maintenance
+- heading "Library" [level=3]
+- paragraph: Outside Settings, the shell only shows a lightweight maintenance cue while work is running or needs attention. Detailed watcher state and recovery steps stay here.
+- text: Auto-sync needs attention
+- list:
+  - listitem:
+    - text: /music
+    - button "Remove folder /music": Remove
+- status: Auto-sync needs attention
+- paragraph: Watching 1 folder, but the last watcher update failed before a follow-up sync could start.
+- text: Auto-sync Watching 1 folder for automatic sync. Watched folders
+- list "Watched folders":
+  - listitem: /music
+- list "Scan summary":
+  - listitem:
+    - text: Files checked
+    - strong: "42"
+  - listitem:
+    - text: Added
+    - strong: "2"
+  - listitem:
+    - text: Changed
+    - strong: "0"
+  - listitem:
+    - text: Unchanged
+    - strong: "0"
+  - listitem:
+    - text: Restored
+    - strong: "0"
+  - listitem:
+    - text: Missing
+    - strong: "2"
+  - listitem:
+    - text: Errors
+    - strong: "1"
+- note:
+  - text: Recommended next step
+  - paragraph: After fixing the watcher problem or folder access, use Rescan Now to confirm the library state.
+- note:
+  - text: Latest watcher error
+  - paragraph: "Failed to refresh watcher roots: permission denied"
+- note:
+  - text: Latest scan error
+  - paragraph: /detached-disk — Root path does not exist or is not a directory
+- button "Add Folder"
+- button "Rescan Now"
+- button "Full Scan"
+- text: Appearance
+- heading "Theme" [level=3]
+- paragraph: Keep dark and light on the same shell and playback hierarchy.
+- radiogroup "Theme options":
+  - radio "Light Use the calm neutral light theme for the full app shell."
+  - strong: Light
+  - text: Use the calm neutral light theme for the full app shell.
+  - radio "Dark Use the dark theme with the same playback and library hierarchy."
+  - strong: Dark
+  - text: Use the dark theme with the same playback and library hierarchy.
+  - radio "Follow System Match the current operating-system theme automatically." [checked]
+  - strong: Follow System
+  - text: Match the current operating-system theme automatically.
+- strong: Scan library on startup
+- text: Automatically run the default sync flow when the app launches.
+- checkbox "Scan library on startup Automatically run the default sync flow when the app launches."
+- strong: Default volume
+- text: Apply this level to the player before playback starts.
+- slider "Default volume Apply this level to the player before playback starts. 70%": "70"
+- text: 70% Playback
+- heading "Audio" [level=3]
+- paragraph: Route playback to the right device and keep the selected output visible.
+- text: System default
+- strong: Output device
+- text: "Current output: System default"
+- 'combobox "Output device Current output: System default"':
+  - option "System default" [selected]
+- button "Advanced audio settings" [disabled]
+- text: Maintenance
+- heading "About" [level=3]
+- paragraph: Quick application info and a lightweight playlist refresh control.
+- term: Version
+- definition: web
+- term: Author
+- definition: myMusicPlayer-rs team
+- term: License
+- definition: MIT / Apache-2.0
+- button "Reload playlists"

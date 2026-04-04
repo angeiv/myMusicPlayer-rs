@@ -1,0 +1,112 @@
+- banner:
+  - text: My Music Search, browse, and keep playback moving
+  - textbox:
+    - /placeholder: Search songs, albums, artists...
+  - link "Open maintenance details in Settings":
+    - /url: "#/settings"
+    - text: Auto-sync needs attention Open Settings to review
+- navigation "应用导航":
+  - heading "My Music" [level=1]
+  - paragraph: Library, queue, and playback
+  - heading "Main" [level=2]
+  - button "Home"
+  - button "Library"
+  - button "Settings"
+  - heading "Library" [level=2]
+  - button "Songs 8"
+  - button "Albums 3"
+  - button "Artists 3"
+  - heading "Playlists" [level=2]
+  - button "创建播放列表": ＋
+  - list:
+    - listitem:
+      - button "Morning Focus 3 tracks"
+    - listitem:
+      - button "City After Dark 3 tracks"
+- main:
+  - heading "Songs" [level=2]
+  - paragraph: 8 tracks in your library
+  - table "Songs list":
+    - row "# Sort by title Sort by artist Sort by album Sort by duration Sort by added date":
+      - columnheader "#"
+      - columnheader "Sort by title":
+        - button "Sort by title": Title
+      - columnheader "Sort by artist":
+        - button "Sort by artist": Artist
+      - columnheader "Sort by album":
+        - button "Sort by album": Album
+      - columnheader "Sort by duration":
+        - button "Sort by duration": Duration
+      - columnheader "Sort by added date":
+        - button "Sort by added date": Added
+    - rowgroup:
+      - row "01 Autumn Letters FLAC Lena Park Unknown album 4:02 2024/3/5":
+        - cell "01"
+        - cell "Autumn Letters FLAC"
+        - cell "Lena Park"
+        - cell "Unknown album"
+        - cell "4:02"
+        - cell "2024/3/5"
+      - row "02 Chasing Constellations FLAC Aurora Finch Midnight Echoes 5:01 2024/2/10":
+        - cell "02"
+        - cell "Chasing Constellations FLAC"
+        - cell "Aurora Finch"
+        - cell "Midnight Echoes"
+        - cell "5:01"
+        - cell "2024/2/10"
+      - row "03 Glass Shoreline FLAC Neon Rivers Tidal Currents 4:38 2024/1/20":
+        - cell "03"
+        - cell "Glass Shoreline FLAC"
+        - cell "Neon Rivers"
+        - cell "Tidal Currents"
+        - cell "4:38"
+        - cell "2024/1/20"
+      - row "04 Golden Hour FLAC Aurora Finch Sunset Sketches 4:08 2024/2/10":
+        - cell "04"
+        - cell "Golden Hour FLAC"
+        - cell "Aurora Finch"
+        - cell "Sunset Sketches"
+        - cell "4:08"
+        - cell "2024/2/10"
+      - row "05 Lantern Bloom FLAC Aurora Finch Midnight Echoes 4:46 2024/2/10":
+        - cell "05"
+        - cell "Lantern Bloom FLAC"
+        - cell "Aurora Finch"
+        - cell "Midnight Echoes"
+        - cell "4:46"
+        - cell "2024/2/10"
+      - row "06 Mist Over the Harbour FLAC Aurora Finch Sunset Sketches 5:12 2024/2/10":
+        - cell "06"
+        - cell "Mist Over the Harbour FLAC"
+        - cell "Aurora Finch"
+        - cell "Sunset Sketches"
+        - cell "5:12"
+        - cell "2024/2/10"
+      - row "07 Moonlit Ferry FLAC Neon Rivers Tidal Currents 5:05 2024/1/20":
+        - cell "07"
+        - cell "Moonlit Ferry FLAC"
+        - cell "Neon Rivers"
+        - cell "Tidal Currents"
+        - cell "5:05"
+        - cell "2024/1/20"
+      - row "08 Silver Skyline FLAC Aurora Finch Midnight Echoes 3:54 2024/2/10":
+        - cell "08"
+        - cell "Silver Skyline FLAC"
+        - cell "Aurora Finch"
+        - cell "Midnight Echoes"
+        - cell "3:54"
+        - cell "2024/2/10"
+- button "当前没有正在播放内容" [disabled]: 暂无播放 选择歌曲后即可在这里查看播放详情 未分类
+- button "收藏": ♡
+- text: 0:00
+- slider "拖动进度": "0"
+- text: "-0:00"
+- button "切换随机播放"
+- button "上一首"
+- button "播放或暂停"
+- button "下一首"
+- button "切换重复模式"
+- button "打开文件"
+- button "队列"
+- button "静音"
+- button "输出设备"
