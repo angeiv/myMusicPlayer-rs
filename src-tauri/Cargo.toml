@@ -1,7 +1,7 @@
 [package]
 name = "music-player-rs"
 version = "0.1.0"
-description = "A cross-platform music player built with Tauri"
+description = "Local-first desktop music player with a Tauri 2 + Rust backend"
 authors = ["Xing Zhang <angeiv.zhang@gmail.com>"]
 license = "GPL-3.0"
 repository = "https://github.com/angeiv/myMusicPlayer-rs"

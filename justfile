@@ -10,7 +10,7 @@ npm_bin := if os() == "windows" { "npm.cmd" } else { "npm" }
 default:
     @just --list
 
-# Install development dependencies
+# Install repo dependencies for local development
 [unix]
 install:
     @command -v rustup >/dev/null 2>&1 || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -40,8 +40,12 @@ coverage:
     # cargo tarpaulin --manifest-path {{backend_dir}}/Cargo.toml --all-features --ignore-tests --out Lcov --output-dir target/tarpaulin
     # @echo "Coverage report generated at target/tarpaulin/lcov.info"
 
-# Run all code quality checks
+# Run the repo-root quality and test baseline
 qa: check test
+
+# Run the repo-root frontend behavior proof lane
+test-frontend:
+    {{npm_bin}} --prefix {{frontend_dir}} run test -- --run
 
 # Update dependencies
 update:
@@ -84,31 +88,31 @@ fmt:
     cargo fmt --manifest-path {{backend_dir}}/Cargo.toml --all
     {{npm_bin}} --prefix {{frontend_dir}} exec -- prettier --version *> $null; if ($LASTEXITCODE -eq 0) { {{npm_bin}} --prefix {{frontend_dir}} exec -- prettier --write . } else { Write-Host "Prettier not found. Install it with 'npm --prefix {{frontend_dir}} install --save-dev prettier' to enable frontend formatting." }
 
-# Package for all platforms
+# Package via the Tauri bundle configuration
 package:
     {{npm_bin}} --prefix {{frontend_dir}} run build
-    cargo tauri build --manifest-path {{backend_dir}}/Cargo.toml
+    cargo tauri build
 
-# Package for Windows
+# Package the Windows proof-only bundle lane
 [unix]
 package-windows:
     {{npm_bin}} --prefix {{frontend_dir}} run build
-    cargo tauri build --manifest-path {{backend_dir}}/Cargo.toml --target x86_64-pc-windows-msvc
+    cargo tauri build --target x86_64-pc-windows-msvc
 
 [windows]
 package-windows:
     powershell -NoProfile -ExecutionPolicy Bypass -File packaging/windows/build.ps1
 
-# Package for macOS
+# Package the macOS primary proof lane
 package-macos:
     {{npm_bin}} --prefix {{frontend_dir}} run build
-    cargo tauri build --manifest-path {{backend_dir}}/Cargo.toml --target aarch64-apple-darwin
-    cargo tauri build --manifest-path {{backend_dir}}/Cargo.toml --target x86_64-apple-darwin
+    cargo tauri build --target aarch64-apple-darwin
+    cargo tauri build --target x86_64-apple-darwin
 
-# Package for Linux
+# Package the Linux proof-only bundle lane
 package-linux:
     {{npm_bin}} --prefix {{frontend_dir}} run build
-    cargo tauri build --manifest-path {{backend_dir}}/Cargo.toml --target x86_64-unknown-linux-gnu
+    cargo tauri build --target x86_64-unknown-linux-gnu
 
 # Run the application in development mode
 [unix]
@@ -160,9 +164,9 @@ run:
     {{npm_bin}} --prefix {{frontend_dir}} run build
     cargo run --manifest-path {{backend_dir}}/Cargo.toml --release
 
-# Show Tauri info
+# Run the Tauri CLI environment canary
 info:
-    cargo tauri info --manifest-path {{backend_dir}}/Cargo.toml
+    cargo tauri info
 
 # Development mode with DevTools opened automatically
 [unix]
