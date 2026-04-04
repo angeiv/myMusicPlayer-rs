@@ -5,9 +5,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\\..")
+Write-Warning "Historical helper behind the repo-root proof-only Windows lane."
+Write-Warning "Canonical path: repo root -> just package-windows"
+Write-Warning "Windows remains proof-only and deferred for formal support."
+
+$projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $env:NPM_CONFIG_CACHE = Join-Path $projectRoot ".npm-cache"
-$outputDir = Join-Path $projectRoot "artifacts\\windows"
+$outputDir = Join-Path $projectRoot "artifacts\windows"
 
 if (-not (Test-Path $outputDir)) {
   New-Item -ItemType Directory -Path $outputDir | Out-Null
@@ -21,7 +25,7 @@ try {
   Pop-Location
 }
 
-$bundleDir = Join-Path $projectRoot "src-tauri\\target\\$Target\\release\\bundle"
+$bundleDir = Join-Path $projectRoot "src-tauri\target\$Target\release\bundle"
 if (-not (Test-Path $bundleDir)) {
   throw "Bundle output directory not found: $bundleDir"
 }

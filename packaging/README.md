@@ -1,131 +1,43 @@
-# Music Player Packaging
+# Packaging collateral
 
-This directory contains packaging scripts for different platforms to create distributable packages for the Music Player application.
+`packaging/` is secondary material. The authoritative packaging contract lives at the repo root via `just` recipes and the Tauri bundle configuration.
 
-## Prerequisites
+## Authoritative packaging path
 
-### All Platforms
-- Rust and Cargo installed
-- `cargo install cross` (for cross-compilation)
+Run packaging work from the repository root:
 
-### Windows
-- NSIS (Nullsoft Scriptable Install System) installed
-- Visual Studio Build Tools with C++ workload (for compiling Rust code)
+- `just package` — default Tauri bundling path for the current host environment.
+- `just package-macos` — primary release-facing macOS bundle proof lane.
+- `just package-linux` — proof-only Linux bundle evidence.
+- `just package-windows` — proof-only Windows bundle evidence.
 
-### macOS
-- Xcode Command Line Tools
-- `create-dmg` (for creating DMG files)
-  ```bash
-  brew install create-dmg
-  ```
+For maintainers who need the underlying command shape, the repo-root recipes reduce to `cargo tauri build` plus target selection from the repository root.
 
-### Linux
-- `dpkg-deb` (for Debian/Ubuntu packages)
-- `fpm` (for RPM packages)
-- `appimagetool` (for AppImage)
-  ```bash
-  # On Debian/Ubuntu
-  sudo apt install dpkg-dev fpm
-  wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
-  chmod +x appimagetool
-  sudo mv appimagetool /usr/local/bin/
-  ```
+## Platform boundary
 
-## Building Packages
+- Primary release-facing packaging lane: macOS
+- Proof-only packaging lanes: Linux and Windows
+- Deferred formal support: Windows
 
-### Windows
+macOS is the only lane this milestone treats as release-facing. Linux and Windows bundle outputs are still useful as proof and regression evidence, but this directory should not be read as a formal promise of day-to-day release support on those platforms.
 
-1. Open a terminal in the project root
-2. Build and bundle (recommended):
-   ```
-   just package-windows
-   ```
-   Or run the packaging script directly:
-   ```
-   .\packaging\windows\build.bat
-   # or
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\windows\build.ps1
-   ```
-3. Bundles/installers are copied to `artifacts\windows\`
+## Legacy helper status
 
-### macOS
+Historical helpers under `packaging/` are secondary maintainer entrypoints, not the public packaging contract.
 
-1. Open Terminal and navigate to the project root
-2. Make the build script executable:
-   ```bash
-   chmod +x packaging/macos/build-app.sh
-   ```
-3. Run the build script:
-   ```bash
-   ./packaging/macos/build-app.sh
-   ```
-4. The DMG file will be created in the `dist` directory
+They remain here so older notes, bookmarks, or muscle memory resolve to the current repo-root flow instead of silently keeping a parallel build story alive:
 
-### Linux
+- `packaging/macos/build.sh` and `packaging/macos/build-app.sh` warn, then fall back to the macOS Tauri bundle lane.
+- `packaging/linux/build-appimage.sh` warns, then falls back to the Linux proof-only Tauri bundle lane.
+- `packaging/linux/build-deb.sh` is historical-only and exits with guidance because there is no current repo-root `.deb` packaging contract.
+- `packaging/windows/build.ps1` and `packaging/windows/build.bat` are proof-only Windows-local helpers behind the repo-root lane.
 
-#### Debian/Ubuntu (.deb)
+## When to use this directory
 
-1. Make the build script executable:
-   ```bash
-   chmod +x packaging/linux/build-deb.sh
-   ```
-2. Run the build script:
-   ```bash
-   ./packaging/linux/build-deb.sh
-   ```
-3. The .deb package will be created in the `dist` directory
+Use `packaging/` when you need to:
 
-#### AppImage
+- inspect historical platform-specific packaging experiments,
+- follow an older internal note and get routed back to the current repo-root workflow, or
+- read helper warnings while investigating packaging drift with `bash scripts/verify-m003-s01-contract.sh`.
 
-1. Make the build script executable:
-   ```bash
-   chmod +x packaging/linux/build-appimage.sh
-   ```
-2. Run the build script:
-   ```bash
-   ./packaging/linux/build-appimage.sh
-   ```
-3. The AppImage will be created in the `dist` directory
-
-## Package Signing (Optional)
-
-### Windows
-
-To sign the installer, you'll need a code signing certificate. Add the following to your build script:
-
-```batch
-REM Sign the installer
-signtool sign /t http://timestamp.digicert.com /fd sha256 /f "path\to\certificate.pfx" /p "your_password" "%OUTPUT_DIR%\MusicPlayer_Setup.exe"
-```
-
-### macOS
-
-To notarize the app, you'll need an Apple Developer ID. Uncomment and configure the notarization section in the build script.
-
-### Linux
-
-For Debian/Ubuntu packages, you can sign them with GPG:
-
-```bash
-dpkg-sig --sign builder dist/music-player_1.0.0_amd64.deb
-```
-
-## Distribution
-
-After building the packages, you can distribute them to users:
-
-1. Windows: Share the `MusicPlayer_Setup.exe` file
-2. macOS: Share the `.dmg` file
-3. Linux: Share the `.deb` file or AppImage
-
-## Troubleshooting
-
-- If you encounter permission issues, try running the scripts with `sudo`
-- Make sure all dependencies are installed
-- Check the build logs for specific error messages
-- For AppImage issues, ensure `libfuse2` is installed on your system
-- On Windows, MSI bundling requires the WiX Toolset, and EXE bundling requires NSIS (depending on the bundle targets configured in `src-tauri/Tauri.toml`)
-
-## License
-
-This project is licensed under the [GPL-3.0 License](../LICENSE).
+If you are documenting the project for a new reader, link to the repo-root `README.md` and `just --list`, not to a direct helper under `packaging/`.

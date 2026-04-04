@@ -34,6 +34,6 @@ targets = ["app", "msi", "dmg", "appimage"]
 # The application category (macOS only)
 category = "public.app-category.music"
 # Short description of your application
-shortDescription = "A modern music player"
+shortDescription = "Local-first desktop music player"
 # Long description of your application
-longDescription = "A cross-platform music player built with Tauri and Rust"
+longDescription = "Local-first desktop music player with a Tauri and Rust stack. macOS is the primary release-facing lane; Linux and Windows bundle lanes remain proof-only evidence."
