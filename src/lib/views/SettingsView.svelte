@@ -290,7 +290,7 @@
         <div class="panel-copy">
           <span class="eyebrow">Maintenance</span>
           <h3>Library</h3>
-          <p>Manage the watched folders and use the same scan controls in both themes.</p>
+          <p>Outside Settings, the shell only shows a lightweight maintenance cue while work is running or needs attention. Detailed watcher state and recovery steps stay here.</p>
         </div>
         <span class="status-pill" data-tone={scanPresentation.statusTone}>{scanPresentation.title}</span>
       </div>

@@ -125,7 +125,12 @@
     aria-hidden={isNowPlayingOpen ? 'true' : undefined}
     data-surface="shell"
   >
-    <TopBar bind:searchTerm={searchInput} on:searchTermChange={handleSearchTermChange} />
+    <TopBar
+      bind:searchTerm={searchInput}
+      maintenance={$maintenance}
+      showMaintenanceCue={route.name !== 'settings'}
+      on:searchTermChange={handleSearchTermChange}
+    />
 
     <Sidebar
       {activeSection}

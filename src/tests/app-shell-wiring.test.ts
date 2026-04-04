@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { LibraryMaintenanceState } from '../lib/features/library-scan/maintenance';
+import type { ScanStatus } from '../lib/types';
 import { nowPlayingUi } from '../lib/player/now-playing';
 
 const appShellMock = vi.hoisted(() => {
@@ -25,7 +27,7 @@ const appShellMock = vi.hoisted(() => {
 
   const loadPlaylists = vi.fn(async () => undefined);
 
-  const scanStatusValue = {
+  const scanStatusValue: ScanStatus = {
     phase: 'idle',
     mode: null,
     started_at_ms: null,
@@ -41,6 +43,37 @@ const appShellMock = vi.hoisted(() => {
     sample_errors: [],
   };
 
+  const defaultMaintenanceValue: LibraryMaintenanceState = {
+    scanStatus: scanStatusValue,
+    watcherStatus: {
+      watched_roots: ['/music'],
+      dirty_roots: [],
+      queued_follow_up: false,
+      active_scan_phase: null,
+      last_requested_scan: null,
+      last_error: null,
+    },
+    watchedRoots: ['/music'],
+    dirtyRoots: [],
+    queuedFollowUp: false,
+    activePhase: null,
+    lastError: null,
+    title: 'Auto-sync ready',
+    description: 'Watching 1 folder for changes. Manual rescans use the same maintenance flow.',
+    tone: 'default',
+    recoveryHint: null,
+    nextStep: null,
+  };
+
+  let maintenanceValue = defaultMaintenanceValue;
+
+  const maintenance = {
+    subscribe(run: (value: LibraryMaintenanceState) => void) {
+      run(maintenanceValue);
+      return () => {};
+    },
+  };
+
   const store = {
     tracks: createStore([]),
     albums: createStore([]),
@@ -48,6 +81,8 @@ const appShellMock = vi.hoisted(() => {
     playlists: createStore(playlistsValue),
     counts: createStore({ songs: 0, albums: 0, artists: 0 }),
     scanStatus: createStore(scanStatusValue),
+    watcherStatus: createStore(defaultMaintenanceValue.watcherStatus),
+    maintenance,
     isScanning: createStore(false),
     isLibraryLoading: createStore(false),
     isSearching: createStore(false),
@@ -67,6 +102,12 @@ const appShellMock = vi.hoisted(() => {
     loadPlaylists,
     scanStatusValue,
     store,
+    setMaintenanceValue(nextValue: LibraryMaintenanceState) {
+      maintenanceValue = nextValue;
+    },
+    resetMaintenanceValue() {
+      maintenanceValue = defaultMaintenanceValue;
+    },
     createAppShellStore: vi.fn(() => store),
   };
 });
@@ -121,6 +162,7 @@ describe('App songs-shell wiring', () => {
     delete spyWindow.__songsViewSpyProps;
     delete spyWindow.__settingsViewSpyProps;
     nowPlayingUi.close();
+    appShellMock.resetMaintenanceValue();
     window.location.hash = '#/songs';
   });
 
@@ -159,6 +201,94 @@ describe('App songs-shell wiring', () => {
 
     expect(spyWindow.__songsViewSpyProps?.playlists).toEqual(appShellMock.playlistsValue);
     expect(spyWindow.__songsViewSpyProps?.refreshPlaylists).toBe(appShellMock.loadPlaylists);
+  });
+
+  it('shows a passive top-bar maintenance cue on non-settings routes while auto-sync is active', async () => {
+    appShellMock.setMaintenanceValue({
+      scanStatus: {
+        ...appShellMock.scanStatusValue,
+        phase: 'running',
+        mode: 'incremental',
+      },
+      watcherStatus: {
+        watched_roots: ['/music'],
+        dirty_roots: ['/music'],
+        queued_follow_up: true,
+        active_scan_phase: 'running',
+        last_requested_scan: null,
+        last_error: null,
+      },
+      watchedRoots: ['/music'],
+      dirtyRoots: ['/music'],
+      queuedFollowUp: true,
+      activePhase: 'running',
+      lastError: null,
+      title: 'Incremental sync in progress',
+      description: 'Scanning the library now. Auto-sync already queued one follow-up pass for newer file changes.',
+      tone: 'active',
+      recoveryHint: 'Let the current scan finish. The queued follow-up will run automatically.',
+      nextStep: {
+        kind: 'cancel-scan',
+        label: 'Cancel scan',
+      },
+    });
+
+    render(App);
+
+    const cue = await screen.findByRole('link', { name: 'Open maintenance details in Settings' });
+    expect(cue.getAttribute('href')).toBe('#/settings');
+    expect(within(cue).getByText('Incremental sync in progress')).toBeTruthy();
+    expect(within(cue).getByText('1 follow-up queued')).toBeTruthy();
+  });
+
+  it('keeps the maintenance cue across browsing routes and hides it on Settings where the detailed surface takes over', async () => {
+    appShellMock.setMaintenanceValue({
+      scanStatus: {
+        ...appShellMock.scanStatusValue,
+        phase: 'idle',
+        mode: 'incremental',
+      },
+      watcherStatus: {
+        watched_roots: ['/music'],
+        dirty_roots: [],
+        queued_follow_up: false,
+        active_scan_phase: null,
+        last_requested_scan: null,
+        last_error: 'Failed to refresh watcher roots: permission denied',
+      },
+      watchedRoots: ['/music'],
+      dirtyRoots: [],
+      queuedFollowUp: false,
+      activePhase: null,
+      lastError: 'Failed to refresh watcher roots: permission denied',
+      title: 'Auto-sync needs attention',
+      description: 'Watching 1 folder, but the last watcher update failed before a follow-up sync could start.',
+      tone: 'warning',
+      recoveryHint: 'Fix the watcher problem or folder access, then run Rescan Now to confirm the library state.',
+      nextStep: {
+        kind: 'rescan',
+        label: 'Rescan Now',
+      },
+    });
+
+    render(App);
+
+    await screen.findByText('Auto-sync needs attention');
+
+    window.location.hash = '#/albums';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Auto-sync needs attention')).toBeTruthy();
+    });
+
+    window.location.hash = '#/settings';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Auto-sync needs attention')).toBeNull();
+      expect(screen.getByTestId('settings-view-spy')).toBeTruthy();
+    });
   });
 
   it('adapts settings rescans into request objects before calling the app-shell store', async () => {

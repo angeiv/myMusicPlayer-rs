@@ -287,6 +287,37 @@ describe('SettingsView maintenance panel', () => {
     expect(screen.queryByText('Latest scan error')).toBeNull();
   });
 
+  it('keeps the detailed watcher diagnostics in Settings and explains that the shell cue stays lightweight', async () => {
+    renderSettingsView({
+      status: createStatus({
+        phase: 'failed',
+        mode: 'incremental',
+        error_count: 1,
+        sample_errors: [
+          {
+            path: '/music/broken.flac',
+            message: 'Unsupported metadata block',
+            kind: 'read_metadata',
+          },
+        ],
+      }),
+      watcherStatus: createWatcherStatus({
+        watched_roots: ['/music'],
+        last_error: 'Failed to refresh watcher roots: permission denied',
+      }),
+    });
+
+    await screen.findByLabelText('Remove folder /music');
+
+    expect(
+      screen.getByText(
+        'Outside Settings, the shell only shows a lightweight maintenance cue while work is running or needs attention. Detailed watcher state and recovery steps stay here.',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('Latest watcher error')).toBeTruthy();
+    expect(screen.getByText('Latest scan error')).toBeTruthy();
+  });
+
   it('keeps rescan and full-scan actions wired through the settings controls', async () => {
     const runLibraryScan = vi.fn(async () => createStatus({ phase: 'completed', mode: 'incremental' }));
     const runFullLibraryScan = vi.fn(async () => createStatus({ phase: 'completed', mode: 'full' }));
