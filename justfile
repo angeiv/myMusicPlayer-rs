@@ -123,10 +123,20 @@ native-uat-setup:
 native-uat-teardown:
     cargo run --manifest-path {{backend_dir}}/Cargo.toml --bin native-uat-fixture -- teardown
 
+# Relaunch the application in development mode against the prepared native-UAT runtime.
+[unix]
+native-uat-resume:
+    bash scripts/native-uat-resume.sh
+
+# Run the slice-S04 native-UAT preflight gate from the repo root.
+[unix]
+native-uat-preflight:
+    bash scripts/verify-m002-s04-preflight.sh
+
 # Run the application in development mode against the isolated native-UAT fixture runtime.
 [unix]
 native-uat-dev:
-    set -euo pipefail; cargo run --manifest-path {{backend_dir}}/Cargo.toml --bin native-uat-fixture -- setup >/dev/null; source .gsd/runtime/native-uat/current/env.sh; bash scripts/dev.sh
+    set -euo pipefail; cargo run --manifest-path {{backend_dir}}/Cargo.toml --bin native-uat-fixture -- setup >/dev/null; bash scripts/native-uat-resume.sh
 
 [windows]
 native-uat-dev:
