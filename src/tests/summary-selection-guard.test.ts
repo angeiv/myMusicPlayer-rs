@@ -9,6 +9,7 @@ const appCssPath = path.resolve(testsRoot, '../app.css');
 const homeViewPath = path.join(srcRoot, 'views/HomeView.svelte');
 const albumsViewPath = path.join(srcRoot, 'views/AlbumsView.svelte');
 const artistsViewPath = path.join(srcRoot, 'views/ArtistsView.svelte');
+const searchResultsViewPath = path.join(srcRoot, 'views/SearchResultsView.svelte');
 
 describe('summary selection guard contract', () => {
   it('defines the shared selection-guard utility and applies it to both frozen Home summary lists', async () => {
@@ -34,5 +35,15 @@ describe('summary selection guard contract', () => {
 
     expect(albumsSource).toContain('class="card selection-guard"');
     expect(artistsSource).toContain('class="card selection-guard"');
+  });
+
+  it('applies the shared selection-guard utility to frozen search result surfaces', async () => {
+    const searchSource = await readFile(searchResultsViewPath, 'utf8');
+
+    expect(searchSource).toContain('class="result-list__row selection-guard"');
+    expect(searchSource).toContain('class="track-copy selection-guard"');
+
+    const listButtonMatches = searchSource.match(/class="list-button selection-guard"/g) ?? [];
+    expect(listButtonMatches).toHaveLength(2);
   });
 });

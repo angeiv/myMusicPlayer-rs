@@ -85,9 +85,9 @@
         {:else}
           <ul class="result-list">
             {#each tracks.slice(0, 10) as track}
-              <li class="result-list__row">
+              <li class="result-list__row selection-guard">
                 <div
-                  class="track-copy"
+                  class="track-copy selection-guard"
                   role="button"
                   tabindex="0"
                   aria-label={`打开 ${track.title}`}
@@ -127,7 +127,7 @@
             {#each albums.slice(0, 8) as album}
               <li>
                 <button
-                  class="list-button"
+                  class="list-button selection-guard"
                   type="button"
                   aria-label={`打开专辑 ${album.title}`}
                   on:click={() => openAlbum(album)}
@@ -158,7 +158,7 @@
             {#each artists.slice(0, 8) as artist}
               <li>
                 <button
-                  class="list-button"
+                  class="list-button selection-guard"
                   type="button"
                   aria-label={`打开艺人 ${artist.name}`}
                   on:click={() => openArtist(artist)}
