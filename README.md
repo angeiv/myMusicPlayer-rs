@@ -52,8 +52,6 @@ Use `just test-frontend` when a change touches frontend behavior or when you wan
 Use these checks from the repo root:
 
 ```bash
-bash scripts/verify-m003-s01-contract.sh
-bash scripts/test-verify-m003-s01-contract.sh
 just --list
 just qa
 just test-frontend

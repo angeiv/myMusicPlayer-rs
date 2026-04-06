@@ -20,6 +20,10 @@
 # Packaged bundle artifacts (installers)
 /artifacts/
 
+# Local development evidence / agent workspace
+/.artifacts/
+/.superpowers/
+
 # Tool caches and build info
 *.tsbuildinfo
 .eslintcache

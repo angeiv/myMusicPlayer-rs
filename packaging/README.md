@@ -38,6 +38,6 @@ Use `packaging/` when you need to:
 
 - inspect historical platform-specific packaging experiments,
 - follow an older internal note and get routed back to the current repo-root workflow, or
-- read helper warnings while investigating packaging drift with `bash scripts/verify-m003-s01-contract.sh`.
+- compare older platform helpers against the current repo-root packaging lanes.
 
 If you are documenting the project for a new reader, link to the repo-root `README.md` and `just --list`, not to a direct helper under `packaging/`.
