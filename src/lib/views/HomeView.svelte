@@ -74,7 +74,7 @@
       {:else}
         <ul class="summary-list">
           {#each recentTracks as track}
-            <li>
+            <li class="summary-card selection-guard">
               <span class="title">{track.title}</span>
               <span class="meta">{track.artist_name ?? 'Unknown artist'} · {formatDuration(track.duration)}</span>
             </li>
@@ -94,7 +94,7 @@
       {:else}
         <ul class="summary-list">
           {#each leadingArtists as artist}
-            <li>
+            <li class="summary-card selection-guard">
               <span class="title">{artist.name}</span>
               <span class="meta">{artist.album_count} albums · {artist.track_count} tracks</span>
             </li>
@@ -203,7 +203,7 @@
     gap: 12px;
   }
 
-  .summary-list li {
+  .summary-card {
     display: grid;
     gap: 0.2rem;
     padding: 0.9rem 1rem;
