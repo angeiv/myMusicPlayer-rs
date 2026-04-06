@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
 
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
+  import { commonCopy, searchCopy } from '../copy/zh-cn';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';
@@ -23,8 +24,8 @@
   $: artists = searchResults?.artists ?? [];
   $: hasResults = tracks.length > 0 || albums.length > 0 || artists.length > 0;
   $: subtitle = searchTerm.trim()
-    ? `Results for “${searchTerm}”`
-    : 'Search tracks, albums, and artists in your library.';
+    ? searchCopy.subtitleWithTerm(searchTerm)
+    : searchCopy.subtitleDefault;
 
   async function playTrack(track: Track) {
     try {
@@ -54,21 +55,21 @@
 </script>
 
 <section class="search-results">
-  <PageHeader title="Search" subtitle={subtitle} />
+  <PageHeader title={searchCopy.title} subtitle={subtitle} />
 
   {#if isSearching}
     <SurfacePanel tone="inset" padding="spacious">
       <EmptyState
-        title="Searching library"
-        body="We’re checking tracks, albums, and artists for your latest keyword."
+        title={searchCopy.searchingTitle}
+        body={searchCopy.searchingBody}
         align="center"
       />
     </SurfacePanel>
   {:else if !hasResults}
     <SurfacePanel tone="inset" padding="spacious">
       <EmptyState
-        title="No matches yet"
-        body="No results yet. Try a different keyword."
+        title={searchCopy.noMatchesTitle}
+        body={searchCopy.noMatchesBody}
         align="center"
       />
     </SurfacePanel>
@@ -76,12 +77,12 @@
     <div class="columns">
       <SurfacePanel padding="spacious">
         <div class="section-heading">
-          <span class="eyebrow">Tracks</span>
-          <h3>Quick play results</h3>
+          <span class="eyebrow">{searchCopy.tracksEyebrow}</span>
+          <h3>{searchCopy.tracksTitle}</h3>
         </div>
 
         {#if tracks.length === 0}
-          <p class="empty-note">No tracks found.</p>
+          <p class="empty-note">{searchCopy.noTracks}</p>
         {:else}
           <ul class="result-list">
             {#each tracks.slice(0, 10) as track}
@@ -90,19 +91,19 @@
                   class="track-copy selection-guard"
                   role="button"
                   tabindex="0"
-                  aria-label={`打开 ${track.title}`}
+                  aria-label={searchCopy.openTrack(track.title)}
                   on:dblclick={() => playTrack(track)}
                   on:keydown={(event) => handleTrackKeydown(event, track)}
                 >
                   <strong>{track.title}</strong>
-                  <span>{track.artist_name ?? 'Unknown artist'} • {track.album_title ?? 'Unknown album'}</span>
+                  <span>{track.artist_name ?? commonCopy.unknownArtist} • {track.album_title ?? commonCopy.unknownAlbum}</span>
                 </div>
                 <div class="track-meta">
                   <span>{formatDuration(track.duration)}</span>
                   <button
                     class="result-icon-button"
                     type="button"
-                    aria-label={`播放 ${track.title}`}
+                    aria-label={searchCopy.playTrack(track.title)}
                     on:click={() => playTrack(track)}
                   >
                     ▶
@@ -116,12 +117,12 @@
 
       <SurfacePanel padding="spacious">
         <div class="section-heading">
-          <span class="eyebrow">Albums</span>
-          <h3>Open album detail</h3>
+          <span class="eyebrow">{searchCopy.albumsEyebrow}</span>
+          <h3>{searchCopy.albumsTitle}</h3>
         </div>
 
         {#if albums.length === 0}
-          <p class="empty-note">No albums found.</p>
+          <p class="empty-note">{searchCopy.noAlbums}</p>
         {:else}
           <ul class="result-list">
             {#each albums.slice(0, 8) as album}
@@ -135,8 +136,8 @@
                   <div class="artwork">{album.title.charAt(0)}</div>
                   <div class="list-copy">
                     <strong>{album.title}</strong>
-                    <span>{album.artist_name ?? 'Various artists'} · {album.track_count} tracks</span>
-                    <span>Released {album.year ?? 'unknown'}</span>
+                    <span>{searchCopy.albumSummary(album.artist_name ?? commonCopy.variousArtists, album.track_count)}</span>
+                    <span>{commonCopy.releasedAt(String(album.year ?? commonCopy.unknownYear))}</span>
                   </div>
                 </button>
               </li>
@@ -147,12 +148,12 @@
 
       <SurfacePanel padding="spacious">
         <div class="section-heading">
-          <span class="eyebrow">Artists</span>
-          <h3>Jump to artist</h3>
+          <span class="eyebrow">{searchCopy.artistsEyebrow}</span>
+          <h3>{searchCopy.artistsTitle}</h3>
         </div>
 
         {#if artists.length === 0}
-          <p class="empty-note">No artists found.</p>
+          <p class="empty-note">{searchCopy.noArtists}</p>
         {:else}
           <ul class="result-list">
             {#each artists.slice(0, 8) as artist}
@@ -166,8 +167,8 @@
                   <div class="avatar">{artist.name.charAt(0)}</div>
                   <div class="list-copy">
                     <strong>{artist.name}</strong>
-                    <span>{artist.album_count} albums · {artist.track_count} tracks</span>
-                    <span>Added {formatDate(artist.date_added) || 'recently'}</span>
+                    <span>{searchCopy.artistSummary(artist.album_count, artist.track_count)}</span>
+                    <span>{commonCopy.addedAt(formatDate(artist.date_added) || commonCopy.recently)}</span>
                   </div>
                 </button>
               </li>

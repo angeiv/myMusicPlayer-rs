@@ -6,6 +6,7 @@
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';
+  import { commonCopy, settingsCopy } from '../copy/zh-cn';
   import { applyThemeToDocument } from '../features/app-shell/theme';
   import {
     buildNextConfigForSettingsSave,
@@ -53,18 +54,18 @@
   }> = [
     {
       value: 'light',
-      label: 'Light',
-      description: 'Use the calm neutral light theme for the full app shell.',
+      label: settingsCopy.themeOptions.light.label,
+      description: settingsCopy.themeOptions.light.description,
     },
     {
       value: 'dark',
-      label: 'Dark',
-      description: 'Use the dark theme with the same playback and library hierarchy.',
+      label: settingsCopy.themeOptions.dark.label,
+      description: settingsCopy.themeOptions.dark.description,
     },
     {
       value: 'system',
-      label: 'Follow System',
-      description: 'Match the current operating-system theme automatically.',
+      label: settingsCopy.themeOptions.system.label,
+      description: settingsCopy.themeOptions.system.description,
     },
   ];
 
@@ -169,7 +170,7 @@
       dispatch('refreshLibrary');
     } catch (error) {
       console.error('Failed to add library path:', error);
-      alert('Failed to add folder.');
+      alert(commonCopy.addFolderFailed);
     } finally {
       isUpdatingPaths = false;
     }
@@ -186,7 +187,7 @@
       await loadConfig();
     } catch (error) {
       console.error('Failed to remove library path:', error);
-      alert('Failed to remove folder.');
+      alert(commonCopy.removeFolderFailed);
     } finally {
       isUpdatingPaths = false;
     }
@@ -198,7 +199,7 @@
       dispatch('refreshLibrary');
     } catch (error) {
       console.error('Rescan failed:', error);
-      alert('Rescan failed.');
+      alert(commonCopy.rescanFailed);
     }
   }
 
@@ -208,7 +209,7 @@
       dispatch('refreshLibrary');
     } catch (error) {
       console.error('Full scan failed:', error);
-      alert('Full scan failed.');
+      alert(commonCopy.fullScanFailed);
     }
   }
 
@@ -217,7 +218,7 @@
       await cancelLibraryScan();
     } catch (error) {
       console.error('Failed to cancel scan:', error);
-      alert('Failed to cancel scan.');
+      alert(commonCopy.cancelScanFailed);
     }
   }
 
@@ -271,16 +272,16 @@
       void saveConfig({ output_device_id: selectedDeviceId === 'default' ? null : selectedDeviceId });
     } catch (error) {
       console.error('Failed to set output device:', error);
-      alert('Failed to switch output device.');
+      alert(commonCopy.switchOutputDeviceFailed);
     }
   }
 </script>
 
 <section class="settings">
-  <PageHeader title="Settings" subtitle="Manage library maintenance, appearance, playback output, and app details.">
+  <PageHeader title={settingsCopy.title} subtitle={settingsCopy.subtitle}>
     <div slot="actions" class="header-chip">
-      <span>Version {appVersion || 'unknown'}</span>
-      <small>Desktop build</small>
+      <span>{settingsCopy.versionChip(appVersion)}</span>
+      <small>{commonCopy.desktopBuild}</small>
     </div>
   </PageHeader>
 
@@ -288,9 +289,9 @@
     <SurfacePanel padding="spacious">
       <div class="panel-head">
         <div class="panel-copy">
-          <span class="eyebrow">Maintenance</span>
-          <h3>Library</h3>
-          <p>Outside Settings, the shell only shows a lightweight maintenance cue while work is running or needs attention. Detailed watcher state and recovery steps stay here.</p>
+          <span class="eyebrow">{settingsCopy.maintenanceEyebrow}</span>
+          <h3>{settingsCopy.libraryTitle}</h3>
+          <p>{settingsCopy.libraryDescription}</p>
         </div>
         <span class="status-pill" data-tone={scanPresentation.statusTone}>{scanPresentation.title}</span>
       </div>
@@ -298,8 +299,8 @@
       <div class="panel-body">
         {#if libraryPaths.length === 0}
           <EmptyState
-            title="No folders selected yet"
-            body="Add one or more folders to start scanning and keep your library in sync."
+            title={settingsCopy.noFoldersTitle}
+            body={settingsCopy.noFoldersBody}
             align="start"
           >
             <button
@@ -310,7 +311,7 @@
               on:click={handleAddFolder}
               disabled={isUpdatingPaths}
             >
-              Add Folder
+              {settingsCopy.addFolder}
             </button>
           </EmptyState>
         {:else}
@@ -324,9 +325,9 @@
                   type="button"
                   on:click={() => handleRemovePath(path)}
                   disabled={isUpdatingPaths}
-                  aria-label={`Remove folder ${path}`}
+                  aria-label={settingsCopy.removeFolderAria(path)}
                 >
-                  Remove
+                  {settingsCopy.removeFolder}
                 </button>
               </li>
             {/each}
@@ -345,14 +346,14 @@
           <p class="scan-description">{scanPresentation.description}</p>
 
           <div class="scan-status-row scan-status-row--stacked">
-            <span class="scan-label">Auto-sync</span>
+            <span class="scan-label">{settingsCopy.autoSync}</span>
             <span class="scan-current">{scanPresentation.autoSyncSummary}</span>
           </div>
 
           {#if scanPresentation.watchedRoots.length > 0}
             <div class="scan-status-stack">
-              <span class="scan-label">Watched folders</span>
-              <ul class="scan-list" aria-label="Watched folders">
+              <span class="scan-label">{settingsCopy.watchedFolders}</span>
+              <ul class="scan-list" aria-label={settingsCopy.watchedFolders}>
                 {#each scanPresentation.watchedRoots as root}
                   <li>{root}</li>
                 {/each}
@@ -374,7 +375,7 @@
             </div>
           {/if}
 
-          <ul class="scan-metrics" aria-label="Scan summary">
+          <ul class="scan-metrics" aria-label={settingsCopy.scanSummary}>
             {#each scanPresentation.metrics as metric}
               <li data-tone={metric.tone ?? 'default'}>
                 <span>{metric.label}</span>
@@ -390,9 +391,9 @@
             </div>
           {/if}
 
-          {#if scanPresentation.recoveryHint && scanPresentation.actionGuide?.buttonLabel === 'Cancel Scan'}
+          {#if scanPresentation.recoveryHint && scanPresentation.actionGuide?.buttonLabel === settingsCopy.cancelScan}
             <div class="scan-callout" data-tone="active" role="note">
-              <span class="scan-label">What happens next</span>
+              <span class="scan-label">{settingsCopy.whatHappensNext}</span>
               <p class="scan-error-message">{scanPresentation.recoveryHint}</p>
             </div>
           {/if}
@@ -421,7 +422,7 @@
           on:click={handleAddFolder}
           disabled={isUpdatingPaths}
         >
-          Add Folder
+          {settingsCopy.addFolder}
         </button>
         <button
           class="settings-button"
@@ -430,7 +431,7 @@
           on:click={handleRescan}
           disabled={libraryPaths.length === 0 || isUpdatingPaths || isMaintenanceActive}
         >
-          Rescan Now
+          {settingsCopy.rescanNow}
         </button>
         <button
           class="settings-button"
@@ -439,7 +440,7 @@
           on:click={handleFullScan}
           disabled={libraryPaths.length === 0 || isUpdatingPaths || isMaintenanceActive}
         >
-          Full Scan
+          {settingsCopy.fullScan}
         </button>
         {#if isMaintenanceActive}
           <button
@@ -449,7 +450,7 @@
             on:click={handleCancelScan}
             disabled={isUpdatingPaths}
           >
-            Cancel Scan
+            {settingsCopy.cancelScan}
           </button>
         {/if}
       </div>
@@ -458,14 +459,14 @@
     <SurfacePanel padding="spacious">
       <div class="panel-head">
         <div class="panel-copy">
-          <span class="eyebrow">Appearance</span>
-          <h3>Theme</h3>
-          <p>Keep dark and light on the same shell and playback hierarchy.</p>
+          <span class="eyebrow">{settingsCopy.appearanceEyebrow}</span>
+          <h3>{settingsCopy.themeTitle}</h3>
+          <p>{settingsCopy.themeDescription}</p>
         </div>
       </div>
 
       <div class="panel-body panel-body--stacked">
-        <div class="option-grid" on:change={handleThemeChange} role="radiogroup" aria-label="Theme options">
+        <div class="option-grid" on:change={handleThemeChange} role="radiogroup" aria-label={settingsCopy.themeOptionsLabel}>
           {#each themeOptions as option}
             <label class="option-card" data-active={theme === option.value ? 'true' : 'false'}>
               <input type="radio" name="theme" value={option.value} checked={theme === option.value} />
@@ -479,16 +480,16 @@
 
         <label class="toggle-row">
           <span>
-            <strong>Scan library on startup</strong>
-            <small>Automatically run the default sync flow when the app launches.</small>
+            <strong>{settingsCopy.scanOnStartupTitle}</strong>
+            <small>{settingsCopy.scanOnStartupDescription}</small>
           </span>
           <input type="checkbox" checked={autoScan} on:change={handleAutoScanChange} />
         </label>
 
         <label class="slider-row">
           <span>
-            <strong>Default volume</strong>
-            <small>Apply this level to the player before playback starts.</small>
+            <strong>{settingsCopy.defaultVolumeTitle}</strong>
+            <small>{settingsCopy.defaultVolumeDescription}</small>
           </span>
           <div class="slider-control">
             <input
@@ -507,9 +508,9 @@
     <SurfacePanel padding="spacious">
       <div class="panel-head">
         <div class="panel-copy">
-          <span class="eyebrow">Playback</span>
-          <h3>Audio</h3>
-          <p>Route playback to the right device and keep the selected output visible.</p>
+          <span class="eyebrow">{settingsCopy.playbackEyebrow}</span>
+          <h3>{settingsCopy.audioTitle}</h3>
+          <p>{settingsCopy.audioDescription}</p>
         </div>
         <span class="status-pill" data-tone="active">{activeOutputDeviceLabel}</span>
       </div>
@@ -517,14 +518,14 @@
       <div class="panel-body panel-body--stacked">
         <label class="field">
           <span>
-            <strong>Output device</strong>
-            <small>Current output: {activeOutputDeviceLabel}</small>
+            <strong>{settingsCopy.outputDeviceTitle}</strong>
+            <small>{settingsCopy.currentOutput(activeOutputDeviceLabel)}</small>
           </span>
           <select on:change={handleOutputDeviceChange} value={selectedDeviceId}>
-            <option value="default">System default</option>
+            <option value="default">{commonCopy.systemDefault}</option>
             {#each outputDevices as device}
               <option value={device.id}>
-                {device.name}{device.is_default ? ' (default)' : ''}
+                {device.name}{device.is_default ? `（${commonCopy.defaultDevice}）` : ''}
               </option>
             {/each}
           </select>
@@ -532,8 +533,8 @@
       </div>
 
       <div class="action-row">
-        <button class="settings-button" data-variant="secondary" type="button" disabled title="Coming soon">
-          Advanced audio settings
+        <button class="settings-button" data-variant="secondary" type="button" disabled title={commonCopy.comingSoon}>
+          {settingsCopy.advancedAudioSettings}
         </button>
       </div>
     </SurfacePanel>
@@ -541,24 +542,24 @@
     <SurfacePanel padding="spacious">
       <div class="panel-head">
         <div class="panel-copy">
-          <span class="eyebrow">Maintenance</span>
-          <h3>About</h3>
-          <p>Quick application info and a lightweight playlist refresh control.</p>
+          <span class="eyebrow">{settingsCopy.maintenanceEyebrow}</span>
+          <h3>{settingsCopy.aboutTitle}</h3>
+          <p>{settingsCopy.aboutDescription}</p>
         </div>
       </div>
 
       <div class="panel-body">
         <dl class="about-grid">
           <div>
-            <dt>Version</dt>
-            <dd>{appVersion || 'unknown'}</dd>
+            <dt>{settingsCopy.versionLabel}</dt>
+            <dd>{appVersion || commonCopy.unknownVersion}</dd>
           </div>
           <div>
-            <dt>Author</dt>
-            <dd>myMusicPlayer-rs team</dd>
+            <dt>{settingsCopy.authorLabel}</dt>
+            <dd>{settingsCopy.authorValue}</dd>
           </div>
           <div>
-            <dt>License</dt>
+            <dt>{settingsCopy.licenseLabel}</dt>
             <dd>MIT / Apache-2.0</dd>
           </div>
         </dl>
@@ -566,7 +567,7 @@
 
       <div class="action-row">
         <button class="settings-button" data-variant="secondary" type="button" on:click={() => dispatch('refreshPlaylists')}>
-          Reload playlists
+          {settingsCopy.reloadPlaylists}
         </button>
       </div>
     </SurfacePanel>

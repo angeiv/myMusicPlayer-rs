@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
 
   import type { LibraryMaintenanceState } from '../features/library-scan/maintenance';
+  import { commonCopy, shellCopy } from '../copy/zh-cn';
 
   const dispatch = createEventDispatcher();
 
@@ -34,7 +35,7 @@
 
   function formatFollowUpDetail(maintenanceState: LibraryMaintenanceState): string {
     const followUpCount = maintenanceState.dirtyRoots.length || 1;
-    return `${followUpCount} follow-up queued`;
+    return shellCopy.maintenanceQueuedFollowUp(followUpCount);
   }
 
   function resolveMaintenanceCue(
@@ -50,7 +51,7 @@
         title: maintenanceState.title,
         detail: maintenanceState.queuedFollowUp
           ? formatFollowUpDetail(maintenanceState)
-          : 'Running in background',
+          : shellCopy.maintenanceRunning,
       };
     }
 
@@ -58,7 +59,7 @@
       return {
         tone: 'active',
         title: maintenanceState.title,
-        detail: 'Stopping the current pass',
+        detail: shellCopy.maintenanceStopping,
       };
     }
 
@@ -74,7 +75,7 @@
       return {
         tone: 'warning',
         title: maintenanceState.title,
-        detail: 'Open Settings to review',
+        detail: shellCopy.maintenanceReviewInSettings,
       };
     }
 
@@ -82,7 +83,7 @@
       return {
         tone: 'danger',
         title: maintenanceState.title,
-        detail: 'Open Settings to review',
+        detail: shellCopy.maintenanceReviewInSettings,
       };
     }
 
@@ -90,7 +91,7 @@
       return {
         tone: 'warning',
         title: maintenanceState.title,
-        detail: 'Restart from Settings',
+        detail: shellCopy.maintenanceRestartFromSettings,
       };
     }
 
@@ -100,11 +101,11 @@
 
 <header class="top-bar" data-surface="shell">
   <div class="left">
-    <div class="brand" aria-label="My Music">
+    <div class="brand" aria-label={commonCopy.brandName}>
       <span class="brand-mark" aria-hidden="true">MM</span>
       <div class="titles">
-        <span class="app-name">My Music</span>
-        <span class="app-subtitle">Search, browse, and keep playback moving</span>
+        <span class="app-name">{commonCopy.brandName}</span>
+        <span class="app-subtitle">{shellCopy.topbarSubtitle}</span>
       </div>
     </div>
 
@@ -112,12 +113,12 @@
       <span class="search-icon" aria-hidden="true">⌕</span>
       <input
         type="text"
-        placeholder="Search songs, albums, artists..."
+        placeholder={shellCopy.searchPlaceholder}
         value={searchTerm}
         on:input={onSearchInput}
       />
       {#if searchTerm}
-        <button class="clear" type="button" on:click={clearSearch} aria-label="Clear search">✕</button>
+        <button class="clear" type="button" on:click={clearSearch} aria-label={shellCopy.clearSearch}>✕</button>
       {/if}
     </label>
   </div>
@@ -126,7 +127,7 @@
     <a
       class={`maintenance-cue no-drag maintenance-cue--${maintenanceCue.tone}`}
       href="#/settings"
-      aria-label="Open maintenance details in Settings"
+      aria-label={shellCopy.openMaintenanceDetails}
     >
       <span class="maintenance-dot" aria-hidden="true"></span>
       <span class="maintenance-copy">

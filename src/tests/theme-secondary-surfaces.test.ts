@@ -123,11 +123,11 @@ describe('secondary surface theme migration', () => {
       },
     });
 
-    expect(screen.getByRole('heading', { name: 'Home' })).toBeTruthy();
-    expect(screen.getByText('Songs')).toBeTruthy();
-    expect(screen.getByText('Playlists')).toBeTruthy();
-    expect(screen.getByText('Add songs to see them here.')).toBeTruthy();
-    expect(screen.getByText('Scan your library to populate artists.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '首页' })).toBeTruthy();
+    expect(screen.getByText('歌曲')).toBeTruthy();
+    expect(screen.getByText('播放列表')).toBeTruthy();
+    expect(screen.getByText('添加歌曲后会显示在这里。')).toBeTruthy();
+    expect(screen.getByText('扫描音乐库后即可生成艺术家信息。')).toBeTruthy();
     expect(document.querySelector('[data-page-header]')).not.toBeNull();
     expect(document.querySelectorAll('[data-surface-panel]').length).toBeGreaterThan(0);
   });
@@ -145,9 +145,9 @@ describe('secondary surface theme migration', () => {
       },
     });
 
-    expect(screen.getByRole('heading', { name: 'Search' })).toBeTruthy();
-    expect(screen.getByText('Results for “ambient”')).toBeTruthy();
-    expect(screen.getByText('No results yet. Try a different keyword.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '搜索' })).toBeTruthy();
+    expect(screen.getByText('“ambient”的搜索结果')).toBeTruthy();
+    expect(screen.getByText('暂无结果，试试其他关键词。')).toBeTruthy();
     expect(document.querySelector('[data-empty-state]')).not.toBeNull();
   });
 

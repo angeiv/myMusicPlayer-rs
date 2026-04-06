@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
+  import { playlistPickerCopy } from '../../copy/zh-cn';
   import type { Playlist } from '../../types';
 
   export let playlists: Playlist[] = [];
@@ -79,22 +80,22 @@
   <div
     class="playlist-picker"
     role="dialog"
-    aria-label="选择歌单"
+    aria-label={playlistPickerCopy.choosePlaylist}
     aria-modal="false"
     style={`top:${top}px;left:${left}px;max-height:${pickerMaxHeight}px;`}
   >
     <div class="header">
       <div>
-        <p class="label">Add to playlist</p>
-        <h3>选择歌单</h3>
+        <p class="label">{playlistPickerCopy.addToPlaylist}</p>
+        <h3>{playlistPickerCopy.choosePlaylist}</h3>
       </div>
-      <button type="button" class="close" aria-label="关闭歌单选择器" on:click={() => dispatch('close')}>
+      <button type="button" class="close" aria-label={playlistPickerCopy.close} on:click={() => dispatch('close')}>
         ×
       </button>
     </div>
 
     {#if playlists.length === 0}
-      <p class="empty">暂无可用歌单</p>
+      <p class="empty">{playlistPickerCopy.empty}</p>
     {:else}
       <div class="playlist-list" role="list" style={`max-height:${listMaxHeight}px;`}>
         {#each playlists as playlist}

@@ -2,6 +2,7 @@
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';
+  import { commonCopy, homeCopy } from '../copy/zh-cn';
   import type { Album, Artist, Playlist, Track } from '../types';
   import { formatDuration, formatLongDuration } from '../utils/format';
 
@@ -21,25 +22,25 @@
 </script>
 
 <section class="home">
-  <PageHeader title="Home" subtitle="Welcome back. Here’s a snapshot of your collection.">
+  <PageHeader title={homeCopy.title} subtitle={homeCopy.subtitle}>
     <div slot="actions" class="home-summary-chip">
       <span>{formatLongDuration(totalDuration)}</span>
-      <small>Total listening time</small>
+      <small>{homeCopy.totalListeningTime}</small>
     </div>
   </PageHeader>
 
   <div class="stats-grid">
     <SurfacePanel tone="inset" padding="compact">
       <div class="stat-card">
-        <span class="stat-label">Songs</span>
+        <span class="stat-label">{homeCopy.songs}</span>
         <strong>{tracks.length}</strong>
-        <span class="stat-meta">Average length {Math.floor(averageDuration / 60)} min</span>
+        <span class="stat-meta">{homeCopy.averageLength(Math.floor(averageDuration / 60))}</span>
       </div>
     </SurfacePanel>
 
     <SurfacePanel tone="inset" padding="compact">
       <div class="stat-card">
-        <span class="stat-label">Albums</span>
+        <span class="stat-label">{homeCopy.albums}</span>
         <strong>{albums.length}</strong>
         <span class="stat-meta">{formatLongDuration(totalAlbumDuration)}</span>
       </div>
@@ -47,17 +48,17 @@
 
     <SurfacePanel tone="inset" padding="compact">
       <div class="stat-card">
-        <span class="stat-label">Artists</span>
+        <span class="stat-label">{homeCopy.artists}</span>
         <strong>{artists.length}</strong>
-        <span class="stat-meta">Diverse collection</span>
+        <span class="stat-meta">{homeCopy.diverseCollection}</span>
       </div>
     </SurfacePanel>
 
     <SurfacePanel tone="inset" padding="compact">
       <div class="stat-card">
-        <span class="stat-label">Playlists</span>
+        <span class="stat-label">{homeCopy.playlists}</span>
         <strong>{playlists.length}</strong>
-        <span class="stat-meta">Custom mixes</span>
+        <span class="stat-meta">{homeCopy.customMixes}</span>
       </div>
     </SurfacePanel>
   </div>
@@ -65,18 +66,18 @@
   <div class="panel-grid">
     <SurfacePanel padding="spacious">
       <div class="section-heading">
-        <span class="eyebrow">Library</span>
-        <h3>Recently Added Tracks</h3>
+        <span class="eyebrow">{homeCopy.libraryEyebrow}</span>
+        <h3>{homeCopy.recentTracksTitle}</h3>
       </div>
 
       {#if recentTracks.length === 0}
-        <EmptyState title="No recent tracks" body="Add songs to see them here." />
+        <EmptyState title={homeCopy.noRecentTracksTitle} body={homeCopy.noRecentTracksBody} />
       {:else}
         <ul class="summary-list">
           {#each recentTracks as track}
             <li class="summary-card selection-guard">
               <span class="title">{track.title}</span>
-              <span class="meta">{track.artist_name ?? 'Unknown artist'} · {formatDuration(track.duration)}</span>
+              <span class="meta">{track.artist_name ?? commonCopy.unknownArtist} · {formatDuration(track.duration)}</span>
             </li>
           {/each}
         </ul>
@@ -85,18 +86,18 @@
 
     <SurfacePanel padding="spacious">
       <div class="section-heading">
-        <span class="eyebrow">Browse</span>
-        <h3>Top Artists</h3>
+        <span class="eyebrow">{homeCopy.browseEyebrow}</span>
+        <h3>{homeCopy.topArtistsTitle}</h3>
       </div>
 
       {#if leadingArtists.length === 0}
-        <EmptyState title="No artist stats yet" body="Scan your library to populate artists." />
+        <EmptyState title={homeCopy.noArtistStatsTitle} body={homeCopy.noArtistStatsBody} />
       {:else}
         <ul class="summary-list">
           {#each leadingArtists as artist}
             <li class="summary-card selection-guard">
               <span class="title">{artist.name}</span>
-              <span class="meta">{artist.album_count} albums · {artist.track_count} tracks</span>
+              <span class="meta">{homeCopy.artistSummary(artist.album_count, artist.track_count)}</span>
             </li>
           {/each}
         </ul>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
+  import { artistDetailCopy, commonCopy } from '../copy/zh-cn';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';
@@ -114,22 +115,22 @@
 <section class="artist-detail">
   {#if !artistId}
     <EmptyState
-      title="Select an artist"
-      body="Choose an artist from the library to browse their top tracks and discography."
+      title={artistDetailCopy.selectTitle}
+      body={artistDetailCopy.selectBody}
       align="center"
     />
   {:else if loading}
     <EmptyState
-      title="Loading artist"
-      body="Artist details, top tracks, and releases will appear here in a moment."
+      title={artistDetailCopy.loadingTitle}
+      body={artistDetailCopy.loadingBody}
       align="center"
     />
   {:else if error}
-    <EmptyState title="Artist unavailable" body={error} tone="danger" align="center" />
+    <EmptyState title={artistDetailCopy.unavailableTitle} body={error} tone="danger" align="center" />
   {:else if !artist}
     <EmptyState
-      title="Artist not found"
-      body="The selected artist is no longer available in the current library snapshot."
+      title={artistDetailCopy.notFoundTitle}
+      body={artistDetailCopy.notFoundBody}
       align="center"
     />
   {:else}
@@ -137,15 +138,15 @@
       <div class="hero">
         <div class="avatar">{artist.name.charAt(0)}</div>
         <div class="hero-copy">
-          <span class="eyebrow">Artist</span>
-          <PageHeader title={artist.name} subtitle={`${artist.album_count} albums · ${artist.track_count} tracks`}>
+          <span class="eyebrow">{artistDetailCopy.eyebrow}</span>
+          <PageHeader title={artist.name} subtitle={`${artist.album_count} 张专辑 · ${artist.track_count} 首歌曲`}>
             <div slot="actions" class="actions">
-              <button class="primary" on:click={handlePlayPopular}>Play Top Track</button>
-              <button disabled title="Coming soon">Follow</button>
+              <button class="primary" on:click={handlePlayPopular}>{artistDetailCopy.playTopTrack}</button>
+              <button disabled title={commonCopy.comingSoon}>{artistDetailCopy.follow}</button>
             </div>
           </PageHeader>
           <div class="meta">
-            <span>Since {formatDate(artist.date_added) || 'recently'}</span>
+            <span>{artistDetailCopy.since(formatDate(artist.date_added) || commonCopy.recently)}</span>
           </div>
           {#if artist.bio}
             <p class="bio">{artist.bio}</p>
@@ -158,13 +159,13 @@
       <SurfacePanel padding="compact">
         <section class="panel-section popular">
           <header>
-            <h3>Top Tracks</h3>
+            <h3>{artistDetailCopy.topTracks}</h3>
             <span>{formatLongDuration(tracks.reduce((sum, t) => sum + t.duration, 0))}</span>
           </header>
           {#if tracks.length === 0}
             <EmptyState
-              title="No tracks available"
-              body="This artist does not have playable tracks in the current library snapshot yet."
+              title={artistDetailCopy.noTracksTitle}
+              body={artistDetailCopy.noTracksBody}
             />
           {:else}
             <div class="track-table">
@@ -194,13 +195,13 @@
       <SurfacePanel padding="compact">
         <section class="panel-section discography">
           <header>
-            <h3>Discography</h3>
-            <span>{albums.length} releases</span>
+            <h3>{artistDetailCopy.discography}</h3>
+            <span>{artistDetailCopy.releases(albums.length)}</span>
           </header>
           {#if albums.length === 0}
             <EmptyState
-              title="No albums recorded yet"
-              body="Releases will appear here once the artist catalogue contains album metadata."
+              title={artistDetailCopy.noAlbumsTitle}
+              body={artistDetailCopy.noAlbumsBody}
             />
           {:else}
             <div class="albums">
@@ -209,8 +210,8 @@
                   <div class="artwork">{album.title.charAt(0)}</div>
                   <div class="details">
                     <strong>{album.title}</strong>
-                    <span>{album.year ?? 'Year unknown'}</span>
-                    <span>{album.track_count} tracks · {formatLongDuration(album.duration)}</span>
+                    <span>{album.year ?? commonCopy.unknownYear}</span>
+                    <span>{album.track_count} 首歌曲 · {formatLongDuration(album.duration)}</span>
                   </div>
                 </button>
               {/each}

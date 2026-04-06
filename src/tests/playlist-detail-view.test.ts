@@ -183,7 +183,7 @@ describe('PlaylistDetailView', () => {
     render(PlaylistDetailView, { props: { playlistId: 'playlist-1' } });
 
     await screen.findByRole('heading', { name: basePlaylist.name });
-    await fireEvent.click(screen.getByRole('button', { name: /play/i }));
+    await fireEvent.click(screen.getByRole('button', { name: '播放' }));
 
     expect(playbackApiMock.setQueue).toHaveBeenCalledWith([
       availableTrack,
@@ -228,7 +228,7 @@ describe('PlaylistDetailView', () => {
 
     render(PlaylistDetailView, { props: { playlistId: 'playlist-1' } });
 
-    const playButton = await screen.findByRole('button', { name: /play/i });
+    const playButton = await screen.findByRole('button', { name: '播放' });
     expect((playButton as HTMLButtonElement).disabled).toBe(true);
     expect(getHintText(playButton)).toMatch(/无法播放/);
   });
@@ -241,7 +241,7 @@ describe('PlaylistDetailView', () => {
     });
 
     await screen.findByRole('heading', { name: 'After Hours' });
-    await fireEvent.click(screen.getByRole('button', { name: /rename/i }));
+    await fireEvent.click(screen.getByRole('button', { name: '重命名' }));
 
     await waitFor(() => {
       expect(playlistApiMock.updatePlaylistMetadata).toHaveBeenCalledWith(

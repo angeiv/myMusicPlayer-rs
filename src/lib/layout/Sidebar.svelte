@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import type { AppSection, LibraryView, Playlist } from '../types';
+  import { commonCopy, shellCopy } from '../copy/zh-cn';
 
   export let activeSection: AppSection = 'library';
   export let activeLibraryView: LibraryView = 'songs';
@@ -43,13 +44,13 @@
   <div class="brand">
     <div class="brand-mark" aria-hidden="true">MM</div>
     <div class="brand-copy">
-      <h1>My Music</h1>
-      <p>Library, queue, and playback</p>
+      <h1>{commonCopy.brandName}</h1>
+      <p>{shellCopy.brandSubtitle}</p>
     </div>
   </div>
 
   <section class="nav-section" data-sidebar-section="main">
-    <h2>Main</h2>
+    <h2>{shellCopy.sections.main}</h2>
     <button
       type="button"
       class="nav-button"
@@ -57,7 +58,7 @@
       aria-current={activeSection === 'home' ? 'page' : undefined}
       on:click={() => navigate('home')}
     >
-      <span class="nav-label">Home</span>
+      <span class="nav-label">{shellCopy.nav.home}</span>
     </button>
     <button
       type="button"
@@ -66,7 +67,7 @@
       aria-current={activeSection === 'library' ? 'page' : undefined}
       on:click={() => navigate('library', activeLibraryView)}
     >
-      <span class="nav-label">Library</span>
+      <span class="nav-label">{shellCopy.nav.library}</span>
     </button>
     <button
       type="button"
@@ -75,12 +76,12 @@
       aria-current={activeSection === 'settings' ? 'page' : undefined}
       on:click={() => navigate('settings')}
     >
-      <span class="nav-label">Settings</span>
+      <span class="nav-label">{shellCopy.nav.settings}</span>
     </button>
   </section>
 
   <section class="nav-section" data-sidebar-section="library">
-    <h2>Library</h2>
+    <h2>{shellCopy.sections.library}</h2>
     <button
       type="button"
       class="nav-button"
@@ -88,7 +89,7 @@
       aria-current={isLibraryViewActive('songs') ? 'page' : undefined}
       on:click={() => navigate('library', 'songs')}
     >
-      <span class="nav-label">Songs</span>
+      <span class="nav-label">{shellCopy.nav.songs}</span>
       <span class="meta">{counts.songs}</span>
     </button>
     <button
@@ -98,7 +99,7 @@
       aria-current={isLibraryViewActive('albums') ? 'page' : undefined}
       on:click={() => navigate('library', 'albums')}
     >
-      <span class="nav-label">Albums</span>
+      <span class="nav-label">{shellCopy.nav.albums}</span>
       <span class="meta">{counts.albums}</span>
     </button>
     <button
@@ -108,19 +109,19 @@
       aria-current={isLibraryViewActive('artists') ? 'page' : undefined}
       on:click={() => navigate('library', 'artists')}
     >
-      <span class="nav-label">Artists</span>
+      <span class="nav-label">{shellCopy.nav.artists}</span>
       <span class="meta">{counts.artists}</span>
     </button>
   </section>
 
   <section class="nav-section playlists" data-sidebar-section="playlists">
     <div class="section-header">
-      <h2>Playlists</h2>
+      <h2>{shellCopy.sections.playlists}</h2>
       <button type="button" class="create" on:click={handleCreatePlaylist} aria-label="创建播放列表">＋</button>
     </div>
 
     {#if playlists.length === 0}
-      <p class="empty">No playlists yet. Create one to get started.</p>
+      <p class="empty">{shellCopy.emptyPlaylists}</p>
     {:else}
       <ul>
         {#each playlists as playlist}

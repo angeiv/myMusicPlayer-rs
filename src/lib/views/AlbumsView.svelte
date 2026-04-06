@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
 
   import CoverArt from '../components/CoverArt.svelte';
+  import { albumsCopy, commonCopy } from '../copy/zh-cn';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';
@@ -23,18 +24,18 @@
 </script>
 
 <section class="albums-view">
-  <PageHeader title="Albums" subtitle={`${albums.length} albums catalogued`} />
+  <PageHeader title={albumsCopy.title} subtitle={albumsCopy.subtitle(albums.length)} />
 
   {#if isLibraryLoading}
     <EmptyState
-      title="Loading albums"
-      body="Album artwork, counts, and durations will appear here when the library finishes loading."
+      title={albumsCopy.loadingTitle}
+      body={albumsCopy.loadingBody}
       align="center"
     />
   {:else if sortedAlbums.length === 0}
     <EmptyState
-      title="No albums available"
-      body="Add music to your library to populate the album catalogue."
+      title={albumsCopy.emptyTitle}
+      body={albumsCopy.emptyBody}
       align="center"
     />
   {:else}
@@ -50,9 +51,9 @@
             />
             <div class="info">
               <h3>{album.title}</h3>
-              <p>{album.artist_name ?? 'Various artists'}</p>
+              <p>{album.artist_name ?? commonCopy.variousArtists}</p>
               <div class="meta">
-                <span>{album.track_count} tracks</span>
+                <span>{album.track_count} 首歌曲</span>
                 <span>{formatLongDuration(album.duration)}</span>
                 {#if album.year}
                   <span>{album.year}</span>

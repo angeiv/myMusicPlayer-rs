@@ -2,6 +2,7 @@ import type {
   LibraryMaintenanceState,
   LibraryMaintenanceTone,
 } from '../features/library-scan/maintenance';
+import { maintenanceCopy, settingsCopy } from '../copy/zh-cn';
 
 export type SettingsLibraryScanTone = 'default' | 'active' | 'warning' | 'danger' | 'success';
 
@@ -39,10 +40,6 @@ export type SettingsLibraryScanPresentation = {
   sampleError: SettingsLibraryScanCallout | null;
 };
 
-function formatFolderCount(count: number, noun = 'folder'): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
-
 function mapTone(tone: LibraryMaintenanceTone): SettingsLibraryScanTone {
   switch (tone) {
     case 'active':
@@ -76,10 +73,10 @@ function formatMetric(
 
 function formatAutoSyncSummary(maintenance: LibraryMaintenanceState): string {
   if (maintenance.watchedRoots.length > 0) {
-    return `Watching ${formatFolderCount(maintenance.watchedRoots.length)} for automatic sync.`;
+    return maintenanceCopy.autoSyncSummary(maintenance.watchedRoots.length);
   }
 
-  return 'Automatic sync is not watching folders right now.';
+  return maintenanceCopy.autoSyncDisabled;
 }
 
 function formatQueuedFollowUp(maintenance: LibraryMaintenanceState): SettingsLibraryScanCallout | null {
@@ -89,14 +86,14 @@ function formatQueuedFollowUp(maintenance: LibraryMaintenanceState): SettingsLib
 
   if (maintenance.dirtyRoots.length > 0) {
     return {
-      title: 'Queued follow-up',
-      description: `${formatFolderCount(maintenance.dirtyRoots.length, 'watched folder')} changed during this scan. The follow-up pass will start automatically.`,
+      title: maintenanceCopy.queuedFollowUpTitle,
+      description: maintenanceCopy.queuedFollowUpChanged(maintenance.dirtyRoots.length),
     };
   }
 
   return {
-    title: 'Queued follow-up',
-    description: 'A follow-up pass is already queued and will start automatically when the current maintenance state clears.',
+    title: maintenanceCopy.queuedFollowUpTitle,
+    description: maintenanceCopy.queuedFollowUpReady,
   };
 }
 
@@ -106,39 +103,39 @@ function formatActionGuide(
   switch (maintenance.nextStep?.kind) {
     case 'cancel-scan':
       return {
-        title: 'Maintenance control',
-        buttonLabel: 'Cancel Scan',
-        description: 'Use Cancel Scan only if you need to stop the current maintenance pass.',
+        title: maintenanceCopy.maintenanceControlTitle,
+        buttonLabel: settingsCopy.cancelScan,
+        description: maintenanceCopy.maintenanceControlDescription,
       };
     case 'rescan':
       return {
-        title: 'Recommended next step',
-        buttonLabel: 'Rescan Now',
+        title: maintenanceCopy.recommendedNextStep,
+        buttonLabel: settingsCopy.rescanNow,
         description: maintenance.watcherStatus.last_error
-          ? 'After fixing the watcher problem or folder access, use Rescan Now to confirm the library state.'
+          ? maintenanceCopy.rescanDescriptionForWatcher
           : maintenance.scanStatus.phase === 'failed'
-            ? 'After fixing the failing path or metadata issue, use Rescan Now to retry the shared maintenance flow.'
+            ? maintenanceCopy.rescanDescriptionForFailure
             : maintenance.scanStatus.phase === 'cancelled'
-              ? 'Use Rescan Now to restart the shared maintenance flow when you are ready.'
-              : 'Use Rescan Now to run the shared maintenance flow again.',
+              ? maintenanceCopy.rescanDescriptionForCancelled
+              : maintenanceCopy.rescanDescriptionDefault,
       };
     case 'full-scan':
       return {
-        title: 'Recommended next step',
-        buttonLabel: 'Full Scan',
-        description: 'Use Full Scan when you need to rebuild the library state from disk.',
+        title: maintenanceCopy.recommendedNextStep,
+        buttonLabel: settingsCopy.fullScan,
+        description: maintenanceCopy.fullScanDescription,
       };
     case 'review-folders':
       return {
-        title: 'Recommended next step',
-        buttonLabel: 'Add Folder',
-        description: 'Use Add Folder to restore the watched library paths, then run Rescan Now.',
+        title: maintenanceCopy.recommendedNextStep,
+        buttonLabel: settingsCopy.addFolder,
+        description: maintenanceCopy.reviewFoldersDescription,
       };
     case 'wait':
       return {
-        title: 'Maintenance status',
-        buttonLabel: 'Cancel Scan',
-        description: 'Wait for cancellation to finish before starting another maintenance pass.',
+        title: maintenanceCopy.maintenanceControlTitle,
+        buttonLabel: settingsCopy.cancelScan,
+        description: maintenanceCopy.waitDescription,
       };
     default:
       return null;
@@ -152,7 +149,7 @@ function formatWatcherError(maintenance: LibraryMaintenanceState): SettingsLibra
   }
 
   return {
-    title: 'Latest watcher error',
+    title: maintenanceCopy.latestWatcherError,
     description: watcherError,
   };
 }
@@ -162,8 +159,8 @@ function formatSampleError(maintenance: LibraryMaintenanceState): SettingsLibrar
   if (!sample) {
     return maintenance.scanStatus.error_count > 0
       ? {
-          title: 'Latest scan error',
-          description: `${maintenance.scanStatus.error_count} scan error${maintenance.scanStatus.error_count === 1 ? '' : 's'} recorded during the last run.`,
+          title: maintenanceCopy.latestScanError,
+          description: maintenanceCopy.latestScanErrorCount(maintenance.scanStatus.error_count),
         }
       : null;
   }
@@ -172,7 +169,7 @@ function formatSampleError(maintenance: LibraryMaintenanceState): SettingsLibrar
   const prefix = path ? `${path} — ` : '';
 
   return {
-    title: 'Latest scan error',
+    title: maintenanceCopy.latestScanError,
     description: `${prefix}${sample.message}`,
   };
 }
@@ -184,19 +181,19 @@ export function buildSettingsLibraryScanPresentation(
     title: maintenance.title,
     description: maintenance.description,
     statusTone: mapTone(maintenance.tone),
-    currentPathLabel: maintenance.scanStatus.current_path ? 'Current path' : null,
+    currentPathLabel: maintenance.scanStatus.current_path ? maintenanceCopy.currentPath : null,
     currentPath: maintenance.scanStatus.current_path ?? null,
     autoSyncSummary: formatAutoSyncSummary(maintenance),
     watchedRoots: [...maintenance.watchedRoots],
     dirtyRoots: [...maintenance.dirtyRoots],
     metrics: [
-      formatMetric('Files checked', maintenance.scanStatus.processed_files),
-      formatMetric('Added', maintenance.scanStatus.inserted_tracks, { success: true }),
-      formatMetric('Changed', maintenance.scanStatus.changed_tracks, { success: true }),
-      formatMetric('Unchanged', maintenance.scanStatus.unchanged_files),
-      formatMetric('Restored', maintenance.scanStatus.restored_tracks, { success: true }),
-      formatMetric('Missing', maintenance.scanStatus.missing_tracks, { warning: true }),
-      formatMetric('Errors', maintenance.scanStatus.error_count, { danger: true }),
+      formatMetric(maintenanceCopy.filesChecked, maintenance.scanStatus.processed_files),
+      formatMetric(maintenanceCopy.added, maintenance.scanStatus.inserted_tracks, { success: true }),
+      formatMetric(maintenanceCopy.changed, maintenance.scanStatus.changed_tracks, { success: true }),
+      formatMetric(maintenanceCopy.unchanged, maintenance.scanStatus.unchanged_files),
+      formatMetric(maintenanceCopy.restored, maintenance.scanStatus.restored_tracks, { success: true }),
+      formatMetric(maintenanceCopy.missing, maintenance.scanStatus.missing_tracks, { warning: true }),
+      formatMetric(maintenanceCopy.errors, maintenance.scanStatus.error_count, { danger: true }),
     ],
     queuedFollowUp: formatQueuedFollowUp(maintenance),
     recoveryHint: maintenance.recoveryHint,

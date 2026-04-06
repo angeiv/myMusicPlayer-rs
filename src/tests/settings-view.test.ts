@@ -161,30 +161,30 @@ describe('SettingsView maintenance panel', () => {
       }),
     });
 
-    await screen.findByLabelText('Remove folder /music');
+    await screen.findByLabelText('移除文件夹 /music');
 
-    expect(screen.getAllByText('Incremental sync in progress').length).toBeGreaterThan(0);
-    expect(screen.getByText('Watching 2 folders for automatic sync.')).toBeTruthy();
-    expect(screen.getByText('Queued follow-up')).toBeTruthy();
+    expect(screen.getAllByText('增量同步进行中').length).toBeGreaterThan(0);
+    expect(screen.getByText('正在监听 2 个文件夹，自动同步已开启。')).toBeTruthy();
+    expect(screen.getByText('已排队的后续任务')).toBeTruthy();
     expect(
-      screen.getByText('1 watched folder changed during this scan. The follow-up pass will start automatically.'),
+      screen.getByText('本次扫描期间有 1 个监听文件夹发生变化，后续扫描会自动开始。'),
     ).toBeTruthy();
-    expect(screen.getByText('Current path')).toBeTruthy();
+    expect(screen.getByText('当前路径')).toBeTruthy();
     expect(screen.getByText('/music/live/new-track.flac')).toBeTruthy();
 
-    const watchedFolders = screen.getByRole('list', { name: 'Watched folders' });
+    const watchedFolders = screen.getByRole('list', { name: '监听中的文件夹' });
     expect(within(watchedFolders).getByText('/music')).toBeTruthy();
     expect(within(watchedFolders).getByText('/music/live')).toBeTruthy();
 
     const maintenanceStatus = document.querySelector('[data-testid="settings-maintenance-status"]');
     expect(maintenanceStatus?.getAttribute('data-tone')).toBe('active');
 
-    expect(screen.getByText('Maintenance control')).toBeTruthy();
-    expect(screen.getByText('Use Cancel Scan only if you need to stop the current maintenance pass.')).toBeTruthy();
+    expect(screen.getByText('维护控制')).toBeTruthy();
+    expect(screen.getByText('只有在确实需要停止当前维护流程时才使用“取消扫描”。')).toBeTruthy();
 
-    const rescanButton = screen.getByRole('button', { name: /rescan now/i }) as HTMLButtonElement;
-    const fullScanButton = screen.getByRole('button', { name: 'Full Scan' }) as HTMLButtonElement;
-    const cancelButton = screen.getByRole('button', { name: 'Cancel Scan' }) as HTMLButtonElement;
+    const rescanButton = screen.getByRole('button', { name: '立即重扫' }) as HTMLButtonElement;
+    const fullScanButton = screen.getByRole('button', { name: '完整扫描' }) as HTMLButtonElement;
+    const cancelButton = screen.getByRole('button', { name: '取消扫描' }) as HTMLButtonElement;
 
     expect(rescanButton.disabled).toBe(true);
     expect(fullScanButton.disabled).toBe(true);
@@ -214,19 +214,19 @@ describe('SettingsView maintenance panel', () => {
       }),
     });
 
-    await screen.findByLabelText('Remove folder /music');
+    await screen.findByLabelText('移除文件夹 /music');
 
-    expect(screen.getAllByText('Auto-sync needs attention').length).toBeGreaterThan(0);
-    expect(screen.getByText('Latest watcher error')).toBeTruthy();
+    expect(screen.getAllByText('自动同步需要处理').length).toBeGreaterThan(0);
+    expect(screen.getByText('最近一次监听错误')).toBeTruthy();
     expect(screen.getByText('Failed to refresh watcher roots: permission denied')).toBeTruthy();
-    expect(screen.getByText('Latest scan error')).toBeTruthy();
+    expect(screen.getByText('最近一次扫描错误')).toBeTruthy();
     expect(
       screen.getByText('/detached-disk — Root path does not exist or is not a directory'),
     ).toBeTruthy();
-    expect(screen.getByText('Recommended next step')).toBeTruthy();
+    expect(screen.getByText('建议的下一步')).toBeTruthy();
     expect(
       screen.getByText(
-        'After fixing the watcher problem or folder access, use Rescan Now to confirm the library state.',
+        '修复监听器问题或文件夹访问后，使用“立即重扫”确认音乐库状态。',
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/missing track/i)).toBeNull();
@@ -234,8 +234,8 @@ describe('SettingsView maintenance panel', () => {
     const maintenanceStatus = document.querySelector('[data-testid="settings-maintenance-status"]');
     expect(maintenanceStatus?.getAttribute('data-tone')).toBe('warning');
 
-    expect((screen.getByRole('button', { name: /rescan now/i }) as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByRole('button', { name: 'Full Scan' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: '立即重扫' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: '完整扫描' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('renders idle auto-sync state without stale failure callouts', async () => {
@@ -249,15 +249,15 @@ describe('SettingsView maintenance panel', () => {
       }),
     });
 
-    await screen.findByLabelText('Remove folder /music');
+    await screen.findByLabelText('移除文件夹 /music');
 
-    expect(screen.getAllByText('Auto-sync ready').length).toBeGreaterThan(0);
-    expect(screen.getByText('Watching 1 folder for automatic sync.')).toBeTruthy();
-    expect(screen.getByRole('list', { name: 'Watched folders' })).toBeTruthy();
-    expect(screen.queryByText('Queued follow-up')).toBeNull();
-    expect(screen.queryByText('Latest watcher error')).toBeNull();
-    expect(screen.queryByText('Latest scan error')).toBeNull();
-    expect(screen.queryByText('Recommended next step')).toBeNull();
+    expect(screen.getAllByText('自动同步已就绪').length).toBeGreaterThan(0);
+    expect(screen.getByText('正在监听 1 个文件夹，自动同步已开启。')).toBeTruthy();
+    expect(screen.getByRole('list', { name: '监听中的文件夹' })).toBeTruthy();
+    expect(screen.queryByText('已排队的后续任务')).toBeNull();
+    expect(screen.queryByText('最近一次监听错误')).toBeNull();
+    expect(screen.queryByText('最近一次扫描错误')).toBeNull();
+    expect(screen.queryByText('建议的下一步')).toBeNull();
   });
 
   it('renders clean completion as recovered maintenance state', async () => {
@@ -276,15 +276,15 @@ describe('SettingsView maintenance panel', () => {
       }),
     });
 
-    await screen.findByLabelText('Remove folder /music');
+    await screen.findByLabelText('移除文件夹 /music');
 
-    expect(screen.getAllByText('Incremental sync complete').length).toBeGreaterThan(0);
-    expect(screen.getByText('Watching 1 folder for automatic sync.')).toBeTruthy();
+    expect(screen.getAllByText('增量同步已完成').length).toBeGreaterThan(0);
+    expect(screen.getByText('正在监听 1 个文件夹，自动同步已开启。')).toBeTruthy();
     expect(document.querySelector('[data-testid="settings-maintenance-status"]')?.getAttribute('data-tone')).toBe(
       'success',
     );
-    expect(screen.queryByText('Latest watcher error')).toBeNull();
-    expect(screen.queryByText('Latest scan error')).toBeNull();
+    expect(screen.queryByText('最近一次监听错误')).toBeNull();
+    expect(screen.queryByText('最近一次扫描错误')).toBeNull();
   });
 
   it('keeps the detailed watcher diagnostics in Settings and explains that the shell cue stays lightweight', async () => {
@@ -307,15 +307,15 @@ describe('SettingsView maintenance panel', () => {
       }),
     });
 
-    await screen.findByLabelText('Remove folder /music');
+    await screen.findByLabelText('移除文件夹 /music');
 
     expect(
       screen.getByText(
-        'Outside Settings, the shell only shows a lightweight maintenance cue while work is running or needs attention. Detailed watcher state and recovery steps stay here.',
+        '离开“设置”后，壳层只显示简洁的维护提示；详细的监听状态和恢复建议统一保留在这里。',
       ),
     ).toBeTruthy();
-    expect(screen.getByText('Latest watcher error')).toBeTruthy();
-    expect(screen.getByText('Latest scan error')).toBeTruthy();
+    expect(screen.getByText('最近一次监听错误')).toBeTruthy();
+    expect(screen.getByText('最近一次扫描错误')).toBeTruthy();
   });
 
   it('keeps rescan and full-scan actions wired through the settings controls', async () => {
@@ -329,10 +329,10 @@ describe('SettingsView maintenance panel', () => {
       refreshLibrary,
     });
 
-    await screen.findByLabelText('Remove folder /music');
+    await screen.findByLabelText('移除文件夹 /music');
 
-    await fireEvent.click(screen.getByRole('button', { name: /rescan now/i }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Full Scan' }));
+    await fireEvent.click(screen.getByRole('button', { name: '立即重扫' }));
+    await fireEvent.click(screen.getByRole('button', { name: '完整扫描' }));
 
     await waitFor(() => {
       expect(runLibraryScan).toHaveBeenCalledWith(['/music']);
@@ -356,8 +356,8 @@ describe('SettingsView maintenance panel', () => {
       cancelLibraryScan,
     });
 
-    await screen.findByLabelText('Remove folder /music');
-    await fireEvent.click(screen.getByRole('button', { name: 'Cancel Scan' }));
+    await screen.findByLabelText('移除文件夹 /music');
+    await fireEvent.click(screen.getByRole('button', { name: '取消扫描' }));
 
     expect(cancelLibraryScan).toHaveBeenCalledTimes(1);
   });

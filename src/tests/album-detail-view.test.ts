@@ -177,7 +177,7 @@ describe('AlbumDetailView', () => {
     render(AlbumDetailView, { props: { albumId: baseAlbum.id } });
 
     await screen.findByRole('heading', { name: baseAlbum.title });
-    await fireEvent.click(screen.getByRole('button', { name: /play/i }));
+    await fireEvent.click(screen.getByRole('button', { name: /播放/i }));
 
     expect(playbackApiMock.setQueue).toHaveBeenCalledWith([
       availableIntroTrack,
@@ -251,7 +251,7 @@ describe('AlbumDetailView', () => {
 
     render(AlbumDetailView, { props: { albumId: baseAlbum.id } });
 
-    const playButton = await screen.findByRole('button', { name: /play/i });
+    const playButton = await screen.findByRole('button', { name: /播放/i });
     expect((playButton as HTMLButtonElement).disabled).toBe(true);
     expect(getHintText(playButton)).toMatch(/无法播放/);
   });

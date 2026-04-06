@@ -38,6 +38,7 @@
     type SongsSortDirection,
     type SongsSortKey,
   } from '../features/songs-list/sort-filter';
+  import { songsCopy } from '../copy/zh-cn';
   import { getMissingTrackPlayMessage, getPlayableTracks } from '../utils/track-availability';
   import type { Playlist, Track } from '../types';
 
@@ -118,7 +119,7 @@
   $: playSelectedHint =
     visibleSelectionCount > 0 && !canPlaySelected ? getMissingTrackPlayMessage('selection') : '';
   $: canAddToPlaylist = playlists.length > 0;
-  $: addToPlaylistHint = canAddToPlaylist ? '' : '请先创建歌单';
+  $: addToPlaylistHint = canAddToPlaylist ? '' : songsCopy.addToPlaylistHint;
 
   $: {
     const nextSelection = reconcileSelection(
@@ -486,7 +487,7 @@
 </script>
 
 <div class="songs-view">
-  <PageHeader title="Songs" subtitle={`${tracks.length} tracks in your library`} />
+  <PageHeader title={songsCopy.title} subtitle={songsCopy.subtitle(tracks.length)} />
 
   {#if feedback}
     <SurfacePanel tone="inset" padding="compact">
@@ -518,14 +519,14 @@
     <div class="songs-view__content">
       {#if isLibraryLoading}
         <EmptyState
-          title="Scanning library"
-          body="We’re indexing your library and will populate songs here when the scan completes."
+          title={songsCopy.scanningTitle}
+          body={songsCopy.scanningBody}
           align="center"
         />
       {:else if visibleTracks.length === 0}
         <EmptyState
-          title="No songs matched your search"
-          body="Try a different keyword or clear the current filter to browse the full library."
+          title={songsCopy.emptySearchTitle}
+          body={songsCopy.emptySearchBody}
           align="center"
         />
       {:else}

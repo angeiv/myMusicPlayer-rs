@@ -3,6 +3,7 @@
 
   import { getAlbum, getTracksByAlbum } from '../api/library';
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
+  import { albumDetailCopy, commonCopy } from '../copy/zh-cn';
   import TrackActionRow from '../components/library/TrackActionRow.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
@@ -145,22 +146,22 @@
 <section class="album-detail">
   {#if !albumId}
     <EmptyState
-      title="Select an album"
-      body="Choose an album from the library to inspect its tracks and playback actions."
+      title={albumDetailCopy.selectTitle}
+      body={albumDetailCopy.selectBody}
       align="center"
     />
   {:else if loading}
     <EmptyState
-      title="Loading album"
-      body="Track metadata and playback actions will appear here in a moment."
+      title={albumDetailCopy.loadingTitle}
+      body={albumDetailCopy.loadingBody}
       align="center"
     />
   {:else if error}
-    <EmptyState title="Album unavailable" body={error} tone="danger" align="center" />
+    <EmptyState title={albumDetailCopy.unavailableTitle} body={error} tone="danger" align="center" />
   {:else if !album}
     <EmptyState
-      title="Album not found"
-      body="The selected album is no longer available in the current library snapshot."
+      title={albumDetailCopy.notFoundTitle}
+      body={albumDetailCopy.notFoundBody}
       align="center"
     />
   {:else}
@@ -174,10 +175,10 @@
       <div class="hero">
         <div class="artwork">{album.title.charAt(0)}</div>
         <div class="hero-copy">
-          <span class="eyebrow">Album</span>
+          <span class="eyebrow">{albumDetailCopy.eyebrow}</span>
           <PageHeader
             title={album.title}
-            subtitle={album.artist_name ?? 'Various artists'}
+            subtitle={album.artist_name ?? commonCopy.variousArtists}
           >
             <div slot="actions" class="actions">
               <button
@@ -187,18 +188,18 @@
                 title={!canPlayAlbum ? heroPlayHint : undefined}
                 on:click={handlePlayAll}
               >
-                ▶ Play
+                ▶ {albumDetailCopy.play}
               </button>
-              <button disabled title="Coming soon">☆ Favorite</button>
+              <button disabled title={commonCopy.comingSoon}>☆ {albumDetailCopy.favorite}</button>
             </div>
           </PageHeader>
           <div class="meta">
-            <span>{album.track_count} tracks</span>
+            <span>{album.track_count} 首歌曲</span>
             <span>{formatLongDuration(album.duration)}</span>
             {#if album.year}
               <span>{album.year}</span>
             {/if}
-            <span>Added {formatDate(album.date_added) || 'recently'}</span>
+            <span>{commonCopy.addedAt(formatDate(album.date_added) || commonCopy.recently)}</span>
           </div>
           {#if !canPlayAlbum}
             <span id={heroPlayHintId} class="sr-only">{heroPlayHint}</span>
@@ -208,11 +209,11 @@
     </SurfacePanel>
 
     <SurfacePanel padding="compact">
-      <div class="tracks" role="table" aria-label="Album tracks">
+      <div class="tracks" role="table" aria-label={albumDetailCopy.tableAriaLabel}>
         <div class="track-header" role="row">
           <div>#</div>
-          <div>Title</div>
-          <div>Duration</div>
+          <div>{albumDetailCopy.columns.title}</div>
+          <div>{albumDetailCopy.columns.duration}</div>
         </div>
         <div class="track-body">
           {#each tracks as track, index}

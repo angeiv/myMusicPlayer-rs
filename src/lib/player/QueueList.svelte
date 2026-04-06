@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { commonCopy } from '../copy/zh-cn';
   import { getPlaybackSurfaceAvailability } from '../utils/track-availability';
   import type { PlaybackStateInfo, Track } from '../types';
 
@@ -77,7 +78,7 @@
               <span class="index">{index + 1}</span>
               <div class="queue-copy">
                 <p class="queue-title">{track.title}</p>
-                <p class="queue-artist">{track.artist_name ?? 'Unknown Artist'}</p>
+                <p class="queue-artist">{track.artist_name ?? commonCopy.unknownArtist}</p>
                 {#if availability.badge || availabilityDescription}
                   <div class="queue-meta-line">
                     {#if availability.badge}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
+  import { artistsCopy } from '../copy/zh-cn';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';
@@ -22,18 +23,18 @@
 </script>
 
 <section class="artists-view">
-  <PageHeader title="Artists" subtitle={`${artists.length} artists discovered`} />
+  <PageHeader title={artistsCopy.title} subtitle={artistsCopy.subtitle(artists.length)} />
 
   {#if isLibraryLoading}
     <EmptyState
-      title="Loading artists"
-      body="Artist summaries and catalogue counts will appear here when the library is ready."
+      title={artistsCopy.loadingTitle}
+      body={artistsCopy.loadingBody}
       align="center"
     />
   {:else if sortedArtists.length === 0}
     <EmptyState
-      title="No artists found"
-      body="Add music to the library to start browsing artists."
+      title={artistsCopy.emptyTitle}
+      body={artistsCopy.emptyBody}
       align="center"
     />
   {:else}
@@ -44,8 +45,8 @@
             <div class="avatar">{artist.name.charAt(0)}</div>
             <div class="details">
               <h3>{artist.name}</h3>
-              <p>{artist.album_count} albums · {artist.track_count} tracks</p>
-              <span class="meta">Joined {formatDate(artist.date_added) || 'recently'}</span>
+              <p>{artist.album_count} 张专辑 · {artist.track_count} 首歌曲</p>
+              <span class="meta">{artistsCopy.joinedAt(formatDate(artist.date_added) || '最近')}</span>
             </div>
           </button>
         {/each}

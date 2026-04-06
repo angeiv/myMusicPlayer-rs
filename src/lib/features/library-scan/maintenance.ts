@@ -6,6 +6,7 @@ import {
   type ScanPhase,
   type ScanStatus,
 } from '../../types';
+import { formatFolderCount, maintenanceCopy } from '../../copy/zh-cn';
 
 export type LibraryMaintenanceTone = 'default' | 'active' | 'warning' | 'danger' | 'success';
 
@@ -37,13 +38,9 @@ export type LibraryMaintenanceState = {
 };
 
 function getScanLabel(mode: ScanMode | null | undefined): string {
-  if (mode === 'incremental') return 'Incremental sync';
-  if (mode === 'full') return 'Full scan';
-  return 'Library scan';
-}
-
-function formatFolderCount(count: number): string {
-  return `${count} folder${count === 1 ? '' : 's'}`;
+  if (mode === 'incremental') return maintenanceCopy.scanLabels.incremental;
+  if (mode === 'full') return maintenanceCopy.scanLabels.full;
+  return maintenanceCopy.scanLabels.generic;
 }
 
 function isActivePhase(phase: ScanPhase | null | undefined): boolean {
@@ -89,19 +86,19 @@ export function buildLibraryMaintenanceState(
       queuedFollowUp,
       activePhase,
       lastError,
-      title: `${scanLabel} in progress`,
+      title: `${scanLabel}进行中`,
       description: queuedFollowUp
-        ? 'Scanning the library now. Auto-sync already queued one follow-up pass for newer file changes.'
+        ? '当前正在扫描音乐库。自动同步已经为较新的文件变更排队了一次后续扫描。'
         : watchedRoots.length > 0
-          ? `Scanning the library now while watching ${formatFolderCount(watchedRoots.length)} for follow-up changes.`
-          : 'Scanning the library now through the shared maintenance flow.',
+          ? `当前正在扫描音乐库，并监听${formatFolderCount(watchedRoots.length)}中的后续变更。`
+          : '当前正在通过统一维护流程扫描音乐库。',
       tone: 'active',
       recoveryHint: queuedFollowUp
-        ? 'Let the current scan finish. The queued follow-up will run automatically.'
+        ? '请等待当前扫描结束，后续扫描会自动运行。'
         : null,
       nextStep: {
         kind: 'cancel-scan',
-        label: 'Cancel scan',
+        label: maintenanceCopy.nextStepLabels.cancelScan,
       },
     };
   }
@@ -115,25 +112,25 @@ export function buildLibraryMaintenanceState(
       queuedFollowUp,
       activePhase,
       lastError,
-      title: scanStatus.mode ? `Cancelling ${scanLabel.toLowerCase()}` : 'Cancelling scan',
+      title: scanStatus.mode ? `正在取消${scanLabel}` : '正在取消扫描',
       description: queuedFollowUp
-        ? 'Cancelling the current scan. Auto-sync already queued one follow-up pass for newer file changes.'
-        : 'Cancelling the current maintenance pass.',
+        ? '正在取消当前扫描。自动同步已经为较新的文件变更排队了一次后续扫描。'
+        : '正在取消当前维护流程。',
       tone: 'active',
       recoveryHint: queuedFollowUp
-        ? 'Let the current scan finish. The queued follow-up will run automatically.'
-        : 'Wait for cancellation to finish before starting another maintenance pass.',
+        ? '请等待当前扫描结束，后续扫描会自动运行。'
+        : '请等待取消完成，再开始下一次维护流程。',
       nextStep: {
         kind: 'wait',
-        label: 'Waiting for cancellation',
+        label: maintenanceCopy.nextStepLabels.wait,
       },
     };
   }
 
   if (watcherStatus.last_error) {
     const watchingDescription = watchedRoots.length
-      ? `Watching ${formatFolderCount(watchedRoots.length)}, but the last watcher update failed before a follow-up sync could start.`
-      : 'The watcher is not monitoring any folders right now, so changes on disk will not sync automatically.';
+      ? `正在监听 ${formatFolderCount(watchedRoots.length)}，但最近一次监听更新失败，后续同步尚未启动。`
+      : '当前没有监听任何文件夹，磁盘上的变更不会自动同步。';
 
     return {
       scanStatus,
@@ -143,15 +140,19 @@ export function buildLibraryMaintenanceState(
       queuedFollowUp,
       activePhase,
       lastError,
-      title: watchedRoots.length > 0 ? 'Auto-sync needs attention' : 'Auto-sync is not watching folders',
+      title: watchedRoots.length > 0
+        ? maintenanceCopy.autoSyncNeedsAttention
+        : maintenanceCopy.autoSyncNotWatching,
       description: watchingDescription,
       tone: watchedRoots.length > 0 ? 'warning' : 'danger',
       recoveryHint: watchedRoots.length > 0
-        ? 'Fix the watcher problem or folder access, then run Rescan Now to confirm the library state.'
-        : 'Review your library folders, then run Rescan Now to rebuild the maintenance baseline.',
+        ? '修复监听器问题或文件夹访问后，使用“立即重扫”确认音乐库状态。'
+        : '检查音乐库文件夹后，使用“立即重扫”重建维护基线。',
       nextStep: {
         kind: watchedRoots.length > 0 ? 'rescan' : 'review-folders',
-        label: watchedRoots.length > 0 ? 'Rescan Now' : 'Review folders',
+        label: watchedRoots.length > 0
+          ? maintenanceCopy.nextStepLabels.rescan
+          : maintenanceCopy.nextStepLabels.reviewFolders,
       },
     };
   }
@@ -165,13 +166,13 @@ export function buildLibraryMaintenanceState(
       queuedFollowUp,
       activePhase,
       lastError,
-      title: scanStatus.mode ? `${scanLabel} failed` : 'Scan failed',
-      description: `The last ${scanLabel.toLowerCase()} stopped before finishing.`,
+      title: scanStatus.mode ? `${scanLabel}失败` : '扫描失败',
+      description: `上一次${scanLabel}未能完成。`,
       tone: 'danger',
-      recoveryHint: 'Fix the failing path or metadata issue, then run Rescan Now or Full Scan.',
+      recoveryHint: '修复出错路径或元数据问题后，执行“立即重扫”或“完整扫描”。',
       nextStep: {
         kind: 'rescan',
-        label: 'Rescan Now',
+        label: maintenanceCopy.nextStepLabels.rescan,
       },
     };
   }
@@ -185,13 +186,13 @@ export function buildLibraryMaintenanceState(
       queuedFollowUp,
       activePhase,
       lastError,
-      title: 'Auto-sync follow-up queued',
-      description: 'A follow-up maintenance pass is queued and will start as soon as the current scan state clears.',
+      title: maintenanceCopy.autoSyncFollowUpQueued,
+      description: '后续维护流程已经排队，会在当前扫描状态清空后立即开始。',
       tone: 'warning',
-      recoveryHint: 'Keep the app open until the queued follow-up starts, or run Rescan Now if you need to retry manually.',
+      recoveryHint: '请保持应用开启，等待后续扫描自动开始；如果需要手动重试，也可以执行“立即重扫”。',
       nextStep: {
         kind: 'rescan',
-        label: 'Rescan Now',
+        label: maintenanceCopy.nextStepLabels.rescan,
       },
     };
   }
@@ -207,18 +208,18 @@ export function buildLibraryMaintenanceState(
       queuedFollowUp,
       activePhase,
       lastError,
-      title: `${scanLabel} complete`,
+      title: `${scanLabel}已完成`,
       description: watchedRoots.length > 0
-        ? `Watching ${formatFolderCount(watchedRoots.length)} for changes. The last pass ${completedWithIssues ? 'finished with issues.' : 'finished cleanly.'}`
-        : `The last maintenance pass ${completedWithIssues ? 'finished with issues.' : 'finished cleanly.'}`,
+        ? `正在监听 ${formatFolderCount(watchedRoots.length)} 变更。上一次维护${completedWithIssues ? '有异常结束。' : '已正常完成。'}`
+        : `上一次维护${completedWithIssues ? '有异常结束。' : '已正常完成。'}`,
       tone: completedWithIssues ? 'warning' : 'success',
       recoveryHint: completedWithIssues
-        ? 'Review the latest scan error before running the next rescan.'
+        ? '请先查看最近一次扫描错误，再进行下一次重扫。'
         : null,
       nextStep: completedWithIssues
         ? {
             kind: 'rescan',
-            label: 'Rescan Now',
+            label: maintenanceCopy.nextStepLabels.rescan,
           }
         : null,
     };
@@ -233,13 +234,13 @@ export function buildLibraryMaintenanceState(
       queuedFollowUp,
       activePhase,
       lastError,
-      title: scanStatus.mode ? `${scanLabel} cancelled` : 'Scan cancelled',
-      description: 'The last maintenance pass was cancelled before it finished.',
+      title: scanStatus.mode ? `${scanLabel}已取消` : '扫描已取消',
+      description: '上一次维护在完成前已被取消。',
       tone: 'warning',
-      recoveryHint: 'Run Rescan Now when you are ready to restart maintenance.',
+      recoveryHint: '准备好后，可执行“立即重扫”重新开始维护。',
       nextStep: {
         kind: 'rescan',
-        label: 'Rescan Now',
+        label: maintenanceCopy.nextStepLabels.rescan,
       },
     };
   }
@@ -253,8 +254,8 @@ export function buildLibraryMaintenanceState(
       queuedFollowUp,
       activePhase,
       lastError,
-      title: 'Auto-sync ready',
-      description: `Watching ${formatFolderCount(watchedRoots.length)} for changes. Manual rescans use the same maintenance flow.`,
+      title: maintenanceCopy.autoSyncReady,
+      description: `正在监听 ${formatFolderCount(watchedRoots.length)} 变更，手动重扫也会沿用同一套维护流程。`,
       tone: 'default',
       recoveryHint: null,
       nextStep: null,
@@ -269,8 +270,8 @@ export function buildLibraryMaintenanceState(
     queuedFollowUp,
     activePhase,
     lastError,
-    title: 'No scan running',
-    description: 'Add folders or run a rescan to start the shared maintenance flow.',
+    title: maintenanceCopy.noScanRunning,
+    description: '添加文件夹或执行重扫即可启动统一维护流程。',
     tone: 'default',
     recoveryHint: null,
     nextStep: null,

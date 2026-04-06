@@ -1,14 +1,15 @@
 import type { OutputDeviceInfo } from '../types';
+import { commonCopy } from '../copy/zh-cn';
 
 export function describeSelectedOutputDevice(
   outputDevices: OutputDeviceInfo[],
   selectedDeviceId: string,
 ): string {
   if (!selectedDeviceId || selectedDeviceId === 'default') {
-    return 'System default';
+    return commonCopy.systemDefault;
   }
 
-  return outputDevices.find((device) => device.id === selectedDeviceId)?.name ?? 'System default';
+  return outputDevices.find((device) => device.id === selectedDeviceId)?.name ?? commonCopy.systemDefault;
 }
 
 export async function hydrateOutputDeviceState(deps: {

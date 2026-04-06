@@ -21,6 +21,7 @@
     removeFromPlaylist,
     updatePlaylistMetadata,
   } from '../api/playlist';
+  import { commonCopy, playlistDetailCopy } from '../copy/zh-cn';
   import TrackActionRow from '../components/library/TrackActionRow.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
@@ -120,7 +121,7 @@
         console.error('Failed to load playlist detail:', err);
         playlist = null;
         tracks = [];
-        error = 'Unable to load playlist.';
+        error = '无法加载播放列表。';
       },
       onFinally: () => {
         if (lastRequestedId === id) {
@@ -184,13 +185,13 @@
       await loadPlaylist(playlistId, { force: true });
     } catch (err) {
       console.error('Failed to remove track:', err);
-      alert('Failed to remove track from playlist.');
+      alert(playlistDetailCopy.removeTrackFailed);
     }
   }
 
   async function handleRename() {
     if (!playlistId || !playlist) return;
-    const name = window.prompt('Rename playlist', playlist.name);
+    const name = window.prompt(playlistDetailCopy.renamePrompt, playlist.name);
     if (!name || name.trim() === playlist.name) return;
 
     const trimmed = name.trim();
@@ -201,7 +202,7 @@
       dispatch('refreshPlaylists');
     } catch (err) {
       console.error('Failed to rename playlist:', err);
-      alert('Could not rename playlist.');
+      alert(playlistDetailCopy.renameFailed);
     }
   }
 </script>
@@ -209,22 +210,22 @@
 <section class="playlist-detail">
   {#if !playlistId}
     <EmptyState
-      title="Select a playlist"
-      body="Choose a playlist from the library to inspect, play, or manage its tracks."
+      title={playlistDetailCopy.selectTitle}
+      body={playlistDetailCopy.selectBody}
       align="center"
     />
   {:else if loading}
     <EmptyState
-      title="Loading playlist"
-      body="Track metadata and playlist actions will appear here in a moment."
+      title={playlistDetailCopy.loadingTitle}
+      body={playlistDetailCopy.loadingBody}
       align="center"
     />
   {:else if error}
-    <EmptyState title="Playlist unavailable" body={error} tone="danger" align="center" />
+    <EmptyState title={playlistDetailCopy.unavailableTitle} body={error} tone="danger" align="center" />
   {:else if !playlist}
     <EmptyState
-      title="Playlist not found"
-      body="The selected playlist is no longer available in the current library snapshot."
+      title={playlistDetailCopy.notFoundTitle}
+      body={playlistDetailCopy.notFoundBody}
       align="center"
     />
   {:else}
@@ -238,8 +239,8 @@
       <div class="hero">
         <div class="artwork">{playlist.name.charAt(0)}</div>
         <div class="hero-copy">
-          <span class="eyebrow">Playlist</span>
-          <PageHeader title={playlist.name} subtitle={playlist.description ?? 'No description yet.'}>
+          <span class="eyebrow">{playlistDetailCopy.eyebrow}</span>
+          <PageHeader title={playlist.name} subtitle={playlist.description ?? commonCopy.noDescriptionYet}>
             <div slot="actions" class="hero-actions">
               <button
                 class="primary"
@@ -248,17 +249,17 @@
                 title={!canPlayPlaylist ? heroPlayHint : undefined}
                 on:click={handlePlayAll}
               >
-                Play
+                {playlistDetailCopy.play}
               </button>
-              <button on:click={handleRename}>Rename</button>
-              <button disabled title="Coming soon">Add tracks</button>
+              <button on:click={handleRename}>{playlistDetailCopy.rename}</button>
+              <button disabled title={commonCopy.comingSoon}>{playlistDetailCopy.addTracks}</button>
             </div>
           </PageHeader>
           <div class="meta">
-            <span>{tracks.length} tracks</span>
+            <span>{tracks.length} 首歌曲</span>
             <span>{formatLongDuration(tracks.reduce((acc, track) => acc + track.duration, 0))}</span>
-            <span>Created {formatDate(playlist.created_at) || 'recently'}</span>
-            <span>Updated {formatDate(playlist.updated_at) || 'recently'}</span>
+            <span>{commonCopy.createdAt(formatDate(playlist.created_at) || commonCopy.recently)}</span>
+            <span>{commonCopy.updatedAt(formatDate(playlist.updated_at) || commonCopy.recently)}</span>
           </div>
           {#if !canPlayPlaylist}
             <span id={heroPlayHintId} class="sr-only">{heroPlayHint}</span>
@@ -268,12 +269,12 @@
     </SurfacePanel>
 
     <SurfacePanel padding="compact">
-      <div class="tracks" role="table" aria-label="Playlist tracks">
+      <div class="tracks" role="table" aria-label={playlistDetailCopy.tableAriaLabel}>
         <div class="track-header" role="row">
           <div>#</div>
-          <div>Title</div>
-          <div>Album</div>
-          <div>Duration</div>
+          <div>{playlistDetailCopy.columns.title}</div>
+          <div>{playlistDetailCopy.columns.album}</div>
+          <div>{playlistDetailCopy.columns.duration}</div>
           <div></div>
         </div>
         <div class="track-body">
@@ -305,13 +306,13 @@
                   {#if availabilityBadge}
                     <span class="track-action-row__badge">{availabilityBadge}</span>
                   {/if}
-                  <small class="track-action-row__meta-text">{track.artist_name ?? 'Unknown artist'}</small>
+                  <small class="track-action-row__meta-text">{track.artist_name ?? commonCopy.unknownArtist}</small>
                 </div>
                 {#if availabilityDescriptionId}
                   <span id={availabilityDescriptionId} class="sr-only">{availabilityDescription}</span>
                 {/if}
               </div>
-              <div class="track-action-row__cell track-action-row__muted album">{track.album_title ?? 'Unknown album'}</div>
+              <div class="track-action-row__cell track-action-row__muted album">{track.album_title ?? commonCopy.unknownAlbum}</div>
               <div class="track-action-row__cell track-action-row__numeric duration">{formatDuration(track.duration)}</div>
               <div class="track-action-row__cell track-action-row__actions">
                 <button

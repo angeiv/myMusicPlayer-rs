@@ -29,7 +29,7 @@ describe('settings output device state helpers', () => {
         'usb-dac',
       ),
     ).toBe('USB DAC');
-    expect(describeSelectedOutputDevice([], 'default')).toBe('System default');
+    expect(describeSelectedOutputDevice([], 'default')).toBe('系统默认');
   });
 
   it('rolls UI selection back to actual device when switch fails', async () => {

@@ -9,6 +9,7 @@
     getTrackAvailabilityState,
     isTrackPlayable,
   } from '../../utils/track-availability';
+  import { commonCopy, songsTableCopy } from '../../copy/zh-cn';
   import { formatDate, formatDuration, formatTrackIndex } from '../../utils/format';
 
   export let tracks: Track[] = [];
@@ -42,11 +43,31 @@
 
   const dispatch = createEventDispatcher<SongsTableEvents>();
   const sortableColumns: SortableColumn[] = [
-    { key: 'title', label: 'Title', className: 'title', ariaLabel: 'Sort by title' },
-    { key: 'artist_name', label: 'Artist', className: 'artist', ariaLabel: 'Sort by artist' },
-    { key: 'album_title', label: 'Album', className: 'album', ariaLabel: 'Sort by album' },
-    { key: 'duration', label: 'Duration', className: 'duration', ariaLabel: 'Sort by duration' },
-    { key: 'date_added', label: 'Added', className: 'added', ariaLabel: 'Sort by added date' },
+    { key: 'title', label: songsTableCopy.columns.title, className: 'title', ariaLabel: songsTableCopy.sortByTitle },
+    {
+      key: 'artist_name',
+      label: songsTableCopy.columns.artist,
+      className: 'artist',
+      ariaLabel: songsTableCopy.sortByArtist,
+    },
+    {
+      key: 'album_title',
+      label: songsTableCopy.columns.album,
+      className: 'album',
+      ariaLabel: songsTableCopy.sortByAlbum,
+    },
+    {
+      key: 'duration',
+      label: songsTableCopy.columns.duration,
+      className: 'duration',
+      ariaLabel: songsTableCopy.sortByDuration,
+    },
+    {
+      key: 'date_added',
+      label: songsTableCopy.columns.added,
+      className: 'added',
+      ariaLabel: songsTableCopy.sortByAdded,
+    },
   ];
 
   function getSortArrow(key: SongsSortKey): string {
@@ -106,9 +127,9 @@
   }
 </script>
 
-<div class="songs-table" role="table" aria-label="Songs list">
+<div class="songs-table" role="table" aria-label={songsTableCopy.tableAriaLabel}>
   <div class="table-header" role="row">
-    <div class="index" role="columnheader">#</div>
+    <div class="index" role="columnheader">{songsTableCopy.columns.index}</div>
 
     {#each sortableColumns as column}
       <div class={column.className} role="columnheader" aria-sort={getAriaSort(column.key)}>
@@ -168,8 +189,8 @@
             <span id={availabilityDescriptionId} class="sr-only">{availabilityDescription}</span>
           {/if}
         </div>
-        <div class="artist" role="cell">{track.artist_name ?? 'Unknown artist'}</div>
-        <div class="album" role="cell">{track.album_title ?? 'Unknown album'}</div>
+        <div class="artist" role="cell">{track.artist_name ?? commonCopy.unknownArtist}</div>
+        <div class="album" role="cell">{track.album_title ?? commonCopy.unknownAlbum}</div>
         <div class="duration" role="cell">{formatDuration(track.duration)}</div>
         <div class="added" role="cell">{formatDate(track.date_added)}</div>
       </div>
