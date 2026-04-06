@@ -7,16 +7,18 @@
   export let className = '';
   export let imageClassName = '';
   export let placeholderClassName = '';
-  export let variant: 'default' | 'bottom-bar' = 'default';
+  export let variant: 'default' | 'bottom-bar' | 'detail' = 'default';
 
   const coverArtShapeByVariant = {
     default: 'rounded-square',
     'bottom-bar': 'rounded-square',
+    detail: 'rounded-square',
   } as const;
 
   const coverArtPlaceholderStyleByVariant = {
     default: 'disc-hint',
     'bottom-bar': 'disc-hint',
+    detail: 'disc-hint',
   } as const;
 
   let imageLoadFailed = false;
@@ -80,10 +82,9 @@
     inline-size: 100%;
     block-size: auto;
     aspect-ratio: 1;
+    position: relative;
     border-radius: 18px;
     overflow: hidden;
-    display: grid;
-    place-items: center;
     background:
       radial-gradient(circle at top, color-mix(in srgb, var(--accent) 10%, transparent), transparent 48%),
       linear-gradient(
@@ -113,8 +114,20 @@
       0 10px 24px color-mix(in srgb, var(--surface-canvas) 28%, transparent);
   }
 
+  .cover-art--detail {
+    background:
+      radial-gradient(circle at top, color-mix(in srgb, var(--accent) 14%, transparent), transparent 50%),
+      linear-gradient(
+        160deg,
+        color-mix(in srgb, var(--surface-panel-subtle) 96%, var(--surface-shell)),
+        color-mix(in srgb, var(--surface-panel) 92%, var(--surface-shell))
+      );
+  }
+
   .cover-art__image,
   .cover-art__placeholder {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
   }
@@ -144,6 +157,16 @@
   .cover-art--bottom-bar .cover-art__placeholder {
     background:
       radial-gradient(circle at top, color-mix(in srgb, var(--accent) 10%, transparent), transparent 40%),
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--surface-panel-subtle) 96%, var(--surface-shell)),
+        color-mix(in srgb, var(--surface-panel) 92%, var(--surface-shell))
+      );
+  }
+
+  .cover-art--detail .cover-art__placeholder {
+    background:
+      radial-gradient(circle at top, color-mix(in srgb, var(--accent) 14%, transparent), transparent 42%),
       linear-gradient(
         180deg,
         color-mix(in srgb, var(--surface-panel-subtle) 96%, var(--surface-shell)),

@@ -368,11 +368,14 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
+    overflow: auto;
   }
 
-  :global(.now-playing-overlay__artwork) {
-    width: min(100%, 320px);
+  :global(.cover-art.now-playing-overlay__artwork) {
+    inline-size: min(100%, clamp(120px, calc(100dvh - 380px), 240px));
     aspect-ratio: 1;
+    align-self: flex-start;
+    flex: 0 0 auto;
     border-radius: 24px;
   }
 
@@ -473,8 +476,8 @@
       flex-wrap: wrap;
     }
 
-    :global(.now-playing-overlay__artwork) {
-      width: min(100%, 240px);
+    :global(.cover-art.now-playing-overlay__artwork) {
+      inline-size: min(100%, clamp(112px, calc(100dvh - 420px), 200px));
     }
   }
 </style>

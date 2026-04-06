@@ -46,21 +46,72 @@ afterEach(() => {
 });
 
 describe('CoverArt bottom-bar geometry contract', () => {
+  it('declares a dedicated detail geometry variant for large square artwork surfaces', async () => {
+    const source = await readCoverArtSource();
+
+    expect(source).toMatch(
+      /export let variant:\s*'default'\s*\|\s*'bottom-bar'\s*\|\s*'detail'\s*=\s*'default';/
+    );
+    expect(source).toMatch(/\.cover-art--detail\s*\{[\s\S]*color-mix\(in srgb, var\(--accent\) 14%, transparent\)/);
+    expect(source).not.toMatch(/\.cover-art--detail\s+\.cover-art__image\s*\{[\s\S]*object-fit:\s*contain;/);
+    expect(source).not.toMatch(/\.cover-art--detail\s+\.cover-art__image\s*\{[\s\S]*padding:/);
+  });
+
   it('declares a dedicated bottom-bar geometry variant in source', async () => {
     const source = await readCoverArtSource();
 
-    expect(source).toMatch(/export let variant:\s*'default'\s*\|\s*'bottom-bar'\s*=\s*'default';/);
+    expect(source).toMatch(
+      /export let variant:\s*'default'\s*\|\s*'bottom-bar'\s*\|\s*'detail'\s*=\s*'default';/
+    );
     expect(source).toContain('data-cover-art-variant={variant}');
     expect(source).toContain('data-cover-art-shape={resolvedShape}');
     expect(source).toContain('data-cover-art-placeholder-style={resolvedPlaceholderStyle}');
+    expect(source).toMatch(/\.cover-art\s*\{[\s\S]*position:\s*relative;/);
     expect(source).toMatch(/\.cover-art--bottom-bar\s*\{[\s\S]*inline-size:\s*72px;/);
     expect(source).toMatch(/\.cover-art--bottom-bar\s*\{[\s\S]*block-size:\s*72px;/);
     expect(source).toMatch(/\.cover-art--bottom-bar\s*\{[\s\S]*aspect-ratio:\s*1(?:\s*\/\s*1)?;/);
+    expect(source).toMatch(
+      /\.cover-art__image,\s*\.cover-art__placeholder\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*0;/
+    );
     expect(source).toMatch(/\.cover-art--bottom-bar\s+\.cover-art__image\s*\{[\s\S]*object-fit:\s*cover;/);
     expect(source).toMatch(/\.cover-art--bottom-bar\s+\.cover-art__disc\s*\{[\s\S]*width:\s*54%;/);
   });
 
   for (const theme of ['dark', 'light'] as const) {
+    it(`renders artwork and placeholder through the same detail slot in ${theme}`, () => {
+      document.documentElement.dataset['theme'] = theme;
+
+      const artworkRender = render(CoverArt as any, {
+        artworkPath: MOCK_ARTWORK_DATA_URI,
+        title: 'Midnight Echoes',
+        alt: '',
+        variant: 'detail',
+      });
+
+      const artworkRoot = artworkRender.container.querySelector('[data-cover-art-variant="detail"]');
+      const artworkImage = artworkRender.container.querySelector('img');
+
+      expect(artworkRoot?.getAttribute('data-cover-art-shape')).toBe('rounded-square');
+      expect(artworkImage?.getAttribute('alt')).toBe('');
+      expect(within(artworkRoot as HTMLElement).queryByTestId('cover-art-placeholder')).toBeNull();
+
+      cleanup();
+
+      const placeholderRender = render(CoverArt as any, {
+        artworkPath: null,
+        title: 'Midnight Echoes',
+        alt: '',
+        variant: 'detail',
+      });
+
+      const placeholderRoot = placeholderRender.container.querySelector('[data-cover-art-variant="detail"]');
+      const placeholder = within(placeholderRoot as HTMLElement).getByTestId('cover-art-placeholder');
+
+      expect(placeholderRoot?.getAttribute('data-cover-art-shape')).toBe('rounded-square');
+      expect(placeholder.getAttribute('data-cover-art-placeholder-style')).toBe('disc-hint');
+      expect(placeholder.getAttribute('aria-hidden')).toBe('true');
+    });
+
     it(`renders artwork and placeholder through the same bottom-bar square slot in ${theme}`, () => {
       document.documentElement.dataset['theme'] = theme;
 

@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
 
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -252,6 +256,13 @@ vi.mock('../lib/player/sharedPlayback', () => ({
 import BottomPlayerBar from '../lib/player/BottomPlayerBar.svelte';
 import NowPlayingOverlay from '../lib/player/NowPlayingOverlay.svelte';
 
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const nowPlayingOverlayPath = path.join(root, 'lib/player/NowPlayingOverlay.svelte');
+
+async function readNowPlayingOverlaySource(): Promise<string> {
+  return readFile(nowPlayingOverlayPath, 'utf8');
+}
+
 function renderPlayerShell() {
   render(BottomPlayerBar);
   render(NowPlayingOverlay);
@@ -314,15 +325,35 @@ describe('NowPlayingOverlay', () => {
     });
   });
 
+  it('constrains the detail artwork slot with inline-size so the cover geometry cannot stretch full width', async () => {
+    const source = await readNowPlayingOverlaySource();
+
+    expect(source).toMatch(
+      /:global\(\.cover-art\.now-playing-overlay__artwork\)\s*\{[\s\S]*inline-size:\s*min\(100%,\s*clamp\(120px,\s*calc\(100dvh - 380px\),\s*240px\)\);/
+    );
+    expect(source).toMatch(
+      /:global\(\.cover-art\.now-playing-overlay__artwork\)\s*\{[\s\S]*align-self:\s*flex-start;/
+    );
+    expect(source).toMatch(
+      /:global\(\.cover-art\.now-playing-overlay__artwork\)\s*\{[\s\S]*flex:\s*0\s+0\s+auto;/
+    );
+    expect(source).toMatch(/\.track-summary\s*\{[\s\S]*overflow:\s*auto;/);
+    expect(source).toMatch(
+      /@media \(max-width:\s*960px\)\s*\{[\s\S]*:global\(\.cover-art\.now-playing-overlay__artwork\)\s*\{[\s\S]*inline-size:\s*min\(100%,\s*clamp\(112px,\s*calc\(100dvh - 420px\),\s*200px\)\);/
+    );
+  });
+
   it('reuses the current track artwork in the summary surface with a surface-owned alt label', async () => {
     overlayMock.nowPlayingState.set({ isOpen: true, activeTab: 'lyrics' });
     render(NowPlayingOverlay);
 
     const summary = await screen.findByLabelText('当前歌曲信息');
     const artwork = within(summary).getByRole('img', { name: 'Midnight City 的封面' });
+    const artworkSlot = summary.querySelector('[data-cover-art-variant="default"]');
 
     expect(artwork.tagName).toBe('IMG');
     expect(artwork.getAttribute('src')).toBe('/covers/midnight-city.jpg');
+    expect(artworkSlot).toBeTruthy();
     expect(within(summary).queryByTestId('cover-art-placeholder')).toBeNull();
   });
 
