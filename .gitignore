@@ -13,6 +13,10 @@
 # Frontend build outputs
 /dist/
 
+# Frontend source tree must stay trackable even if a global gitignore has a broad `lib/` rule.
+!src/lib/
+!src/lib/**
+
 # Packaged bundle artifacts (installers)
 /artifacts/
 
