@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
 
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
-  import { commonCopy, searchCopy } from '../copy/zh-cn';
+  import { commonCopy, searchCopy } from '../locales/zh-cn';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';

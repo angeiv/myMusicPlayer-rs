@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { commonCopy } from '../copy/zh-cn';
+  import { commonCopy } from '../locales/zh-cn';
   import { getPlaybackSurfaceAvailability } from '../utils/track-availability';
   import type { PlaybackStateInfo, Track } from '../types';
 

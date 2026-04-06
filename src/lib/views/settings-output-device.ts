@@ -1,5 +1,5 @@
 import type { OutputDeviceInfo } from '../types';
-import { commonCopy } from '../copy/zh-cn';
+import { commonCopy } from '../locales/zh-cn';
 
 export function describeSelectedOutputDevice(
   outputDevices: OutputDeviceInfo[],

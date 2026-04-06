@@ -6,7 +6,7 @@
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';
-  import { commonCopy, settingsCopy } from '../copy/zh-cn';
+  import { commonCopy, settingsCopy } from '../locales/zh-cn';
   import { applyThemeToDocument } from '../features/app-shell/theme';
   import {
     buildNextConfigForSettingsSave,

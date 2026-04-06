@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
 
   import type { LibraryMaintenanceState } from '../features/library-scan/maintenance';
-  import { commonCopy, shellCopy } from '../copy/zh-cn';
+  import { commonCopy, shellCopy } from '../locales/zh-cn';
 
   const dispatch = createEventDispatcher();
 

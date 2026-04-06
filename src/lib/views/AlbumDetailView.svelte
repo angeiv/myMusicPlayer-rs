@@ -3,7 +3,7 @@
 
   import { getAlbum, getTracksByAlbum } from '../api/library';
   import { playTrack as playTrackCommand, setQueue } from '../api/playback';
-  import { albumDetailCopy, commonCopy } from '../copy/zh-cn';
+  import { albumDetailCopy, commonCopy } from '../locales/zh-cn';
   import TrackActionRow from '../components/library/TrackActionRow.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';

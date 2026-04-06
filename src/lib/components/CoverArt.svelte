@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { commonCopy } from '../copy/zh-cn';
+  import { commonCopy } from '../locales/zh-cn';
   import { resolveArtworkSrc } from '../utils/artwork';
 
   export let artworkPath: string | null | undefined = null;

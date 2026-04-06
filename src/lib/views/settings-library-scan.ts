@@ -2,7 +2,7 @@ import type {
   LibraryMaintenanceState,
   LibraryMaintenanceTone,
 } from '../features/library-scan/maintenance';
-import { maintenanceCopy, settingsCopy } from '../copy/zh-cn';
+import { maintenanceCopy, settingsCopy } from '../locales/zh-cn';
 
 export type SettingsLibraryScanTone = 'default' | 'active' | 'warning' | 'danger' | 'success';
 

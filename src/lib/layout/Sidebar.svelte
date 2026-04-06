@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import type { AppSection, LibraryView, Playlist } from '../types';
-  import { commonCopy, formatTrackCount, shellCopy } from '../copy/zh-cn';
+  import { commonCopy, formatTrackCount, shellCopy } from '../locales/zh-cn';
 
   export let activeSection: AppSection = 'library';
   export let activeLibraryView: LibraryView = 'songs';

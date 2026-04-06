@@ -21,7 +21,7 @@
     removeFromPlaylist,
     updatePlaylistMetadata,
   } from '../api/playlist';
-  import { commonCopy, playlistDetailCopy } from '../copy/zh-cn';
+  import { commonCopy, playlistDetailCopy } from '../locales/zh-cn';
   import TrackActionRow from '../components/library/TrackActionRow.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';

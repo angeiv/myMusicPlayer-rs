@@ -38,7 +38,7 @@
     type SongsSortDirection,
     type SongsSortKey,
   } from '../features/songs-list/sort-filter';
-  import { songsCopy } from '../copy/zh-cn';
+  import { songsCopy } from '../locales/zh-cn';
   import { getMissingTrackPlayMessage, getPlayableTracks } from '../utils/track-availability';
   import type { Playlist, Track } from '../types';
 

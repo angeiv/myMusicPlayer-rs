@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
-  import { playlistPickerCopy } from '../../copy/zh-cn';
+  import { playlistPickerCopy } from '../../locales/zh-cn';
   import type { Playlist } from '../../types';
 
   export let playlists: Playlist[] = [];

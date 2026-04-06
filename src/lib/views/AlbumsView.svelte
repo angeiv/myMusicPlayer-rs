@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
 
   import CoverArt from '../components/CoverArt.svelte';
-  import { albumsCopy, commonCopy } from '../copy/zh-cn';
+  import { albumsCopy, commonCopy } from '../locales/zh-cn';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';

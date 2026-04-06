@@ -2,7 +2,7 @@
   import EmptyState from '../components/ui/EmptyState.svelte';
   import PageHeader from '../components/ui/PageHeader.svelte';
   import SurfacePanel from '../components/ui/SurfacePanel.svelte';
-  import { commonCopy, homeCopy } from '../copy/zh-cn';
+  import { commonCopy, homeCopy } from '../locales/zh-cn';
   import type { Album, Artist, Playlist, Track } from '../types';
   import { formatDuration, formatLongDuration } from '../utils/format';
 

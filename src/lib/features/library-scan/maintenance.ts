@@ -6,7 +6,7 @@ import {
   type ScanPhase,
   type ScanStatus,
 } from '../../types';
-import { formatFolderCount, maintenanceCopy } from '../../copy/zh-cn';
+import { formatFolderCount, maintenanceCopy } from '../../locales/zh-cn';
 
 export type LibraryMaintenanceTone = 'default' | 'active' | 'warning' | 'danger' | 'success';
 

@@ -9,7 +9,7 @@
     getTrackAvailabilityState,
     isTrackPlayable,
   } from '../../utils/track-availability';
-  import { commonCopy, songsTableCopy } from '../../copy/zh-cn';
+  import { commonCopy, songsTableCopy } from '../../locales/zh-cn';
   import { formatDate, formatDuration, formatTrackIndex } from '../../utils/format';
 
   export let tracks: Track[] = [];

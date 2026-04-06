@@ -1,7 +1,7 @@
 <script lang="ts">
   import { afterUpdate, tick } from 'svelte';
 
-  import { commonCopy } from '../copy/zh-cn';
+  import { commonCopy } from '../locales/zh-cn';
   import CoverArt from '../components/CoverArt.svelte';
   import type { PlaybackStateInfo, Track } from '../types';
   import { getPlaybackSurfaceAvailability } from '../utils/track-availability';
