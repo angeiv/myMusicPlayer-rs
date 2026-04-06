@@ -40,7 +40,7 @@
     <SurfacePanel padding="spacious">
       <div class="grid">
         {#each sortedArtists as artist}
-          <button class="card" on:click={() => handleOpen(artist)}>
+          <button class="card selection-guard" on:click={() => handleOpen(artist)}>
             <div class="avatar">{artist.name.charAt(0)}</div>
             <div class="details">
               <h3>{artist.name}</h3>

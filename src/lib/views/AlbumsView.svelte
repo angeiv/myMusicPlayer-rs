@@ -41,7 +41,7 @@
     <SurfacePanel padding="spacious">
       <div class="grid">
         {#each sortedAlbums as album}
-          <button class="card" on:click={() => handleOpen(album)}>
+          <button class="card selection-guard" on:click={() => handleOpen(album)}>
             <CoverArt
               className="albums-view__artwork"
               artworkPath={album.artwork_path}
