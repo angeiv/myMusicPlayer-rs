@@ -19,10 +19,10 @@ describe('settings library scan presentation', () => {
     );
 
     expect(presentation).toMatchObject({
-      title: '自动同步已就绪',
+      title: '自动扫描已开启',
       statusTone: 'default',
       watchedRoots: ['/music'],
-      autoSyncSummary: '正在监听 1 个文件夹，自动同步已开启。',
+      autoSyncSummary: '已监听 1 个文件夹',
       queuedFollowUp: null,
       recoveryHint: null,
       watcherError: null,
@@ -51,23 +51,23 @@ describe('settings library scan presentation', () => {
       ),
     );
 
-    expect(presentation.title).toBe('增量同步进行中');
+    expect(presentation.title).toBe('增量同步中');
     expect(presentation.statusTone).toBe('active');
-    expect(presentation.currentPathLabel).toBe('当前路径');
+    expect(presentation.currentPathLabel).toBe('当前文件');
     expect(presentation.currentPath).toBe('/music/live/new-track.flac');
     expect(presentation.watchedRoots).toEqual(['/music', '/music/live']);
-    expect(presentation.autoSyncSummary).toBe('正在监听 2 个文件夹，自动同步已开启。');
+    expect(presentation.autoSyncSummary).toBe('已监听 2 个文件夹');
     expect(presentation.queuedFollowUp).toEqual({
-      title: '已排队的后续任务',
-      description: '本次扫描期间有 1 个监听文件夹发生变化，后续扫描会自动开始。',
+      title: '待处理更新',
+      description: '检测到 1 个文件夹有变化，稍后会继续扫描。',
     });
     expect(presentation.recoveryHint).toBe(
-      '请等待当前扫描结束，后续扫描会自动运行。',
+      '当前扫描结束后会自动继续。',
     );
     expect(presentation.actionGuide).toEqual({
-      title: '维护控制',
+      title: '扫描控制',
       buttonLabel: '取消扫描',
-      description: '只有在确实需要停止当前维护流程时才使用“取消扫描”。',
+      description: '如需停止当前扫描，可点击“取消扫描”。',
     });
   });
 
@@ -95,22 +95,22 @@ describe('settings library scan presentation', () => {
       ),
     );
 
-    expect(presentation.title).toBe('自动同步需要处理');
+    expect(presentation.title).toBe('自动扫描异常');
     expect(presentation.statusTone).toBe('warning');
-    expect(presentation.autoSyncSummary).toBe('正在监听 1 个文件夹，自动同步已开启。');
+    expect(presentation.autoSyncSummary).toBe('已监听 1 个文件夹');
     expect(presentation.watcherError).toEqual({
-      title: '最近一次监听错误',
+      title: '监听错误',
       description: 'Failed to refresh watcher roots: permission denied',
     });
     expect(presentation.sampleError).toEqual({
-      title: '最近一次扫描错误',
+      title: '扫描错误',
       description: '/detached-disk — Root path does not exist or is not a directory',
     });
     expect(presentation.actionGuide).toEqual({
-      title: '建议的下一步',
+      title: '建议操作',
       buttonLabel: '立即重扫',
       description:
-        '修复监听器问题或文件夹访问后，使用“立即重扫”确认音乐库状态。',
+        '修复文件夹访问问题后，再点“立即重扫”。',
     });
     expect(presentation.description.toLowerCase()).not.toContain('missing track');
     expect(presentation.sampleError?.description.toLowerCase()).not.toContain('missing track');
@@ -138,7 +138,7 @@ describe('settings library scan presentation', () => {
       title: '增量同步已完成',
       statusTone: 'success',
       watchedRoots: ['/music'],
-      autoSyncSummary: '正在监听 1 个文件夹，自动同步已开启。',
+      autoSyncSummary: '已监听 1 个文件夹',
       recoveryHint: null,
       watcherError: null,
       sampleError: null,

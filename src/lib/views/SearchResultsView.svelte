@@ -161,7 +161,7 @@
                 <button
                   class="list-button selection-guard"
                   type="button"
-                  aria-label={`打开艺人 ${artist.name}`}
+                  aria-label={`打开艺术家 ${artist.name}`}
                   on:click={() => openArtist(artist)}
                 >
                   <div class="avatar">{artist.name.charAt(0)}</div>

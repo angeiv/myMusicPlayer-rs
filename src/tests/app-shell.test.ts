@@ -461,7 +461,7 @@ describe('createAppShellStore', () => {
       await flushPromises();
       expect(settled).toBe(false);
       expect(get(store.maintenance)).toMatchObject({
-        title: 'Auto-sync follow-up queued',
+        title: '稍后继续扫描',
         queuedFollowUp: true,
       });
 
@@ -469,7 +469,7 @@ describe('createAppShellStore', () => {
       await flushPromises();
       expect(settled).toBe(false);
       expect(get(store.maintenance)).toMatchObject({
-        title: 'Incremental sync in progress',
+        title: '增量同步中',
         activePhase: 'running',
       });
 
@@ -482,7 +482,7 @@ describe('createAppShellStore', () => {
       });
       expect(startLibraryScan).toHaveBeenCalledWith({ paths: ['/music'], mode: 'incremental' });
       expect(get(store.maintenance)).toMatchObject({
-        title: 'Incremental sync complete',
+        title: '增量同步已完成',
         queuedFollowUp: false,
         activePhase: null,
       });
@@ -597,7 +597,7 @@ describe('createAppShellStore', () => {
       await flushPromises();
       expect(getTracks).toHaveBeenCalledTimes(1);
       expect(get(store.maintenance)).toMatchObject({
-        title: 'Incremental sync in progress',
+        title: '增量同步中',
         queuedFollowUp: true,
       });
 
@@ -607,7 +607,7 @@ describe('createAppShellStore', () => {
 
       expect(getTracks).toHaveBeenCalledTimes(2);
       expect(get(store.maintenance)).toMatchObject({
-        title: 'Incremental sync complete',
+        title: '增量同步已完成',
         queuedFollowUp: false,
       });
       expect(get(store.tracks)).toHaveLength(2);
@@ -641,12 +641,12 @@ describe('createAppShellStore', () => {
     expect(getLibraryWatcherStatus).toHaveBeenCalledTimes(1);
     expect(get(store.watcherStatus)).toStrictEqual(watcherStatus);
     expect(maintenance).toMatchObject({
-      title: 'Auto-sync needs attention',
+      title: '自动扫描异常',
       tone: 'warning',
       watchedRoots: ['/music', '/music/live'],
       dirtyRoots: ['/music/live'],
       lastError: 'Failed to schedule watcher batch: permissions denied',
-      nextStep: { kind: 'rescan', label: 'Rescan Now' },
+      nextStep: { kind: 'rescan', label: '立即重扫' },
     });
 
     const publicMaintenance = get(store.maintenance);

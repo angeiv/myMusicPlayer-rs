@@ -58,8 +58,8 @@ const appShellMock = vi.hoisted(() => {
     queuedFollowUp: false,
     activePhase: null,
     lastError: null,
-    title: 'Auto-sync ready',
-    description: 'Watching 1 folder for changes. Manual rescans use the same maintenance flow.',
+    title: '自动扫描已开启',
+    description: '已监听 1 个文件夹。',
     tone: 'default',
     recoveryHint: null,
     nextStep: null,
@@ -223,22 +223,22 @@ describe('App songs-shell wiring', () => {
       queuedFollowUp: true,
       activePhase: 'running',
       lastError: null,
-      title: 'Incremental sync in progress',
-      description: 'Scanning the library now. Auto-sync already queued one follow-up pass for newer file changes.',
+      title: '增量同步中',
+      description: '正在扫描，稍后会继续处理新变更。',
       tone: 'active',
-      recoveryHint: 'Let the current scan finish. The queued follow-up will run automatically.',
+      recoveryHint: '当前扫描结束后会自动继续。',
       nextStep: {
         kind: 'cancel-scan',
-        label: 'Cancel scan',
+        label: '取消扫描',
       },
     });
 
     render(App);
 
-    const cue = await screen.findByRole('link', { name: 'Open maintenance details in Settings' });
+    const cue = await screen.findByRole('link', { name: '查看扫描详情' });
     expect(cue.getAttribute('href')).toBe('#/settings');
-    expect(within(cue).getByText('Incremental sync in progress')).toBeTruthy();
-    expect(within(cue).getByText('1 follow-up queued')).toBeTruthy();
+    expect(within(cue).getByText('增量同步中')).toBeTruthy();
+    expect(within(cue).getByText('还有 1 项更新')).toBeTruthy();
   });
 
   it('keeps the maintenance cue across browsing routes and hides it on Settings where the detailed surface takes over', async () => {
@@ -261,32 +261,32 @@ describe('App songs-shell wiring', () => {
       queuedFollowUp: false,
       activePhase: null,
       lastError: 'Failed to refresh watcher roots: permission denied',
-      title: 'Auto-sync needs attention',
-      description: 'Watching 1 folder, but the last watcher update failed before a follow-up sync could start.',
+      title: '自动扫描异常',
+      description: '已监听 1 个文件夹，但自动扫描暂时不可用。',
       tone: 'warning',
-      recoveryHint: 'Fix the watcher problem or folder access, then run Rescan Now to confirm the library state.',
+      recoveryHint: '修复文件夹访问问题后，再点“立即重扫”。',
       nextStep: {
         kind: 'rescan',
-        label: 'Rescan Now',
+        label: '立即重扫',
       },
     });
 
     render(App);
 
-    await screen.findByText('Auto-sync needs attention');
+    await screen.findByText('自动扫描异常');
 
     window.location.hash = '#/albums';
     window.dispatchEvent(new HashChangeEvent('hashchange'));
 
     await waitFor(() => {
-      expect(screen.getByText('Auto-sync needs attention')).toBeTruthy();
+      expect(screen.getByText('自动扫描异常')).toBeTruthy();
     });
 
     window.location.hash = '#/settings';
     window.dispatchEvent(new HashChangeEvent('hashchange'));
 
     await waitFor(() => {
-      expect(screen.queryByText('Auto-sync needs attention')).toBeNull();
+      expect(screen.queryByText('自动扫描异常')).toBeNull();
       expect(screen.getByTestId('settings-view-spy')).toBeTruthy();
     });
   });

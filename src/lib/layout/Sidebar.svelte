@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import type { AppSection, LibraryView, Playlist } from '../types';
-  import { commonCopy, shellCopy } from '../copy/zh-cn';
+  import { commonCopy, formatTrackCount, shellCopy } from '../copy/zh-cn';
 
   export let activeSection: AppSection = 'library';
   export let activeLibraryView: LibraryView = 'songs';
@@ -45,7 +45,9 @@
     <div class="brand-mark" aria-hidden="true">MM</div>
     <div class="brand-copy">
       <h1>{commonCopy.brandName}</h1>
-      <p>{shellCopy.brandSubtitle}</p>
+      {#if shellCopy.brandSubtitle}
+        <p>{shellCopy.brandSubtitle}</p>
+      {/if}
     </div>
   </div>
 
@@ -137,7 +139,7 @@
             >
               <div class="playlist-meta">
                 <span class="name">{playlist.name}</span>
-                <span class="count">{playlist.track_ids.length} tracks</span>
+                <span class="count">{formatTrackCount(playlist.track_ids.length)}</span>
               </div>
             </button>
           </li>

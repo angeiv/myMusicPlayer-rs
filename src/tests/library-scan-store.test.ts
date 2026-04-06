@@ -68,7 +68,7 @@ describe('library scan store', () => {
     expect(get(store.status)).toStrictEqual(createStatus());
     expect(get(store.watcherStatus)).toStrictEqual(createWatcherStatus());
     expect(get(store.maintenance)).toMatchObject({
-      title: 'No scan running',
+      title: '未开始扫描',
       tone: 'default',
       watchedRoots: [],
       queuedFollowUp: false,
@@ -146,17 +146,17 @@ describe('library scan store', () => {
     expect(get(store.status)).toStrictEqual(running);
     expect(get(store.watcherStatus)).toStrictEqual(queuedWatcher);
     expect(get(store.maintenance)).toMatchObject({
-      title: 'Incremental sync in progress',
+      title: '增量同步中',
       tone: 'active',
       watchedRoots: ['/music', '/music/live'],
       dirtyRoots: ['/music/live'],
       queuedFollowUp: true,
       activePhase: 'running',
       lastError: 'Failed to refresh watcher roots: /offline-drive',
-      recoveryHint: 'Let the current scan finish. The queued follow-up will run automatically.',
-      nextStep: { kind: 'cancel-scan', label: 'Cancel scan' },
+      recoveryHint: '当前扫描结束后会自动继续。',
+      nextStep: { kind: 'cancel-scan', label: '取消扫描' },
     });
-    expect(get(store.maintenance).description).toContain('queued one follow-up pass');
+    expect(get(store.maintenance).description).toContain('稍后会继续处理');
 
     const publicWatcher = get(store.watcherStatus);
     publicWatcher.watched_roots.push('/mutated');
@@ -178,7 +178,7 @@ describe('library scan store', () => {
     expect(get(store.status)).toStrictEqual(completed);
     expect(get(store.watcherStatus)).toStrictEqual(steadyWatcher);
     expect(get(store.maintenance)).toMatchObject({
-      title: 'Incremental sync complete',
+      title: '增量同步已完成',
       watchedRoots: ['/music', '/music/live'],
       queuedFollowUp: false,
       activePhase: null,
@@ -215,12 +215,12 @@ describe('library scan store', () => {
     const maintenance = await store.refreshMaintenance();
 
     expect(maintenance).toMatchObject({
-      title: 'Auto-sync needs attention',
+      title: '自动扫描异常',
       tone: 'warning',
       watchedRoots: ['/music'],
       queuedFollowUp: false,
       lastError: 'Failed to schedule watcher batch: permissions denied',
-      nextStep: { kind: 'rescan', label: 'Rescan Now' },
+      nextStep: { kind: 'rescan', label: '立即重扫' },
     });
     expect(getLibraryScanStatus).toHaveBeenCalledTimes(1);
     expect(getLibraryWatcherStatus).toHaveBeenCalledTimes(1);

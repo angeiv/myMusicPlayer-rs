@@ -105,7 +105,9 @@
       <span class="brand-mark" aria-hidden="true">MM</span>
       <div class="titles">
         <span class="app-name">{commonCopy.brandName}</span>
-        <span class="app-subtitle">{shellCopy.topbarSubtitle}</span>
+        {#if shellCopy.topbarSubtitle}
+          <span class="app-subtitle">{shellCopy.topbarSubtitle}</span>
+        {/if}
       </div>
     </div>
 

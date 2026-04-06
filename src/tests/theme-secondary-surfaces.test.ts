@@ -126,8 +126,8 @@ describe('secondary surface theme migration', () => {
     expect(screen.getByRole('heading', { name: '首页' })).toBeTruthy();
     expect(screen.getByText('歌曲')).toBeTruthy();
     expect(screen.getByText('播放列表')).toBeTruthy();
-    expect(screen.getByText('添加歌曲后会显示在这里。')).toBeTruthy();
-    expect(screen.getByText('扫描音乐库后即可生成艺术家信息。')).toBeTruthy();
+    expect(screen.getAllByText('添加歌曲后会显示在这里。').length).toBe(2);
+    expect(screen.getByText('还没有艺术家')).toBeTruthy();
     expect(document.querySelector('[data-page-header]')).not.toBeNull();
     expect(document.querySelectorAll('[data-surface-panel]').length).toBeGreaterThan(0);
   });

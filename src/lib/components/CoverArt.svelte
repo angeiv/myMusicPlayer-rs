@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { commonCopy } from '../copy/zh-cn';
   import { resolveArtworkSrc } from '../utils/artwork';
 
   export let artworkPath: string | null | undefined = null;
@@ -29,8 +30,8 @@
     imageLoadFailed = false;
   }
 
-  $: normalizedTitle = title.trim() || 'Unknown release';
-  $: resolvedAlt = alt == null ? `${normalizedTitle} cover art` : alt.trim();
+  $: normalizedTitle = title.trim() || commonCopy.unknownRelease;
+  $: resolvedAlt = alt == null ? `${normalizedTitle}封面` : alt.trim();
   $: isDecorative = resolvedAlt === '';
   $: artworkSrc = imageLoadFailed ? null : resolveArtworkSrc(artworkPath);
   $: resolvedShape = coverArtShapeByVariant[variant];

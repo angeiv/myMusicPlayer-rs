@@ -33,7 +33,7 @@ describe('shell Chinese copy contract', () => {
     expect(screen.getByRole('button', { name: '专辑 5' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '艺术家 3' })).toBeTruthy();
     expect(screen.getByText('播放列表')).toBeTruthy();
-    expect(screen.getByText('还没有播放列表，创建一个开始整理音乐。')).toBeTruthy();
+    expect(screen.getByText('还没有播放列表')).toBeTruthy();
   });
 
   it('renders top-bar search and maintenance affordances in Chinese', () => {
@@ -45,7 +45,7 @@ describe('shell Chinese copy contract', () => {
       },
     });
 
-    expect(screen.getByText('搜索、浏览并保持播放继续')).toBeTruthy();
+    expect(screen.queryByText('搜索、浏览并保持播放继续')).toBeNull();
     expect(screen.getByPlaceholderText('搜索歌曲、专辑、艺术家...')).toBeTruthy();
   });
 });

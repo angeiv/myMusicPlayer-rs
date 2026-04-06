@@ -163,13 +163,13 @@ describe('SettingsView maintenance panel', () => {
 
     await screen.findByLabelText('移除文件夹 /music');
 
-    expect(screen.getAllByText('增量同步进行中').length).toBeGreaterThan(0);
-    expect(screen.getByText('正在监听 2 个文件夹，自动同步已开启。')).toBeTruthy();
-    expect(screen.getByText('已排队的后续任务')).toBeTruthy();
+    expect(screen.getAllByText('增量同步中').length).toBeGreaterThan(0);
+    expect(screen.getByText('已监听 2 个文件夹')).toBeTruthy();
+    expect(screen.getByText('待处理更新')).toBeTruthy();
     expect(
-      screen.getByText('本次扫描期间有 1 个监听文件夹发生变化，后续扫描会自动开始。'),
+      screen.getByText('检测到 1 个文件夹有变化，稍后会继续扫描。'),
     ).toBeTruthy();
-    expect(screen.getByText('当前路径')).toBeTruthy();
+    expect(screen.getByText('当前文件')).toBeTruthy();
     expect(screen.getByText('/music/live/new-track.flac')).toBeTruthy();
 
     const watchedFolders = screen.getByRole('list', { name: '监听中的文件夹' });
@@ -179,8 +179,8 @@ describe('SettingsView maintenance panel', () => {
     const maintenanceStatus = document.querySelector('[data-testid="settings-maintenance-status"]');
     expect(maintenanceStatus?.getAttribute('data-tone')).toBe('active');
 
-    expect(screen.getByText('维护控制')).toBeTruthy();
-    expect(screen.getByText('只有在确实需要停止当前维护流程时才使用“取消扫描”。')).toBeTruthy();
+    expect(screen.getByText('扫描控制')).toBeTruthy();
+    expect(screen.getByText('如需停止当前扫描，可点击“取消扫描”。')).toBeTruthy();
 
     const rescanButton = screen.getByRole('button', { name: '立即重扫' }) as HTMLButtonElement;
     const fullScanButton = screen.getByRole('button', { name: '完整扫描' }) as HTMLButtonElement;
@@ -216,17 +216,17 @@ describe('SettingsView maintenance panel', () => {
 
     await screen.findByLabelText('移除文件夹 /music');
 
-    expect(screen.getAllByText('自动同步需要处理').length).toBeGreaterThan(0);
-    expect(screen.getByText('最近一次监听错误')).toBeTruthy();
+    expect(screen.getAllByText('自动扫描异常').length).toBeGreaterThan(0);
+    expect(screen.getByText('监听错误')).toBeTruthy();
     expect(screen.getByText('Failed to refresh watcher roots: permission denied')).toBeTruthy();
-    expect(screen.getByText('最近一次扫描错误')).toBeTruthy();
+    expect(screen.getByText('扫描错误')).toBeTruthy();
     expect(
       screen.getByText('/detached-disk — Root path does not exist or is not a directory'),
     ).toBeTruthy();
-    expect(screen.getByText('建议的下一步')).toBeTruthy();
+    expect(screen.getByText('建议操作')).toBeTruthy();
     expect(
       screen.getByText(
-        '修复监听器问题或文件夹访问后，使用“立即重扫”确认音乐库状态。',
+        '修复文件夹访问问题后，再点“立即重扫”。',
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/missing track/i)).toBeNull();
@@ -251,13 +251,13 @@ describe('SettingsView maintenance panel', () => {
 
     await screen.findByLabelText('移除文件夹 /music');
 
-    expect(screen.getAllByText('自动同步已就绪').length).toBeGreaterThan(0);
-    expect(screen.getByText('正在监听 1 个文件夹，自动同步已开启。')).toBeTruthy();
+    expect(screen.getAllByText('自动扫描已开启').length).toBeGreaterThan(0);
+    expect(screen.getByText('已监听 1 个文件夹')).toBeTruthy();
     expect(screen.getByRole('list', { name: '监听中的文件夹' })).toBeTruthy();
-    expect(screen.queryByText('已排队的后续任务')).toBeNull();
-    expect(screen.queryByText('最近一次监听错误')).toBeNull();
-    expect(screen.queryByText('最近一次扫描错误')).toBeNull();
-    expect(screen.queryByText('建议的下一步')).toBeNull();
+    expect(screen.queryByText('待处理更新')).toBeNull();
+    expect(screen.queryByText('监听错误')).toBeNull();
+    expect(screen.queryByText('扫描错误')).toBeNull();
+    expect(screen.queryByText('建议操作')).toBeNull();
   });
 
   it('renders clean completion as recovered maintenance state', async () => {
@@ -279,12 +279,12 @@ describe('SettingsView maintenance panel', () => {
     await screen.findByLabelText('移除文件夹 /music');
 
     expect(screen.getAllByText('增量同步已完成').length).toBeGreaterThan(0);
-    expect(screen.getByText('正在监听 1 个文件夹，自动同步已开启。')).toBeTruthy();
+    expect(screen.getByText('已监听 1 个文件夹')).toBeTruthy();
     expect(document.querySelector('[data-testid="settings-maintenance-status"]')?.getAttribute('data-tone')).toBe(
       'success',
     );
-    expect(screen.queryByText('最近一次监听错误')).toBeNull();
-    expect(screen.queryByText('最近一次扫描错误')).toBeNull();
+    expect(screen.queryByText('监听错误')).toBeNull();
+    expect(screen.queryByText('扫描错误')).toBeNull();
   });
 
   it('keeps the detailed watcher diagnostics in Settings and explains that the shell cue stays lightweight', async () => {
@@ -311,11 +311,11 @@ describe('SettingsView maintenance panel', () => {
 
     expect(
       screen.getByText(
-        '离开“设置”后，壳层只显示简洁的维护提示；详细的监听状态和恢复建议统一保留在这里。',
+        '管理扫描和文件夹',
       ),
     ).toBeTruthy();
-    expect(screen.getByText('最近一次监听错误')).toBeTruthy();
-    expect(screen.getByText('最近一次扫描错误')).toBeTruthy();
+    expect(screen.getByText('监听错误')).toBeTruthy();
+    expect(screen.getByText('扫描错误')).toBeTruthy();
   });
 
   it('keeps rescan and full-scan actions wired through the settings controls', async () => {

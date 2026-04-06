@@ -1,6 +1,7 @@
 <script lang="ts">
   import { afterUpdate, tick } from 'svelte';
 
+  import { commonCopy } from '../copy/zh-cn';
   import CoverArt from '../components/CoverArt.svelte';
   import type { PlaybackStateInfo, Track } from '../types';
   import { getPlaybackSurfaceAvailability } from '../utils/track-availability';
@@ -109,7 +110,7 @@
         <h2 id={overlayTitleId}>正在播放</h2>
         <p class="overlay-subtitle">
           {#if currentTrack}
-            {currentTrack.artist_name ?? 'Unknown Artist'} · {currentTrack.album_title ?? 'Single'}
+            {currentTrack.artist_name ?? commonCopy.unknownArtist} · {currentTrack.album_title ?? commonCopy.single}
           {:else}
             打开歌曲后可在这里查看播放详情与队列。
           {/if}
@@ -159,7 +160,7 @@
 
         <div class="track-copy" data-availability={currentTrackAvailability?.availability ?? 'available'}>
           <p class="track-title">{currentTrack?.title ?? '尚未开始播放'}</p>
-          <p class="track-artist">{currentTrack?.artist_name ?? 'Unknown Artist'}</p>
+          <p class="track-artist">{currentTrack?.artist_name ?? commonCopy.unknownArtist}</p>
           {#if currentTrackAvailability?.badge}
             <span class="availability-badge">{currentTrackAvailability.badge}</span>
           {/if}
@@ -171,7 +172,7 @@
         <dl class="track-meta-grid">
           <div>
             <dt>专辑</dt>
-            <dd>{currentTrack?.album_title ?? 'Single'}</dd>
+            <dd>{currentTrack?.album_title ?? commonCopy.single}</dd>
           </div>
           <div>
             <dt>时长</dt>
