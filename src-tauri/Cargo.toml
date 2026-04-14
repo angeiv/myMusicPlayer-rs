@@ -69,7 +69,7 @@ rayon = "1.11.0"
 rustfft = "6.4.1"
 realfft = "3.5.0"
 rusqlite = { version = "0.38.0", features = ["bundled"] }
-rand = "0.10.0"
+rand = "0.10.1"
 cpal = "0.17.3"
 encoding_rs = "0.8.35"
 image = { version = "0.25.8", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
